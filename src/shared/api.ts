@@ -608,9 +608,10 @@ export const api = {
   // Server-side settings: personal access tokens, stored credentials, notifications, web push
   settings: {
     accessTokens: () => get('/api/settings/access-tokens'),
-    createAccessToken: (payload: { name: string; expiresInDays: number }) =>
+    createAccessToken: (payload: { name: string; expiresInDays: number; scopes: string[] }) =>
       post('/api/settings/access-tokens', payload),
     revokeAccessToken: (tokenId: number) => del(`/api/settings/access-tokens/${tokenId}`),
+    mcpGatewayStatus: () => get('/api/settings/mcp-gateway'),
 
     credentials: (type: string) => get(`/api/settings/credentials${query({ type })}`),
     createCredential: (payload: {

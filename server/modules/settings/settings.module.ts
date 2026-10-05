@@ -4,6 +4,7 @@ import {
   notificationPreferencesDb,
   pushSubscriptionsDb,
 } from '@/modules/database/index.js';
+import { MCP_GATEWAY_PATH, readMcpGatewayGate } from '@/modules/mcp-gateway/index.js';
 import {
   createNotificationEvent,
   getPublicKey,
@@ -41,6 +42,14 @@ const settingsService = createSettingsService({
     remove: (endpoint) => pushSubscriptionsDb.removeSubscription(endpoint),
   },
   getVapidPublicKey: getPublicKey,
+  // The gate is read through the mcp-gateway module's own reader and the path
+  // comes from that module too, so settings never re-parses `MCP_ENABLED` and
+  // the reported path cannot drift from the one the transport mounts at.
+  mcpGateway: {
+    readGate: () => readMcpGatewayGate(),
+    path: MCP_GATEWAY_PATH,
+    publicBaseUrl: () => process.env.PUBLIC_BASE_URL?.trim() || null,
+  },
   accessTokens: {
     list: (userId) => accessTokensDb.listByUser(userId),
     findById: (tokenId) => accessTokensDb.findById(tokenId),

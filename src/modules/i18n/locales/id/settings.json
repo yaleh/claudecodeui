@@ -832,7 +832,9 @@
       "expiryLabel": "Kedaluwarsa dalam",
       "expiryOption": "{{days}} hari",
       "createButton": "Buat token",
-      "cancelButton": "Batal"
+      "cancelButton": "Batal",
+      "scopesLabel": "Cakupan",
+      "writeScopeRisk": "Token ini dapat mengirim, membuat, dan mengendalikan sesi. Jaga kerahasiaannya."
     },
     "newToken": {
       "alertTitle": "⚠️ Simpan Token Akses Anda",
@@ -850,6 +852,25 @@
       "revoked": "Dicabut",
       "revokeButton": "Cabut",
       "revokeConfirm": "Yakin ingin mencabut token ini? Tindakan ini tidak dapat dibatalkan."
+    },
+    "scopes": {
+      "read": "Baca (cloudcli:read)",
+      "sessionSend": "Kirim ke sesi (cloudcli:session:send)",
+      "sessionCreate": "Buat sesi (cloudcli:session:create)",
+      "sessionControl": "Kendalikan sesi (cloudcli:session:control)",
+      "approve": "Setujui (cloudcli:approve)"
     }
+  },
+  "mcpGateway": {
+    "title": "CloudCLI MCP",
+    "description": "Hubungkan klien MCP lokal ke server CloudCLI ini.",
+    "status": {
+      "enabled": "Aktif",
+      "disabled": "Tidak aktif"
+    },
+    "copy": "Salin",
+    "copied": "Disalin",
+    "connectLabel": "Perintah koneksi",
+    "enableHint": "Gateway MCP tidak aktif. Setel MCP_ENABLED=true di lingkungan server dan mulai ulang CloudCLI untuk mengaktifkannya."
   }
 }

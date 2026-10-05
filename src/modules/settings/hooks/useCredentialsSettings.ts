@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '@/shared/api';
-import type { AccessTokenItem, CreatedAccessToken, GithubCredentialItem } from '@/shared/types';
+import { ACCESS_TOKEN_SCOPE_OPTIONS } from '@/shared/constants';
+import type {
+  AccessTokenItem,
+  CreatedAccessToken,
+  GithubCredentialItem,
+  McpGatewayStatus,
+} from '@/shared/types';
 import { copyTextToClipboard } from '@/shared/utils';
 
 type AccessTokensResponse = {
@@ -25,6 +31,10 @@ type UseCredentialsSettingsArgs = {
 /** The lifetime a new token gets when the user does not pick one; the form offers exactly 7/30/90. */
 const DEFAULT_ACCESS_TOKEN_EXPIRY_DAYS = 30;
 
+/** The scopes a fresh create-token form starts with: the required read baseline, and nothing writable. */
+const defaultNewTokenScopes = (): string[] =>
+  ACCESS_TOKEN_SCOPE_OPTIONS.filter((option) => !option.writable).map((option) => option.scope);
+
 const getApiError = (payload: { error?: string } | undefined, fallback: string) => (
   payload?.error || fallback
 );
@@ -43,6 +53,14 @@ export function useCredentialsSettings({
   const [newTokenName, setNewTokenName] = useState('');
   // ! Possibly unnecessary - could live in the section, but the create handler reads it alongside the name, so the hook owns the whole form.
   const [newTokenExpiryDays, setNewTokenExpiryDays] = useState(DEFAULT_ACCESS_TOKEN_EXPIRY_DAYS);
+  // The scope set the create form will submit. The read baseline is checked by
+  // default; the write scopes start unchecked, and the section derives its risk
+  // note from this same set rather than keeping a second copy of the selection.
+  const [newTokenScopes, setNewTokenScopes] = useState<string[]>(defaultNewTokenScopes);
+
+  // The CloudCLI MCP block's status; null until the first read answers, so the
+  // section can distinguish "still loading" from a real enabled/disabled reading.
+  const [mcpGatewayStatus, setMcpGatewayStatus] = useState<McpGatewayStatus | null>(null);
 
   const [showNewGithubForm, setShowNewGithubForm] = useState(false);
   const [newGithubName, setNewGithubName] = useState('');
@@ -60,18 +78,21 @@ export function useCredentialsSettings({
     try {
       setLoading(true);
 
-      const [tokensResponse, credentialsResponse] = await Promise.all([
+      const [tokensResponse, credentialsResponse, mcpGatewayResponse] = await Promise.all([
         api.settings.accessTokens(),
         api.settings.credentials('github_token'),
+        api.settings.mcpGatewayStatus(),
       ]);
 
-      const [tokensPayload, credentialsPayload] = await Promise.all([
+      const [tokensPayload, credentialsPayload, mcpGatewayPayload] = await Promise.all([
         tokensResponse.json() as Promise<AccessTokensResponse>,
         credentialsResponse.json() as Promise<GithubCredentialsResponse>,
+        mcpGatewayResponse.json() as Promise<McpGatewayStatus>,
       ]);
 
       setAccessTokens(tokensPayload.tokens || []);
       setGithubCredentials(credentialsPayload.credentials || []);
+      setMcpGatewayStatus(mcpGatewayPayload);
     } catch (error) {
       console.error('Error fetching settings:', error);
     } finally {
@@ -88,6 +109,7 @@ export function useCredentialsSettings({
       const response = await api.settings.createAccessToken({
         name: newTokenName.trim(),
         expiresInDays: newTokenExpiryDays,
+        scopes: newTokenScopes,
       });
 
       const payload = await response.json() as AccessTokensResponse;
@@ -99,12 +121,13 @@ export function useCredentialsSettings({
       setNewlyCreatedToken(payload.token);
       setNewTokenName('');
       setNewTokenExpiryDays(DEFAULT_ACCESS_TOKEN_EXPIRY_DAYS);
+      setNewTokenScopes(defaultNewTokenScopes());
       setShowNewTokenForm(false);
       await fetchData();
     } catch (error) {
       console.error('Error creating access token:', error);
     }
-  }, [fetchData, newTokenExpiryDays, newTokenName]);
+  }, [fetchData, newTokenExpiryDays, newTokenName, newTokenScopes]);
 
   const revokeAccessToken = useCallback(async (tokenId: number) => {
     if (!window.confirm(confirmRevokeAccessTokenText)) {
@@ -211,6 +234,14 @@ export function useCredentialsSettings({
     setShowNewTokenForm(false);
     setNewTokenName('');
     setNewTokenExpiryDays(DEFAULT_ACCESS_TOKEN_EXPIRY_DAYS);
+    setNewTokenScopes(defaultNewTokenScopes());
+  }, []);
+
+  /** Adds or removes one scope from the create form's selection; the read baseline is rendered disabled. */
+  const toggleNewTokenScope = useCallback((scope: string, checked: boolean) => {
+    setNewTokenScopes((previous) => (checked
+      ? [...new Set([...previous, scope])]
+      : previous.filter((selected) => selected !== scope)));
   }, []);
 
   const cancelNewGithubForm = useCallback(() => {
@@ -243,6 +274,9 @@ export function useCredentialsSettings({
     copiedToken,
     createAccessToken,
     revokeAccessToken,
+    mcpGatewayStatus,
+    newTokenScopes,
+    toggleNewTokenScope,
     showNewGithubForm,
     setShowNewGithubForm,
     newGithubName,

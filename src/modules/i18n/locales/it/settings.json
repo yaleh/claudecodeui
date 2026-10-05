@@ -536,7 +536,9 @@
       "expiryLabel": "Scade tra",
       "expiryOption": "{{days}} giorni",
       "createButton": "Crea token",
-      "cancelButton": "Annulla"
+      "cancelButton": "Annulla",
+      "scopesLabel": "Ambiti",
+      "writeScopeRisk": "Questo token può inviare, creare e controllare sessioni. Tienilo segreto."
     },
     "newToken": {
       "alertTitle": "⚠️ Salva il tuo token di accesso",
@@ -554,6 +556,25 @@
       "revoked": "Revocato",
       "revokeButton": "Revoca",
       "revokeConfirm": "Vuoi davvero revocare questo token? L'operazione non può essere annullata."
+    },
+    "scopes": {
+      "read": "Lettura (cloudcli:read)",
+      "sessionSend": "Invia alle sessioni (cloudcli:session:send)",
+      "sessionCreate": "Crea sessioni (cloudcli:session:create)",
+      "sessionControl": "Controlla sessioni (cloudcli:session:control)",
+      "approve": "Approva (cloudcli:approve)"
     }
+  },
+  "mcpGateway": {
+    "title": "CloudCLI MCP",
+    "description": "Collega un client MCP locale a questo server CloudCLI.",
+    "status": {
+      "enabled": "Attivato",
+      "disabled": "Non attivato"
+    },
+    "copy": "Copia",
+    "copied": "Copiato",
+    "connectLabel": "Comando di connessione",
+    "enableHint": "Il gateway MCP non è attivato. Imposta MCP_ENABLED=true nell'ambiente del server e riavvia CloudCLI per attivarlo."
   }
 }

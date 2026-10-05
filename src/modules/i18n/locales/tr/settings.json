@@ -537,7 +537,9 @@
       "expiryLabel": "Süresi doluyor",
       "expiryOption": "{{days}} gün",
       "createButton": "Jeton oluştur",
-      "cancelButton": "İptal"
+      "cancelButton": "İptal",
+      "scopesLabel": "Kapsamlar",
+      "writeScopeRisk": "Bu token oturumları gönderebilir, oluşturabilir ve kontrol edebilir. Gizli tutun."
     },
     "newToken": {
       "alertTitle": "⚠️ Erişim Jetonunuzu Kaydedin",
@@ -555,6 +557,25 @@
       "revoked": "İptal edildi",
       "revokeButton": "İptal et",
       "revokeConfirm": "Bu jetonu iptal etmek istediğinizden emin misiniz? Bu işlem geri alınamaz."
+    },
+    "scopes": {
+      "read": "Okuma (cloudcli:read)",
+      "sessionSend": "Oturumlara gönder (cloudcli:session:send)",
+      "sessionCreate": "Oturum oluştur (cloudcli:session:create)",
+      "sessionControl": "Oturumları kontrol et (cloudcli:session:control)",
+      "approve": "Onayla (cloudcli:approve)"
     }
+  },
+  "mcpGateway": {
+    "title": "CloudCLI MCP",
+    "description": "Yerel bir MCP istemcisini bu CloudCLI sunucusuna bağlayın.",
+    "status": {
+      "enabled": "Etkin",
+      "disabled": "Etkin değil"
+    },
+    "copy": "Kopyala",
+    "copied": "Kopyalandı",
+    "connectLabel": "Bağlantı komutu",
+    "enableHint": "MCP geçidi etkin değil. Sunucu ortamında MCP_ENABLED=true ayarlayıp etkinleştirmek için CloudCLI'yi yeniden başlatın."
   }
 }

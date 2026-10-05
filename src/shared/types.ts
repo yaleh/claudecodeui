@@ -2146,6 +2146,13 @@ export type CreatedAccessToken = {
   plaintext: string;
 };
 
+/** The CloudCLI MCP gateway's read-only status as `GET /api/settings/mcp-gateway` returns it: whether the gateway is enabled, the path it answers on, and the base url an MCP client should dial. */
+export type McpGatewayStatus = {
+  enabled: boolean;
+  path: string;
+  baseUrl: string;
+};
+
 /** One stored GitHub credential as the server returns it, in snake_case, carrying its name, optional description, creation timestamp and active flag - never the token itself. */
 export type GithubCredentialItem = {
   id: string;
