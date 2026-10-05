@@ -4,7 +4,7 @@ title: AC-249 session_send 立即返回 runId，运行与 UI 发起的运行是�
   mcp、出现在运行中列表、常驻忙时排队、按次进程忙时 RUN_IN_PROGRESS、waitSeconds 有界等待、scope 不足 denied
   审计、与 WebSocket 共用同一控制服务实例；判据
   server/modules/mcp-gateway/tests/mcp-session-send.test.ts
-status: needs-human
+status: todo
 labels:
   - gap
 parent: null
