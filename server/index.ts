@@ -614,7 +614,12 @@ const mcpGateway = mountMcpGateway(app, {
     // AC-271's `session_cancel_queued` over the same one control service, plus
     // AC-272's `session_reconfigure`: the provider runtime's `reconfigure`
     // passthrough over the SAME `providerRuntimeService` singleton the WebSocket
-    // dispatch uses, with the session/model/capability readers it needs.
+    // dispatch uses, with the session/model/capability readers it needs — and
+    // AC-273's `session_background`: the session reader, the session-hosts
+    // manager's `liveHostForSession` snapshot (the same seam AC-245's
+    // `session_get` reads) and that same one control service, read through its
+    // `stopTask` verb. AC-274's `approvals_list` / `approval_answer` answer from
+    // that same control service's approval verbs over a real clock.
     residentTools: {
         control: chatControl,
         reconfigure: {
@@ -622,6 +627,15 @@ const mcpGateway = mountMcpGateway(app, {
             runtime: providerRuntimeService,
             models: providerModelsService,
             capabilities: providerCapabilitiesService,
+        },
+        background: {
+            sessions: { getSessionById: (sessionId: string) => sessionsDb.getSessionById(sessionId) },
+            hosts: sessionHostManager,
+            control: chatControl,
+        },
+        approvals: {
+            control: chatControl,
+            now: () => Date.now(),
         },
     },
 });

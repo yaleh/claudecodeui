@@ -9,18 +9,17 @@
  * self-referential guard reads the gateway write-tool names from the gateway's
  * own tables, so those names must stay the single source of truth.
  *
- * WHY AC-272 DOES NOT APPEND TO THE TABLE. AC-271's criterion pins the table's
- * observable contents — `MCP_STAGE6_RESIDENT_TOOLS.map((t) => t.name)` must
- * deep-equal `['session_cancel_queued']` — and AC-272 is barred from editing
- * that criterion (it is a frozen no-regression surface). Growing the table
- * therefore has to happen in the SAME change as widening that assertion, which
- * is a later task's job. AC-272 registers `session_reconfigure` through the same
- * seam, gated on its deps being present, so AC-271's cancel-queued-only mount
- * keeps registering exactly what it did before. The name/scope SOURCE for the
- * added tool is its own registration function
- * (`registerMcpSessionReconfigureTool`, whose literal name is the one place it
- * is written) plus AC-243's scope vocabulary below — there is still one place
- * per fact.
+ * WHY AC-272 AND AC-273 DO NOT APPEND TO THE TABLE. AC-271's criterion pins the
+ * table's observable contents — `MCP_STAGE6_RESIDENT_TOOLS.map((t) => t.name)`
+ * must deep-equal `['session_cancel_queued']` — and AC-272 / AC-273 are barred
+ * from editing that criterion (it is a frozen no-regression surface). Growing
+ * the table therefore has to happen in the SAME change as widening that
+ * assertion, which is a later task's job. AC-272's `session_reconfigure` and
+ * AC-273's `session_background` register through the same seam, gated on their
+ * deps being present, so AC-271's cancel-queued-only mount keeps registering
+ * exactly what it did before. The name/scope SOURCE for an added tool is its own
+ * registration function (whose literal name is the one place it is written) plus
+ * AC-243's scope vocabulary below — there is still one place per fact.
  *
  * {@link registerMcpResidentTools} installs each name through the SAME audited
  * registration seam AC-244 landed (the transport builds one over `withMcpAudit`,
@@ -37,6 +36,10 @@
 
 import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
 
+import type { McpApprovalsDeps } from './mcp-approvals.js';
+import { registerMcpApprovalTools } from './mcp-approvals.js';
+import type { McpSessionBackgroundDeps } from './mcp-session-background.js';
+import { registerMcpSessionBackgroundTool } from './mcp-session-background.js';
 import type {
   McpSessionCancelQueuedDeps,
   McpSessionCancelQueuedSeam,
@@ -47,8 +50,9 @@ import { registerMcpSessionReconfigureTool } from './mcp-session-reconfigure.js'
 
 // Position within AC-243's vocabulary, in the order the constant declares and
 // `access-token-scopes.test.ts` pins: read, session:send, session:create,
-// session:control, approve.
-const [, , , SESSION_CONTROL_SCOPE] = ACCESS_TOKEN_SCOPES;
+// session:control, approve. `session_background` registers under the read scope
+// (the SPEC's read half); its stop branch owns the control check.
+const [READ_SCOPE, , , SESSION_CONTROL_SCOPE] = ACCESS_TOKEN_SCOPES;
 
 // --------------------------- the stage-6 resident table ---------------------------
 
@@ -89,6 +93,21 @@ export type McpStage6ResidentToolName = (typeof MCP_STAGE6_RESIDENT_TOOLS)[numbe
 export type McpResidentToolDeps = McpSessionCancelQueuedDeps & {
   /** AC-272's reconfigure services. Absent keeps AC-271's exact registration set. */
   reconfigure?: McpSessionReconfigureDeps;
+  /**
+   * AC-273's `session_background` services: the session reader, AC-245's host
+   * snapshot read seam, and the SAME control service AC-271 uses. Absent keeps
+   * the cancel-queued-only (and AC-272 reconfigure) registration byte-identical,
+   * which is what AC-271's and AC-272's criteria read.
+   */
+  background?: McpSessionBackgroundDeps;
+  /**
+   * AC-274's approval tools (`approvals_list` / `approval_answer`): the SAME
+   * control service AC-271 uses, presented under its approval verbs, plus the
+   * injected clock. Absent keeps the cancel-queued (and reconfigure/background)
+   * registration byte-identical — AC-271's criterion pins the table to exactly
+   * `['session_cancel_queued']`, so the two approval tools register ALONGSIDE it.
+   */
+  approvals?: McpApprovalsDeps;
 };
 
 /**
@@ -106,7 +125,8 @@ export type McpResidentToolSeam = McpSessionCancelQueuedSeam;
  * the table is the one place the pair (name, scope) is written down — and its
  * handler is AC-271's `buildSessionCancelQueued`. AC-272's `session_reconfigure`
  * is installed through the same seam when its deps are present, under the same
- * `cloudcli:session:control` scope.
+ * `cloudcli:session:control` scope, and AC-273's `session_background` likewise,
+ * under the read scope (its stop branch checks the control scope itself).
  */
 export function registerMcpResidentTools(seam: McpResidentToolSeam, deps: McpResidentToolDeps): void {
   for (const tool of MCP_STAGE6_RESIDENT_TOOLS) {
@@ -116,5 +136,21 @@ export function registerMcpResidentTools(seam: McpResidentToolSeam, deps: McpRes
   }
   if (deps.reconfigure) {
     registerMcpSessionReconfigureTool(seam, deps.reconfigure, SESSION_CONTROL_SCOPE);
+  }
+  // AC-273's `session_background` registers ALONGSIDE the frozen table for the
+  // same reason AC-272's did (see the file header): AC-271's criterion pins
+  // `MCP_STAGE6_RESIDENT_TOOLS` to exactly `['session_cancel_queued']`, so the
+  // table cannot grow without editing that criterion. Its static scope is the
+  // read half; the stop branch's control check lives in the handler.
+  if (deps.background) {
+    registerMcpSessionBackgroundTool(seam, deps.background, READ_SCOPE);
+  }
+  // AC-274's `approvals_list` / `approval_answer` register ALONGSIDE the frozen
+  // table for the same reason AC-272/AC-273's tools did (see the file header):
+  // AC-271's criterion pins `MCP_STAGE6_RESIDENT_TOOLS` to exactly
+  // `['session_cancel_queued']`. Their two scopes are written once in
+  // `mcp-approvals.ts`, read from AC-243's vocabulary.
+  if (deps.approvals) {
+    registerMcpApprovalTools(seam, deps.approvals);
   }
 }

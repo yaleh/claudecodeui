@@ -89,6 +89,11 @@ const SERVER_INFO = { name: 'claudecodeui-mcp-gateway', version: '0.1.0' };
  * from the stage-4 write tools — `session_cancel_queued` is not one of the five
  * — so the stage-4 name set AC-249 pins stays exactly five, and the resident
  * bag flows to `registerMcpResidentTools` over the same one control service.
+ * The bag's optional members register their own tools alongside the table, gated
+ * on being supplied: AC-272's `reconfigure`, AC-273's `background`, and AC-274's
+ * `approvals` (`approvals_list` / `approval_answer`). AC-271's criterion pins the
+ * table's observable contents, so those tools are registered by
+ * `registerMcpResidentTools`, never by growing {@link MCP_STAGE6_RESIDENT_TOOLS}.
  */
 function createMcpServer(
   registerTools: McpToolRegistrar | undefined,
@@ -336,14 +341,17 @@ export type McpGatewayDeps = {
    * still holds one control service, not two. AC-272's `reconfigure` member
    * carries `session_reconfigure`'s services: the provider runtime's
    * `reconfigure` passthrough over the SAME `providerRuntimeService` singleton
-   * plus the session/model/capability readers.
+   * plus the session/model/capability readers. AC-273's `background` member
+   * carries `session_background`'s services: the session reader, AC-245's host
+   * snapshot read seam (`sessionHostManager`), and that same one control service
+   * (read through its `stopTask` verb).
    *
    * Supplying it registers the stage-6 tools through the SAME audited seam the
    * read and write tools use. Absent keeps a mount that only exercises the
    * stage-3/4 tools (AC-240/244/245/249's criteria) registering exactly what it
-   * did before; a bag without `reconfigure` (AC-271's criterion) keeps the
-   * cancel-queued-only registration, so AC-272's tool is present only when its
-   * deps are wired.
+   * did before; a bag without `reconfigure` / `background` (AC-271's criterion)
+   * keeps the cancel-queued-only registration, so AC-272's and AC-273's tools
+   * are each present only when their deps are wired.
    */
   residentTools?: McpResidentToolDeps;
   /**

@@ -328,3 +328,47 @@ export {
   SELF_TARGET_CODE,
 } from './mcp-self-target.js';
 export type { SelfTargetDecision, SelfTargetDeps } from './mcp-self-target.js';
+
+// `session_background` (AC-273). `buildSessionBackground` lists a session's
+// `background-task` / `cron` leases from the LIVE HOST SNAPSHOT (read-only
+// enough for `cloudcli:read`) and, with a `stopTaskId`, stops one through the
+// shared control service's `stopTask` under its own `cloudcli:session:control`
+// check placed BEFORE any control call; an id the snapshot does not hold is
+// `TASK_NOT_FOUND` and is never reported stopped. `registerMcpSessionBackgroundTool`
+// installs it through the audited seam under the read scope; the transport
+// registers it via `registerMcpResidentTools` and `server/index.ts` supplies the
+// deps (the session reader, AC-245's host read seam, and the one control service).
+export {
+  buildSessionBackground,
+  registerMcpSessionBackgroundTool,
+} from './mcp-session-background.js';
+export type {
+  McpSessionBackgroundDeps,
+  SessionBackgroundPayload,
+  SessionBackgroundTask,
+} from './mcp-session-background.js';
+
+// The approval tools (AC-274). `buildApprovalsList` lists the pending approvals
+// for a session (or every running session), expanding an `AskUserQuestion` into
+// its questions and options; `buildApprovalAnswer` decides one through the shared
+// control service, forwarding `message` / `answers` (the latter as the runtime's
+// `updatedInput`) and reporting a no-longer-pending request as
+// `APPROVAL_EXPIRED_OR_NOT_FOUND` without calling the runtime.
+// `registerMcpApprovalTools` installs `approvals_list` (`cloudcli:read`) and
+// `approval_answer` (`cloudcli:approve`) through the audited seam; the transport
+// registers them via `registerMcpResidentTools` when `McpResidentToolDeps.approvals`
+// is supplied, and `server/index.ts` supplies the one control service + a clock.
+// The two input schemas / readers are the one argument shape, shared by
+// registration and validation.
+export { buildApprovalAnswer, buildApprovalsList, registerMcpApprovalTools } from './mcp-approvals.js';
+export type {
+  ApprovalAnswerPayload,
+  ApprovalsListPayload,
+  McpApprovalAnswerInput,
+  McpApprovalListItem,
+  McpApprovalOption,
+  McpApprovalPending,
+  McpApprovalQuestion,
+  McpApprovalsDeps,
+  McpApprovalsListInput,
+} from './mcp-approvals.js';
