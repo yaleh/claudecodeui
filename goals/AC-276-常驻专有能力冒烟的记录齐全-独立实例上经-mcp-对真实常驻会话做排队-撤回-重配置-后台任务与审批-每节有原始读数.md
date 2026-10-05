@@ -1,7 +1,7 @@
 ---
 id: AC-276
 title: 常驻专有能力冒烟的记录齐全：独立实例上经 MCP 对真实常驻会话做排队、撤回、重配置、后台任务与审批，每节有原始读数
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-022
 criterion: for f in scripts/mcp-smoke.mjs
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:28:43.188Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
