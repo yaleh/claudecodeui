@@ -577,5 +577,47 @@
     "copied": "Kopyalandı",
     "connectLabel": "Bağlantı komutu",
     "enableHint": "MCP geçidi etkin değil. Sunucu ortamında MCP_ENABLED=true ayarlayıp etkinleştirmek için CloudCLI'yi yeniden başlatın."
+  },
+  "connectedApps": {
+    "title": "Bağlı Uygulamalar",
+    "description": "CloudCLI MCP ağ geçidi üzerinden sizin adınıza işlem yapmasına izin verdiğiniz uygulamalar. Bir yetkiyi iptal etmek, altında verilen tüm jetonları anında reddeder.",
+    "list": {
+      "empty": "Henüz bağlı uygulama yok.",
+      "redirectHost": "Geri çağırma ana bilgisayarı:",
+      "scopes": "Kapsamlar:",
+      "createdAt": "Yetkilendirildi:",
+      "lastUsed": "Son kullanım:",
+      "never": "Hiç",
+      "revokeButton": "İptal et",
+      "revokeConfirm": "Bu yetkiyi iptal etmek istediğinize emin misiniz? Jetonları anında çalışmayı durdurur. Bu işlem geri alınamaz."
+    }
+  },
+  "oauthClients": {
+    "title": "OAuth İstemcileri (Gelişmiş)",
+    "description": "Bu CloudCLI sunucusundan jeton almak için kaydedilmiş uygulamalar. Burada devre dışı bırakılan bir istemcinin tüm yetkileri ve jetonları anında reddedilir.",
+    "newButton": "Yeni İstemci",
+    "form": {
+      "namePlaceholder": "İstemci adı (örn. Entegrasyonum)",
+      "redirectUrisPlaceholder": "Yönlendirme URI’si (örn. http://127.0.0.1:5173/callback)",
+      "createButton": "İstemci oluştur",
+      "cancelButton": "Vazgeç"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ İstemci Sırrınızı Kaydedin",
+      "alertMessage": "Bu sırrı yalnızca bu kez göreceksiniz. Güvenli bir yerde saklayın.",
+      "copy": "Kopyala",
+      "iveSavedIt": "Kaydettim"
+    },
+    "list": {
+      "empty": "Henüz kayıtlı OAuth istemcisi yok.",
+      "redirectHost": "Geri çağırma ana bilgisayarı:",
+      "createdVia": "Kayıt yöntemi:",
+      "dcr": "Dinamik kayıt",
+      "manual": "Elle",
+      "active": "Etkin",
+      "disabled": "Devre dışı",
+      "disableButton": "Devre dışı bırak",
+      "disableConfirm": "Bu istemciyi devre dışı bırakmak istediğinize emin misiniz? Altındaki tüm yetkiler ve jetonlar anında reddedilir. Bu işlem geri alınamaz."
+    }
   }
 }

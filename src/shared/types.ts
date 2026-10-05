@@ -2162,6 +2162,34 @@ export type GithubCredentialItem = {
   is_active: boolean;
 };
 
+/** One OAuth consent grant the signed-in user approved, as `GET /api/settings/oauth-grants` returns it: the client's display name, the host of its first registered callback, the granted scopes and the two timestamps. Never a token or a secret - the settings page renders it in the "connected apps" list and revokes it by `id`. */
+export type ConnectedAppGrant = {
+  id: number;
+  clientId: string;
+  clientName: string | null;
+  redirectHost: string | null;
+  scopes: string[];
+  createdAt: string | null;
+  lastUsed: string | null;
+};
+
+/** One registered OAuth client as `GET /api/settings/oauth-clients` returns it: how it was created (`dcr` or `manual`), where it redirects and whether an operator has disabled it. Rendered in the "OAuth clients (advanced)" list; disabling it by `clientId` cascades to its grants' tokens. */
+export type OAuthClientItem = {
+  clientId: string;
+  clientName: string | null;
+  redirectHost: string | null;
+  createdVia: string;
+  disabledAt: string | null;
+};
+
+/** A freshly created manual OAuth client, as `POST /api/oauth/clients` answers it: `clientSecret` is plaintext and appears in this response only, so it must be shown once and never persisted. The stored client exposes every other field through OAuthClientItem. */
+export type CreatedOAuthClient = {
+  clientId: string;
+  clientName: string;
+  redirectUris: string[];
+  clientSecret: string;
+};
+
 // ---------------------------
 
 //----------------- SHELL ------------

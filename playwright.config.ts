@@ -1900,6 +1900,25 @@ const shortenActivityHeartbeat = selectedSpecFiles().includes('activity-dock-tru
 const voiceRawCaptureSelection = selectedSpecFiles().includes('voice-raw-capture.spec.ts');
 
 /**
+ * Whether this run is the connected-apps criterion, which reads `/mcp`'s OAuth
+ * authentication and the OAuth settings routes on the server PLAYWRIGHT started.
+ *
+ * `MCP_ENABLED` / `MCP_OAUTH_ENABLED` / `MCP_DCR` / `PUBLIC_BASE_URL` are the
+ * DEPLOYMENT's environment — read once at server start-up, when the gateway,
+ * the discovery documents, the registration endpoint and the `/mcp` OAuth seam
+ * are mounted or not — so the spec cannot set them for itself. This selection is
+ * the ONLY place they are injected, and every other selection's env object is
+ * byte-for-byte unchanged (`MCP_OAUTH_ENABLED` absent, not empty), which is what
+ * keeps `/mcp` unmounted for the rest of the suite exactly as it is today.
+ *
+ * `PUBLIC_BASE_URL` is the loopback literal the server itself binds (`HOST`
+ * below): AC-262 permits http on `localhost` and `127.0.0.1` and requires the
+ * advertised issuer to match, so the spec reads the audience back out of the
+ * published protected-resource document rather than restating it.
+ */
+const connectedAppsSelection = selectedSpecFiles().includes('connected-apps-settings.spec.ts');
+
+/**
  * Where the raw-corpus criterion's server tees its own stdout.
  *
  * The rows that pair a listen live on the process's output, and Playwright forwards a webServer's
@@ -1971,6 +1990,18 @@ export default defineConfig({
               VOICE_CAPTURE: 'audio',
               VOICE_CAPTURE_RAW: '1',
               VOICE_API_BASE_URL: 'http://127.0.0.1:9/v1',
+            }
+          : {}),
+        // The MCP gateway and its OAuth surface, for the connected-apps criterion's selection
+        // only. Without this the gateway, the discovery documents, `/oauth/register` and the
+        // `/mcp` OAuth seam are all absent from this server, and neither of that spec's `/mcp`
+        // readings could tell a revocation from a live token. See `connectedAppsSelection`.
+        ...(connectedAppsSelection
+          ? {
+              MCP_ENABLED: 'true',
+              MCP_OAUTH_ENABLED: 'true',
+              MCP_DCR: 'open',
+              PUBLIC_BASE_URL: `http://127.0.0.1:${serverPort}`,
             }
           : {}),
       },

@@ -888,5 +888,47 @@
     "copied": "Copied",
     "connectLabel": "Connect command",
     "enableHint": "The MCP gateway is not enabled. Set MCP_ENABLED=true in the server environment and restart CloudCLI to turn it on."
+  },
+  "connectedApps": {
+    "title": "Connected Apps",
+    "description": "Applications you have authorized to act on your behalf through the CloudCLI MCP gateway. Revoking an authorization immediately rejects every token issued under it.",
+    "list": {
+      "empty": "No connected apps yet.",
+      "redirectHost": "Callback host:",
+      "scopes": "Scopes:",
+      "createdAt": "Authorized:",
+      "lastUsed": "Last used:",
+      "never": "Never",
+      "revokeButton": "Revoke",
+      "revokeConfirm": "Are you sure you want to revoke this authorization? Its tokens stop working immediately. This cannot be undone."
+    }
+  },
+  "oauthClients": {
+    "title": "OAuth Clients (Advanced)",
+    "description": "Applications registered to obtain tokens from this CloudCLI server. A client disabled here has every grant and token under it rejected immediately.",
+    "newButton": "New Client",
+    "form": {
+      "namePlaceholder": "Client name (e.g., My integration)",
+      "redirectUrisPlaceholder": "Redirect URI (e.g., http://127.0.0.1:5173/callback)",
+      "createButton": "Create client",
+      "cancelButton": "Cancel"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ Save Your Client Secret",
+      "alertMessage": "This is the only time you will see this secret. Store it securely.",
+      "copy": "Copy",
+      "iveSavedIt": "I've saved it"
+    },
+    "list": {
+      "empty": "No OAuth clients registered yet.",
+      "redirectHost": "Callback host:",
+      "createdVia": "Registered via:",
+      "dcr": "Dynamic registration",
+      "manual": "Manual",
+      "active": "Active",
+      "disabled": "Disabled",
+      "disableButton": "Disable",
+      "disableConfirm": "Are you sure you want to disable this client? Every grant and token under it is rejected immediately. This cannot be undone."
+    }
   }
 }

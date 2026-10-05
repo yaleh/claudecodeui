@@ -628,5 +628,47 @@
     "copied": "Copié",
     "connectLabel": "Commande de connexion",
     "enableHint": "La passerelle MCP n'est pas activée. Définissez MCP_ENABLED=true dans l'environnement du serveur et redémarrez CloudCLI pour l'activer."
+  },
+  "connectedApps": {
+    "title": "Applications connectées",
+    "description": "Applications que vous avez autorisées à agir en votre nom via la passerelle MCP de CloudCLI. Révoquer une autorisation rejette immédiatement tous les jetons émis sous celle-ci.",
+    "list": {
+      "empty": "Aucune application connectée pour le moment.",
+      "redirectHost": "Hôte de redirection :",
+      "scopes": "Portées :",
+      "createdAt": "Autorisée :",
+      "lastUsed": "Dernière utilisation :",
+      "never": "Jamais",
+      "revokeButton": "Révoquer",
+      "revokeConfirm": "Voulez-vous vraiment révoquer cette autorisation ? Ses jetons cessent de fonctionner immédiatement. Cette action est irréversible."
+    }
+  },
+  "oauthClients": {
+    "title": "Clients OAuth (avancé)",
+    "description": "Applications enregistrées pour obtenir des jetons auprès de ce serveur CloudCLI. Un client désactivé ici voit immédiatement toutes ses autorisations et tous ses jetons rejetés.",
+    "newButton": "Nouveau client",
+    "form": {
+      "namePlaceholder": "Nom du client (ex. : Mon intégration)",
+      "redirectUrisPlaceholder": "URI de redirection (ex. : http://127.0.0.1:5173/callback)",
+      "createButton": "Créer le client",
+      "cancelButton": "Annuler"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ Enregistrez le secret du client",
+      "alertMessage": "C'est la seule fois que vous verrez ce secret. Conservez-le en lieu sûr.",
+      "copy": "Copier",
+      "iveSavedIt": "Je l'ai enregistré"
+    },
+    "list": {
+      "empty": "Aucun client OAuth enregistré pour le moment.",
+      "redirectHost": "Hôte de redirection :",
+      "createdVia": "Enregistré via :",
+      "dcr": "Enregistrement dynamique",
+      "manual": "Manuel",
+      "active": "Actif",
+      "disabled": "Désactivé",
+      "disableButton": "Désactiver",
+      "disableConfirm": "Voulez-vous vraiment désactiver ce client ? Toutes ses autorisations et tous ses jetons sont rejetés immédiatement. Cette action est irréversible."
+    }
   }
 }

@@ -576,5 +576,47 @@
     "copied": "Copiato",
     "connectLabel": "Comando di connessione",
     "enableHint": "Il gateway MCP non è attivato. Imposta MCP_ENABLED=true nell'ambiente del server e riavvia CloudCLI per attivarlo."
+  },
+  "connectedApps": {
+    "title": "App collegate",
+    "description": "Applicazioni che hai autorizzato ad agire per tuo conto tramite il gateway MCP di CloudCLI. Revocare un'autorizzazione rifiuta immediatamente tutti i token emessi sotto di essa.",
+    "list": {
+      "empty": "Nessuna app collegata.",
+      "redirectHost": "Host di callback:",
+      "scopes": "Ambiti:",
+      "createdAt": "Autorizzata:",
+      "lastUsed": "Ultimo utilizzo:",
+      "never": "Mai",
+      "revokeButton": "Revoca",
+      "revokeConfirm": "Vuoi davvero revocare questa autorizzazione? I suoi token smettono subito di funzionare. L'operazione non è reversibile."
+    }
+  },
+  "oauthClients": {
+    "title": "Client OAuth (avanzato)",
+    "description": "Applicazioni registrate per ottenere token da questo server CloudCLI. Un client disabilitato qui vede immediatamente rifiutate tutte le sue autorizzazioni e i suoi token.",
+    "newButton": "Nuovo client",
+    "form": {
+      "namePlaceholder": "Nome del client (es. La mia integrazione)",
+      "redirectUrisPlaceholder": "URI di reindirizzamento (es. http://127.0.0.1:5173/callback)",
+      "createButton": "Crea client",
+      "cancelButton": "Annulla"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ Salva il segreto del client",
+      "alertMessage": "Questa è l'unica volta che vedrai questo segreto. Conservalo al sicuro.",
+      "copy": "Copia",
+      "iveSavedIt": "L'ho salvato"
+    },
+    "list": {
+      "empty": "Nessun client OAuth registrato.",
+      "redirectHost": "Host di callback:",
+      "createdVia": "Registrato tramite:",
+      "dcr": "Registrazione dinamica",
+      "manual": "Manuale",
+      "active": "Attivo",
+      "disabled": "Disabilitato",
+      "disableButton": "Disabilita",
+      "disableConfirm": "Vuoi davvero disabilitare questo client? Ogni autorizzazione e token sotto di esso viene rifiutato immediatamente. L'operazione non è reversibile."
+    }
   }
 }
