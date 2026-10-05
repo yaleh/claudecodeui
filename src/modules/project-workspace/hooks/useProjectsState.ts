@@ -808,42 +808,63 @@ export function useProjectsState({
         return;
       }
 
-      // A brand-new session whose name matches the project's filter stays out of
-      // the visible list; it only bumps hiddenCount (once per session id).
+      // A session whose name matches the project's filter stays out of the visible
+      // list; it only bumps hiddenCount (once per session id). This also covers a
+      // known session: fresh sessions are first broadcast with an empty name (which
+      // matches nothing and so is inserted), and the real name lands in a later upsert.
       const upsertProject = projectsRef.current.find((project) => (
         upsert.project?.projectId
           ? project.projectId === upsert.project.projectId
           : getProjectSessions(project).some((session) => session.id === upsert.sessionId)
       ));
       const aliasIds = getSessionAliasIds(upsert);
-      const isKnownSession = upsertProject
-        ? getProjectSessions(upsertProject).some((session) => aliasIds.has(String(session.id)))
-        : false;
+      const knownSession = upsertProject
+        ? getProjectSessions(upsertProject).find((session) => aliasIds.has(String(session.id)))
+        : undefined;
       const keepIds = new Set(getKeepSessionIds());
-      const isHiddenNewSession = Boolean(
+      // Judge the session by its current name: a blank delta must not hide it by erasing the known title.
+      const judgedSession = {
+        ...(knownSession ?? {}),
+        ...upsert.session,
+        summary: upsert.session.summary?.trim() ? upsert.session.summary : (knownSession?.summary ?? ''),
+      } as ProjectSession;
+      const isHiddenSession = Boolean(
         upsertProject
-        && !isKnownSession
         && isSessionHiddenByProjectFilter(
           upsertProject,
-          upsert.session as ProjectSession,
+          judgedSession,
           keepIds,
           showHiddenRef.current.has(upsertProject.projectId),
         ),
       );
-      if (upsertProject && isHiddenNewSession) {
-        if (!countedHiddenSessionIdsRef.current.has(upsert.sessionId)) {
-          countedHiddenSessionIdsRef.current.add(upsert.sessionId);
-          setProjects((previousProjects) => previousProjects.map((project) => (
-            project.projectId === upsertProject.projectId
-              ? {
-                ...project,
-                sessionMeta: {
-                  ...project.sessionMeta,
-                  hiddenCount: Number(project.sessionMeta?.hiddenCount ?? 0) + 1,
-                },
-              }
-              : project
-          )));
+      if (upsertProject && isHiddenSession) {
+        // The session may have been marked for attention by its earlier nameless upsert.
+        clearSessionAttention(upsert.sessionId);
+        const wasCounted = countedHiddenSessionIdsRef.current.has(upsert.sessionId);
+        countedHiddenSessionIdsRef.current.add(upsert.sessionId);
+        if (!wasCounted || knownSession) {
+          setProjects((previousProjects) => previousProjects.map((project) => {
+            if (project.projectId !== upsertProject.projectId) {
+              return project;
+            }
+            const sessions = getProjectSessions(project);
+            const remaining = sessions.filter((session) => !aliasIds.has(String(session.id)));
+            const removed = remaining.length !== sessions.length;
+            if (wasCounted && !removed) {
+              return project;
+            }
+            const total = Math.max(0, Number(project.sessionMeta?.total ?? 0) - (removed ? 1 : 0));
+            return {
+              ...project,
+              sessions: remaining,
+              sessionMeta: {
+                ...project.sessionMeta,
+                total,
+                hasMore: remaining.length < total,
+                hiddenCount: Number(project.sessionMeta?.hiddenCount ?? 0) + (wasCounted ? 0 : 1),
+              },
+            };
+          }));
         }
         return;
       }
@@ -873,7 +894,9 @@ export function useProjectsState({
         && !isSessionProcessing(upsert.sessionId)
       ) {
         setExternalMessageUpdate((prev) => prev + 1);
-      } else {
+      } else if (!(judgedSession.summary?.trim() === '' && (upsertProject?.sessionFilter?.hide.length ?? 0) > 0)) {
+        // A nameless session in a filtered project cannot be judged yet. Marking it for attention would
+        // keep it visible once its real (filter-matching) name arrives.
         markSessionAttention(upsert.sessionId);
       }
 
@@ -988,7 +1011,7 @@ export function useProjectsState({
     };
 
     return subscribe(handleEvent);
-  }, [getKeepSessionIds, isSessionProcessing, markSessionAttention, navigate, refreshProjectsSilently, sessionId, showHiddenRef, subscribe]);
+  }, [clearSessionAttention, getKeepSessionIds, isSessionProcessing, markSessionAttention, navigate, refreshProjectsSilently, sessionId, showHiddenRef, subscribe]);
 
   useEffect(() => {
     return () => {

@@ -49,15 +49,15 @@ depends_on:
 
 ## AC
 
-- [ ] `test -f experiments/voice-vad/PREREG-pause-split.md` 成立，且其首次提交时间早于 `experiments/voice-vad/fixtures/pause-split.json` 的首次提交时间（`git log --diff-filter=A --format=%ct -- <文件>` 比较两个时间戳）
-- [ ] `node experiments/voice-vad/pause-split.mjs --offline` 从冻结快照重算全部读数，退出码 0，不联网、不用凭据
-- [ ] 快照网格 4 × 3 × 2 全部有格，每格 n = 20（4 脚本 × 5 重复），缺格数为 0；每格的 `resolved` 率与 Wilson 95% 置信区间写在快照里
-- [ ] 负对照：`node experiments/voice-vad/pause-split.mjs --offline --variant=swap-order` 的 `resolved` 率相对真实读数下降，方向与 PREREG 一致，退出码 0，输出含「负对照红」字样
-- [ ] 预算闸（不联网即可验证）：`node experiments/voice-vad/pause-split.mjs --dry-run` 在 ①缺 `pricing.json` ②单价为占位值 ③预估花费超过 `budgetCny` 三种情形下均以非 0 退出并指名原因；合法单价下打印「预估最坏花费」且退出码 0
-- [ ] 预算闸（累计）：用假 provider 让每次调用返回超大 usage，累计估算超过 `budgetCny` 的那一次之后不再发起任何新调用（假 provider 记录调用数，断言），已有读数仍写入快照
-- [ ] 快照记录累计 token 与按 `pricing.json` 折算的实际花费，且实际花费 ≤ `budgetCny`（1.0）
-- [ ] `docs/experiments/2026-10-04-voice-pause-split.md` 首句含「仅方向」，给出推荐 `flushSilenceSec` 与依据格，并且 `src/modules/chat/utils/voiceLiveSegmenter.ts` 里的 `DEFAULT_FLUSH_SILENCE_SEC` 与之一致（`grep` 两处数值相同）
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `test -f experiments/voice-vad/PREREG-pause-split.md` 成立，且其首次提交时间早于 `experiments/voice-vad/fixtures/pause-split.json` 的首次提交时间（`git log --diff-filter=A --format=%ct -- <文件>` 比较两个时间戳）
+- [x] `node experiments/voice-vad/pause-split.mjs --offline` 从冻结快照重算全部读数，退出码 0，不联网、不用凭据
+- [x] 快照网格 4 × 3 × 2 全部有格，每格 n = 20（4 脚本 × 5 重复），缺格数为 0；每格的 `resolved` 率与 Wilson 95% 置信区间写在快照里
+- [x] 负对照：`node experiments/voice-vad/pause-split.mjs --offline --variant=swap-order` 的 `resolved` 率相对真实读数下降，方向与 PREREG 一致，退出码 0，输出含「负对照红」字样
+- [x] 预算闸（不联网即可验证）：`node experiments/voice-vad/pause-split.mjs --dry-run` 在 ①缺 `pricing.json` ②单价为占位值 ③预估花费超过 `budgetCny` 三种情形下均以非 0 退出并指名原因；合法单价下打印「预估最坏花费」且退出码 0
+- [x] 预算闸（累计）：用假 provider 让每次调用返回超大 usage，累计估算超过 `budgetCny` 的那一次之后不再发起任何新调用（假 provider 记录调用数，断言），已有读数仍写入快照
+- [x] 快照记录累计 token 与按 `pricing.json` 折算的实际花费，且实际花费 ≤ `budgetCny`（1.0）
+- [x] `docs/experiments/2026-10-04-voice-pause-split.md` 首句含「仅方向」，给出推荐 `flushSilenceSec` 与依据格，并且 `src/modules/chat/utils/voiceLiveSegmenter.ts` 里的 `DEFAULT_FLUSH_SILENCE_SEC` 与之一致（`grep` 两处数值相同）
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -76,3 +76,20 @@ L_G 该轴有读数：切开 vs 整段识别在自我更正上的 `resolved` 率
 - docs/experiments/README.md
 - src/modules/chat/utils/voiceLiveSegmenter.ts
 - tasks/gap-voice-pause-split-selfcorrect-eval.md
+
+## Evidence
+
+真实 `dashscope-omni` 调用 **240 次**（`whole` 60 + `split` 120 + `swapWhole` 60），`missingCells = 0`；
+累计 191,792 token，**实际花费 ¥0.309323** ≤ `budgetCny` ¥1.0（最坏预估 ¥0.6636 也未越线）。
+冻结快照 `experiments/voice-vad/fixtures/pause-split.json`：每次调用的转写/usage/花费 + `cells`
+（每脚本 n=5，24 子格）+ `byPause`（每格 做法×停顿 n=20）+ `pooled`（n=60）+ `budgetGate`。
+
+- `whole` pooled **60/60 = 1.000** [0.9398, 1.0000]；`split` pooled **0/60 = 0.000** [0.0000, 0.0602]；
+  2/5/10 秒三档 GAP 均为 1.000，**无一落在容差 0.15 内** ⇒ 登记回退取最大 P ⇒ 推荐
+  **`flushSilenceSec = 10`**，已回写 `DEFAULT_FLUSH_SILENCE_SEC`（5 → 10）。
+- 负对照 `swap-order`：whole 1.000 → swap 0.217（Δ=0.783；≤0.25 天花板、whole≥0.5），判红，退出码 0。
+- `--offline` 退出 0；`--dry-run` 三情形非 0 并指名，合法单价打印「预估最坏花费」退出 0；
+  `--provider=fake-huge` 越线后停发（callCount=1），真实 240 条读数不受影响。
+- 结果记录 `docs/experiments/2026-10-04-voice-pause-split.md`（首句「仅方向」，含推荐值与依据格、CI、未解释项）。
+
+Commits：`d1b48597`（取数与选参）、`5aa4753a`（`byPause` 落盘 + `--write`）。

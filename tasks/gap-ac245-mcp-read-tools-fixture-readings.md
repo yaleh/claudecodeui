@@ -4,7 +4,7 @@ title: AC-245 只读工具在夹具数据上返回正确结果：projects_list/s
   过滤各只返回对应会话、session_get 带宿主（state/pid/leases/peerName）、session_read 的
   latest/outline/around 与工具调用折叠、超 4000 字符按游标分页拼回原文、时间双形态；判据
   server/modules/mcp-gateway/tests/mcp-read-tools.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
