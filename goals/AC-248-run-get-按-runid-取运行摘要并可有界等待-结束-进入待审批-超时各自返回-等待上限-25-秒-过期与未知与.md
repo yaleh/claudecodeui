@@ -1,7 +1,7 @@
 ---
 id: AC-248
 title: run_get 按 runId 取运行摘要并可有界等待：结束、进入待审批、超时各自返回，等待上限 25 秒，过期与未知与重启各有说法
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-run-get.test.ts; do [
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T08:09:24.534Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
