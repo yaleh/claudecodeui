@@ -76,6 +76,7 @@ import {
     MCP_GATEWAY_PATH,
     mountMcpGateway,
     mountOAuthMetadata,
+    startMcpAuditRetention,
 } from './modules/mcp-gateway/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
@@ -460,6 +461,12 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // token-info 401 body.
 const mcpGateway = mountMcpGateway(app, { authorize: createMcpAuthMiddleware(accessTokensService) });
 console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);
+
+// AC-244: the audit-log retention sweep, one pass at startup then daily. Started
+// here at the assembly point rather than inside `mountMcpGateway` so mounting the
+// gateway never requires a live database or arms a timer on its own — a
+// criterion mounts it freely and drives retention directly.
+startMcpAuditRetention();
 
 // The OAuth discovery documents (AC-262). Mounted HERE — after `/mcp`, and BEFORE
 // the static layer below — because the SPA catch-all answers any unmatched GET

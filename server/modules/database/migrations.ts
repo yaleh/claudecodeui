@@ -7,6 +7,7 @@ import {
   ACCESS_TOKENS_TABLE_SCHEMA_SQL,
   APP_CONFIG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
+  MCP_AUDIT_LOG_TABLE_SCHEMA_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   OAUTH_AUTHORIZATION_CODES_TABLE_SCHEMA_SQL,
   OAUTH_CLIENTS_TABLE_SCHEMA_SQL,
@@ -975,6 +976,11 @@ export const runMigrations = (db: Database) => {
     // The code→grant redemption ledger (AC-259) — after the codes and grants
     // tables it keys off, so its grant_id foreign key always resolves.
     db.exec(OAUTH_CODE_REDEMPTIONS_TABLE_SCHEMA_SQL);
+    // The MCP tool-call audit log (AC-244). `CREATE TABLE IF NOT EXISTS` makes a
+    // second startup a no-op over an existing table; the index backs the
+    // retention sweep, which scans by `at`.
+    db.exec(MCP_AUDIT_LOG_TABLE_SCHEMA_SQL);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_audit_log_at ON mcp_audit_log(at)');
     // The revocation cascades scan by grant, so without these the cascade and
     // the per-client listing table-scan access_tokens.
     db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_grants_client ON oauth_grants(client_id)');

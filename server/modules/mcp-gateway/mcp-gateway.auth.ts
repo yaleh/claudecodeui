@@ -26,12 +26,18 @@ import { bearerToken } from '@/shared/utils.js';
 
 /**
  * The authenticated caller, attached to `res.locals.mcpPrincipal` on a successful
- * check. `userId` is the token owner; `scopes` are the scopes the token carries.
+ * check. `userId` is the token owner; `scopes` are the scopes the token carries;
+ * `tokenId` is the token's row id and `clientId` the OAuth client it was issued
+ * to (always `null` for a personal access token, which has no client).
+ *
  * Consumers: the MCP transport's tool dispatch (AC-245+), which maps it to a
- * `ControlCaller` (`{ userId, via: 'mcp' }`).
+ * `ControlCaller` (`{ userId, via: 'mcp' }`), and the audit wrapper (AC-244),
+ * which records `tokenId` / `clientId` on every tool call.
  */
 export type McpPrincipal = {
   userId: number;
+  tokenId: number;
+  clientId: string | null;
   scopes: string[];
 };
 
@@ -60,7 +66,14 @@ export function createMcpAuthMiddleware(tokens: AccessTokensService): RequestHan
       return;
     }
 
-    res.locals[MCP_PRINCIPAL_LOCAL] = { userId: verified.userId, scopes: verified.scopes };
+    // `clientId` is null: `/mcp` accepts personal access tokens only, and a PAT
+    // is not issued to an OAuth client (SPEC: "client id（PAT 为空）").
+    res.locals[MCP_PRINCIPAL_LOCAL] = {
+      userId: verified.userId,
+      tokenId: verified.tokenId,
+      clientId: null,
+      scopes: verified.scopes,
+    };
     next();
   };
 }

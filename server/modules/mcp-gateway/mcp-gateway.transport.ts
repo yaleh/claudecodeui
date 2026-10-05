@@ -3,6 +3,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
+import type { McpToolRegistrar } from './mcp-gateway.audit.js';
+import { readMcpPrincipal } from './mcp-gateway.auth.js';
+import type { McpPrincipal } from './mcp-gateway.auth.js';
 import { MCP_GATEWAY_PATH, readMcpGatewayGate } from './mcp-gateway.gate.js';
 import { createMcpLoopbackGuard } from './mcp-gateway.loopback.js';
 
@@ -35,14 +38,22 @@ const SERVER_INFO = { name: 'claudecodeui-mcp-gateway', version: '0.1.0' };
 /**
  * A fresh server per request, the stateless recipe's other half.
  *
- * No tools are registered yet — AC-245+ fills them — but `tools/list` must still
- * answer with a result rather than a "method not found", so it is registered
- * explicitly with an empty tool set. The `tools` capability is declared for the
- * same reason: without it the SDK refuses to install the list handler at all.
+ * When the caller supplied a `registerTools` seam it runs here, once per
+ * request, with that request's principal — so an audited tool (AC-244) sees the
+ * token that is actually invoking it. When no seam was supplied the server
+ * still has to answer `tools/list` with a result rather than a "method not
+ * found", so an empty list handler is installed explicitly (AC-240's original
+ * behaviour, kept for the tools-less mount). The two paths are exclusive: a
+ * registered tool installs the SDK's own list/call handlers, which would collide
+ * with a second, manual `tools/list` handler.
  */
-function createMcpServer(): McpServer {
+function createMcpServer(registerTools: McpToolRegistrar | undefined, principal: McpPrincipal | null): McpServer {
   const server = new McpServer(SERVER_INFO, { capabilities: { tools: {} } });
-  server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
+  if (registerTools) {
+    registerTools(server, principal);
+  } else {
+    server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
+  }
 
   return server;
 }
@@ -56,11 +67,18 @@ function createMcpServer(): McpServer {
  * cannot even reach the token check (AC-242 leg (d) reads this off the spy count);
  * a request it admits still has to pass `authorize`.
  */
-function attachTransport(app: Express, authorize: RequestHandler, env: NodeJS.ProcessEnv | undefined): void {
+function attachTransport(
+  app: Express,
+  authorize: RequestHandler,
+  env: NodeJS.ProcessEnv | undefined,
+  registerTools: McpToolRegistrar | undefined
+): void {
   const loopbackGuard = createMcpLoopbackGuard(env);
 
   app.post(MCP_GATEWAY_PATH, loopbackGuard, authorize, async (req, res) => {
-    const server = createMcpServer();
+    // The principal the auth middleware attached; audited tools are registered
+    // per request against it, so the audit row names the invoking token.
+    const server = createMcpServer(registerTools, readMcpPrincipal(res));
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
       transport.close();
@@ -109,6 +127,12 @@ export type McpGatewayDeps = {
   env?: NodeJS.ProcessEnv;
   /** Auth middleware in front of the transport. Defaults to a fail-closed 401. */
   authorize?: RequestHandler;
+  /**
+   * The tool-registration seam (AC-244): called once per request with the
+   * request's principal, it installs the gateway's tools. Audited tools come from
+   * `withMcpAudit`; AC-245+'s real tools register through this same seam.
+   */
+  registerTools?: McpToolRegistrar;
 };
 
 /** Whether the gateway attached anything, and the gate's own reason. */
@@ -131,6 +155,6 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     return { mounted: false, reason: gate.reason };
   }
 
-  attachTransport(app, deps.authorize ?? refuseUnauthorized, deps.env);
+  attachTransport(app, deps.authorize ?? refuseUnauthorized, deps.env, deps.registerTools);
   return { mounted: true, reason: gate.reason };
 }

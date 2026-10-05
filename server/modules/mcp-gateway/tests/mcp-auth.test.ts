@@ -369,7 +369,7 @@ test('(d) /mcp and /token-info share one service object; the gateway obeys its v
 
     // Stub mode 1: a token the real service rejects is ADMITTED because the
     // injected service says so — the gateway has no verdict of its own.
-    h.spy.setStub({ ok: true, userId: 42, scopes: VALID_SCOPES, expiresAt: '2026-06-01T00:00:00.000Z' });
+    h.spy.setStub({ ok: true, userId: 42, tokenId: 42, scopes: VALID_SCOPES, expiresAt: '2026-06-01T00:00:00.000Z' });
     const stubAllowed = await postMcp(h.baseUrl, `Bearer ccp_${'f'.repeat(64)}`);
     assert.equal(stubAllowed.status, 200);
 
@@ -417,9 +417,18 @@ test('(e) a successful request stamps last_used and puts the owner id into the p
       headers: { authorization: `Bearer ${valid.token}` },
     });
     assert.equal(probe.status, 200);
-    const body = JSON.parse(probe.body) as { principal: { userId: number; scopes: string[] } | null };
+    const body = JSON.parse(probe.body) as {
+      principal: { userId: number; tokenId: number; clientId: string | null; scopes: string[] } | null;
+    };
     assert.notEqual(body.principal, null, 'readMcpPrincipal must be non-null after a valid request');
-    assert.deepEqual(body.principal, { userId: USER_ONE, scopes: VALID_SCOPES });
+    // AC-244 extends the principal with the token id (for the audit log) and a
+    // null client id (a PAT has no OAuth client).
+    assert.deepEqual(body.principal, {
+      userId: USER_ONE,
+      tokenId: valid.id,
+      clientId: null,
+      scopes: VALID_SCOPES,
+    });
     assert.notEqual(body.principal?.userId, null);
 
     console.log(
