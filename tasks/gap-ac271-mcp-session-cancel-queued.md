@@ -58,16 +58,16 @@ AC-271（GOAL-022 退出条件 1；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-271 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 经真实 HTTP + MCP `session_send` 取 `queuedMessageUuid`，经 MCP `session_cancel_queued` 撤回得 `outcome==='cancelled'`；推进场景后没有第二条消息对应的轮次/运行，宿主 pid 撤回前后逐字相等；逐字写出两次 send 返回、撤回返回、队列前后、pid 前后。
-- [ ] AC4 (b) 消息被 `dequeue`（开始执行）后撤回 ⇒ `outcome !== 'cancelled'`（调试驱动读作 `'unknown'`）且第二条消息真的开始了一轮（`openedRounds>=1`／存在第二个 runId）；逐字写出返回与轮次读数。
-- [ ] AC5 (c) 从未返回过的 uuid ⇒ `outcome==='unknown'`；另一会话自己的 uuid 对第一个会话 ⇒ `outcome==='unknown'`，两个会话的驱动队列撤回前后逐字不变；逐字写出两组返回与两组队列读数。
-- [ ] AC6 (d) 只带 `['cloudcli:read','cloudcli:session:send']` 的令牌调用被拒（isError）、新增恰好一行 `tool='session_cancel_queued'`/`outcome='denied'` 审计、控制服务 `cancelQueued` spy 计数为 0；逐字写出该行与前后计数。
-- [ ] AC7 无 WebSocket 客户端参与/无真 CLI：写下 grep 命令与空输出——判据文件不 `import` ws / 不 `new WebSocket(` / 不 spawn 真实 claude 二进制；AC3–AC6 全部读数在该文件内完成。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 只改返回值不移出队列 ⇒ AC3 的「永不成为一轮」红；(ii) 已开始仍回 `cancelled` ⇒ AC4 红；(iii) 不校验会话归属 ⇒ AC5 的跨会话一项红。每条记录恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写下计数）；`debug-agent-control-queue.test.ts`、`chat-control-*.test.ts` 不改一字仍逐字通过；跨模块只经 barrel。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-271 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 经真实 HTTP + MCP `session_send` 取 `queuedMessageUuid`，经 MCP `session_cancel_queued` 撤回得 `outcome==='cancelled'`；推进场景后没有第二条消息对应的轮次/运行，宿主 pid 撤回前后逐字相等；逐字写出两次 send 返回、撤回返回、队列前后、pid 前后。
+- [x] AC4 (b) 消息被 `dequeue`（开始执行）后撤回 ⇒ `outcome !== 'cancelled'`（调试驱动读作 `'unknown'`）且第二条消息真的开始了一轮（`openedRounds>=1`／存在第二个 runId）；逐字写出返回与轮次读数。
+- [x] AC5 (c) 从未返回过的 uuid ⇒ `outcome==='unknown'`；另一会话自己的 uuid 对第一个会话 ⇒ `outcome==='unknown'`，两个会话的驱动队列撤回前后逐字不变；逐字写出两组返回与两组队列读数。
+- [x] AC6 (d) 只带 `['cloudcli:read','cloudcli:session:send']` 的令牌调用被拒（isError）、新增恰好一行 `tool='session_cancel_queued'`/`outcome='denied'` 审计、控制服务 `cancelQueued` spy 计数为 0；逐字写出该行与前后计数。
+- [x] AC7 无 WebSocket 客户端参与/无真 CLI：写下 grep 命令与空输出——判据文件不 `import` ws / 不 `new WebSocket(` / 不 spawn 真实 claude 二进制；AC3–AC6 全部读数在该文件内完成。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 只改返回值不移出队列 ⇒ AC3 的「永不成为一轮」红；(ii) 已开始仍回 `cancelled` ⇒ AC4 红；(iii) 不校验会话归属 ⇒ AC5 的跨会话一项红。每条记录恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写下计数）；`debug-agent-control-queue.test.ts`、`chat-control-*.test.ts` 不改一字仍逐字通过；跨模块只经 barrel。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
