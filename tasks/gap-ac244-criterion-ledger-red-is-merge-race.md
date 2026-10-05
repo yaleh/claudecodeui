@@ -3,7 +3,7 @@ id: gap-ac244-criterion-ledger-red-is-merge-race
 title: AC-244 判据台账尾部红是 merge race：审计实现 10c053c0/ba9eb2c5 只提交在 task 分支，fan-in
   dc1d71ea 于 05:59:16Z 才带进 develop/主检出，而红拍（…05:56:47Z）早于落地 —— verification-only
   归因入档（净树直跑 exit 0 ×4，5/5/0），不重新实现既有修复
-status: ready
+status: done
 labels:
   - gap
 parent: null
