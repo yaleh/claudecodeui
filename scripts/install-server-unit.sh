@@ -39,6 +39,10 @@ case "$MGR_PATH" in
   *plugins/cache*|*plugins/synced*)
     die "the user manager PATH carries plugin bin dirs ($MGR_PATH); something ran 'systemctl --user set-environment/import-environment PATH' — fix that, do not install" ;;
 esac
+case ":$MGR_PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) die "the user manager PATH has no $HOME/.local/bin (claude-* launchers, gh, go live there; the quay worker driver dies with 'spawn claude-fjdac ENOENT' without it); add it to ~/.config/environment.d/995-nvm-node.conf, then 'systemctl --user daemon-reload'" ;;
+esac
 NODE="$(PATH="$MGR_PATH" command -v node || true)"
 [ -n "$NODE" ] || die "no node on the user manager PATH ($MGR_PATH); set it in ~/.config/environment.d/995-nvm-node.conf then 'systemctl --user daemon-reload'"
 case "$(readlink -f "$NODE")" in

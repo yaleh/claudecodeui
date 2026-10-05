@@ -92,6 +92,7 @@ if [ "$MODE" = exec ]; then
   case "$FRAG" in ""|/run/*) OK=no ;; esac            # still the transient unit, not the installed one
   case "$L_PATH" in ""|*plugins/cache*|*plugins/synced*) OK=no ;; esac
   case "$L_NODE" in ""|/usr/bin/*|/bin/*) OK=no ;; esac
+  case ":$L_PATH:" in *":$HOME/.local/bin:"*) ;; *) OK=no ;; esac   # claude-* launchers, gh, go
 
   {
     log "====================================================================="
