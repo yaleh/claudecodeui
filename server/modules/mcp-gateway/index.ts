@@ -20,3 +20,5 @@ export type { McpGatewayDeps, McpGatewayReading } from './mcp-gateway.transport.
 
 export { createMcpAuthMiddleware, readMcpPrincipal } from './mcp-gateway.auth.js';
 export type { McpPrincipal } from './mcp-gateway.auth.js';
+
+export { createMcpLoopbackGuard, isLoopbackRemoteAddress, readMcpOauthEnabled } from './mcp-gateway.loopback.js';
