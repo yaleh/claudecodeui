@@ -23,7 +23,7 @@ import {
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
-import { activityStore, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
+import { activityStore, BOOT_ID, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -500,6 +500,13 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // projects spawns zero quay CLI processes; `refresh` — the one load-on-demand
 // verb, reachable only from `quay_snapshot({ refresh: true })` — binds to
 // `getQuaySnapshot(projectId, { forceRefresh: true })`.
+//
+// AC-248 adds `runGet`: the services `run_get` answers from — the same run
+// registry and activity store, the providers' sessions history reader, and the
+// wall clock plus a real sleeper for the bounded wait. `bootId` binds to the
+// process `BOOT_ID`, the same identity the activity snapshots and every run this
+// registry opens carry, so `run_get` can report "服务已重启" when a run belongs to
+// a previous process boot.
 const mcpGateway = mountMcpGateway(app, {
     authorize: createMcpAuthMiddleware(accessTokensService),
     readTools: {
@@ -512,6 +519,14 @@ const mcpGateway = mountMcpGateway(app, {
             hasQuayConfig: (projectId: string) => quayService.getQuayStatus(projectId)?.hasQuayConfig ?? false,
             readCached: (projectId: string) => quayService.getCachedSnapshot(projectId),
             refresh: (projectId: string) => quayService.getQuaySnapshot(projectId, { forceRefresh: true }),
+        },
+        runGet: {
+            runs: chatRunRegistry,
+            activity: activityStore,
+            sessions: sessionsService,
+            now: () => Date.now(),
+            sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+            bootId: () => BOOT_ID,
         },
         now: () => Date.now(),
     },

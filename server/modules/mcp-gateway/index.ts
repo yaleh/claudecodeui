@@ -112,6 +112,34 @@ export type {
   OverviewPayload,
 } from './mcp-overview-tools.js';
 
+// The run-by-id tool (AC-248). `buildRunGet` reads one run by id and waits a
+// BOUNDED time for it to settle (terminal / `awaitingPermission` / timeout),
+// reading the run registry, the activity store and the sessions history through
+// injected seams so the wait moves only on the injected clock and sleeper.
+// `MCP_RUN_GET_MAX_WAIT_SECONDS` is the one literal for the cap — AC-248's
+// criterion imports it instead of re-typing 25, and a later `session_send`
+// reuses it rather than writing a second copy. `registerMcpRunGetTool` installs
+// the one `run_get` handler through the audited seam (consumed by
+// `registerMcpReadTools` when the deps are wired); `isRunGetWired` is the branch
+// it takes between the real handler and the named refusal.
+export {
+  buildRunGet,
+  isRunGetWired,
+  MCP_RUN_GET_MAX_WAIT_SECONDS,
+  registerMcpRunGetTool,
+} from './mcp-run-get.js';
+export type {
+  McpRunGetDeps,
+  McpRunGetFallback,
+  McpRunGetHit,
+  McpRunGetInput,
+  McpRunGetMiss,
+  McpRunGetMissReason,
+  McpRunGetOutcome,
+  McpRunGetRegistration,
+  RunGetPayload,
+} from './mcp-run-get.js';
+
 // The target-resolution surface (AC-246). `resolveMcpTarget` turns a caller's
 // project/session reference into one id (or into an explicit refusal listing the
 // candidates), and `resolveInputTargets` is the gate that applies it to a tool's

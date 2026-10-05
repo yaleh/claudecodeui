@@ -7,6 +7,11 @@ export { createWebSocketServer } from './services/websocket-server.service.js';
 export {
   ACTIVITY_HEARTBEAT_INTERVAL_MS,
   ACTIVITY_UNREACHABLE_AFTER_MS,
+  // BOOT_ID: the identity of the running process, the same value the activity
+  // snapshots carry. Consumed by `server/index.ts`, which binds it as the
+  // `bootId` seam of the MCP gateway's `run_get` deps (AC-248) so a run's boot
+  // and the boot it is compared against are read from one source.
+  BOOT_ID,
   resolveActivityHeartbeatConfig,
   activityAnnouncement,
   attachActivityHeartbeat,
@@ -28,12 +33,26 @@ export {
   type ActivityFrameListener,
 } from './services/activity-protocol.service.js';
 export { createActivityRouter } from './services/activity.routes.js';
-export { chatRunRegistry } from './services/chat-run-registry.service.js';
-// ChatRunSummary: the read-only projection of one tracked run, returned by
-// `getRunById` and `listRecentRuns`. Consumers: the MCP gateway's `overview` tool
-// (AC-247) types the aborted-run reading it derives from `listRecentRuns` against
-// it, so the run lifecycle vocabulary is not restated in a second module.
-export type { ChatRunSummary } from './services/chat-run-registry.service.js';
+// createChatRunRegistry: the injection seam that builds an ISOLATED registry
+// with its own clock, retention window and boot reader (the process singleton
+// `chatRunRegistry` below is the default-configured instance). Consumed by the
+// MCP gateway's `run_get` criterion (AC-248), which drives a run to completion
+// / a reboot on a fake clock without waiting on, or disturbing, the process
+// registry.
+export { chatRunRegistry, createChatRunRegistry } from './services/chat-run-registry.service.js';
+// ChatRunSummary / ChatRunLookupMiss / ChatRunLookupResult: the run-addressing
+// vocabulary. `ChatRunSummary` is the read-only projection of one tracked run;
+// `ChatRunLookupMiss` is why a by-id read found nothing (`expired` = it existed
+// and aged out, `unknown` = the id was never handed out); `ChatRunLookupResult`
+// is their union. Consumers: the MCP gateway's `overview` tool (AC-247) types
+// the aborted-run reading of `listRecentRuns` against `ChatRunSummary`, and its
+// `run_get` (AC-248) types the registry lookup and its three miss reasons
+// against the other two — so the vocabulary is not restated in a second module.
+export type {
+  ChatRunLookupMiss,
+  ChatRunLookupResult,
+  ChatRunSummary,
+} from './services/chat-run-registry.service.js';
 // createChatControlService: the transport-agnostic control plane. Consumed by
 // `server/index.ts` to build the single process-wide instance the WebSocket
 // gateway, the scheduled-message dispatcher and (later) the MCP gateway share;
