@@ -1,7 +1,7 @@
 ---
 id: AC-256
 title: 嵌套冒烟的记录齐全：独立实例上用终端 Claude Code 驱动真实会话，每一节都有原始读数与结论
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs
@@ -19,4 +19,15 @@ expect: 做法照 AC-170 与 scripts/resident-smoke.mjs：脚本起一个真服�
   必须红；(iii) 把某节读数留空 ⇒ 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:17:26.296Z
+statusLog:
+  - at: 2026-10-05T02:17:26.296Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:17:26.295Z
 ---
