@@ -95,6 +95,22 @@ let hydrationRequest: Promise<void> | null = null;
 let hydratedForToken: string | null = null;
 let pendingWriteTimer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * The deployment's raw (pre-VAD) capture switch, and the once-per-token read that answers it.
+ *
+ * IT IS NOT PART OF `VoiceConfig`. That document is the user's own backend settings and is saved
+ * whole back to the server; this is a READ-ONLY fact about the PROCESS's environment, so folding it
+ * into the saved document would make a save carry a field the user never chose. It lives here only
+ * because this module already owns the once-per-session-token read the value needs.
+ *
+ * `false` until a server answer arrives, which is the safe reading: an unresolved capability must
+ * never make the recording path upload pre-VAD audio — the audio a VAD deliberately removed is more
+ * sensitive than what it kept, so "unknown" has to mean "do not send".
+ */
+let rawCaptureEnabled = false;
+let rawCaptureToken: string | null = null;
+let rawCaptureRequest: Promise<void> | null = null;
+
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 );
@@ -406,6 +422,56 @@ export function resetVoiceConfig(): void {
   hydratedForToken = null;
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event(VOICE_CONFIG_SYNC_EVENT));
+  }
+}
+
+/**
+ * Reads the cached raw-capture switch. `false` until `hydrateVoiceRawCapture` has a server answer.
+ */
+export function isVoiceRawCaptureEnabled(): boolean {
+  return rawCaptureEnabled;
+}
+
+/**
+ * Loads the deployment's raw-capture switch for the session active now, at most once per token.
+ *
+ * THE TOKEN KEYING IS THE SAME DISCIPLINE `whenVoiceConfigReady` USES: a second user on this tab gets
+ * a fresh read rather than the previous session's answer, and every listen in one session reuses the
+ * one answer instead of putting a request in front of each recording. A call for a token already
+ * being read returns the in-flight request; a call after it settled returns at once.
+ *
+ * NEVER REJECTS, for the reason `hydrateVoiceConfig` does not: a failed read has to degrade to "raw
+ * capture is off" — the safe reading — rather than to a rejected promise on the recording path.
+ */
+export function hydrateVoiceRawCapture(): Promise<void> {
+  const token = readCurrentToken();
+  if (rawCaptureToken === token) {
+    return rawCaptureRequest ?? Promise.resolve();
+  }
+
+  rawCaptureToken = token;
+  rawCaptureEnabled = false;
+  const request = loadRawCaptureState().finally(() => {
+    if (rawCaptureRequest === request) {
+      rawCaptureRequest = null;
+    }
+  });
+  rawCaptureRequest = request;
+  return request;
+}
+
+/** Reads `GET /api/voice/capture` and records whether this deployment collects raw audio. */
+async function loadRawCaptureState(): Promise<void> {
+  try {
+    const response = await api.voice.capture();
+    if (!response.ok) {
+      return;
+    }
+    const body: unknown = await response.json();
+    rawCaptureEnabled =
+      body !== null && typeof body === 'object' && (body as { raw?: unknown }).raw === true;
+  } catch (error) {
+    console.error('Failed to load raw capture state:', error);
   }
 }
 

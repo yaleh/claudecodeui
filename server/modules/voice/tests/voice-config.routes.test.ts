@@ -103,6 +103,14 @@ const unusedVoiceService: VoiceService = {
   synthesizeSpeech: async () => {
     throw new Error('the settings endpoints must not synthesize');
   },
+  // The raw-corpus half of the service, throwing for the same reason the two above do: a settings
+  // request that reached either would be a routing mistake, not a call this surface should serve.
+  captureRaw: () => {
+    throw new Error('the settings endpoints must not capture raw audio');
+  },
+  captureState: () => {
+    throw new Error('the settings endpoints must not read the raw capture state');
+  },
 };
 
 type ServerContext = {
@@ -157,6 +165,8 @@ async function withServer(run: (context: ServerContext) => Promise<void>): Promi
     // Only the two settings endpoints are under test; the build-in upload parser
     // is never reached, so a pass-through stub keeps this file off multer.
     parseAudioUpload: (_request, _response, next) => next(),
+    // Likewise for the raw-corpus endpoint's own parser: this surface serves neither upload route.
+    parseRawAudioUpload: (_request, _response, next) => next(),
   }));
   app.use('/api/user', authenticateToken, userRoutes);
   app.use((error: unknown, _request: ExpressRequest, response: ExpressResponse, _next: NextFunction) => {

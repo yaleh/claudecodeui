@@ -1014,6 +1014,10 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
             outcome,
             status,
             audio: input.audio,
+            // The pairing id the request carried, carried straight through to the row. `undefined`
+            // when the request named none, and the port omits the key rather than writing an empty
+            // one — so the row is joined with the same listen's raw row only when a client paired it.
+            listenId: input.listenId,
             payload: {
               model: used.model,
               baseUrl: used.baseUrl,
@@ -1240,6 +1244,32 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         logAttempt('fail', refusal.status);
         return refusal;
       }
+    },
+
+    captureRaw({ listenId, audio }) {
+      // THE GATE IS THE PORT'S OWN SWITCH, read as absent when off — the same shape `recording`
+      // uses for the mode. A deployment that does not collect raw records nothing and says so
+      // (`stored: false`) rather than failing: the request is well-formed, the capability is absent.
+      const port = dependencies.capture?.raw === true ? dependencies.capture : null;
+      if (port?.recordRaw === undefined) {
+        return { ok: true, value: { stored: false } };
+      }
+
+      // THE SAME LOCAL GUARD the attempt recorder has, and for the same reason: the port is an
+      // injected seam, and a deployment's own port may throw where this module's answers. A throw
+      // here must not escape as a rejected handler — it becomes a refusal, and the file the caller
+      // was told about is not written.
+      try {
+        port.recordRaw({ listenId, bytes: audio.bytes });
+      } catch {
+        return { ok: false, status: 500, error: 'Raw capture failed.' };
+      }
+
+      return { ok: true, value: { stored: true } };
+    },
+
+    captureState() {
+      return { raw: dependencies.capture?.raw === true };
     },
 
     async synthesizeSpeech(input) {

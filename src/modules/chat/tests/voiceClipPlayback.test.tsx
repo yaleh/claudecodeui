@@ -38,6 +38,9 @@ vi.mock('@/shared/api', async (importOriginal) => {
   const actual = await importOriginal<typeof SharedApi>();
   return {
     transcribeVoice,
+    // The raw-corpus upload the hook fires after a listen. Doubled so a case can assert it is never
+    // called when the deployment's switch is off; harmless when it is, because it is never awaited.
+    captureRawVoice: vi.fn(),
     synthesizeVoice: vi.fn(),
     voiceConfigSignature: () => 'test-signature',
     // The recogniser's answer is read through the shipping parse; only the endpoint is cut.

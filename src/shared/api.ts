@@ -675,6 +675,17 @@ export const api = {
         headers,
         body: formData,
       }),
+    // The raw (pre-VAD) corpus upload, its own endpoint and its own transport method: the bytes it
+    // carries are not sent on to any recogniser, so it is not a second call of `transcribe`.
+    captureRaw: (formData: FormData, headers: Record<string, string> = {}) =>
+      authenticatedFetch('/api/voice/capture/raw', {
+        method: 'POST',
+        headers,
+        body: formData,
+      }),
+    // The deployment's own raw-capture switch, read once per session (see `voiceConfig.ts`). Its own
+    // endpoint rather than a field on `health`, which is a per-user provider reading.
+    capture: () => get('/api/voice/capture'),
     tts: (text: string, options: ApiRequestOptions = {}) => post('/api/voice/tts', { text }, options),
     // The user's own backend settings, stored per user so they follow the
     // account rather than the browser profile they were typed in.
@@ -932,7 +943,7 @@ async function voiceAnswerRefusal(response: Response): Promise<Response | null> 
   return voiceFailureEnvelope('NO_SPEECH_DETECTED', 422, 'the voice backend returned no speech');
 }
 
-export async function transcribeVoice(blob: Blob, filename: string): Promise<Response> {
+export async function transcribeVoice(blob: Blob, filename: string, listenId?: string): Promise<Response> {
   const refusal = unregisteredProviderRefusal() ?? unsupportedContainerRefusal(blob.type);
   if (refusal) {
     return refusal;
@@ -963,6 +974,10 @@ export async function transcribeVoice(blob: Blob, filename: string): Promise<Res
     // exists to prevent — silently, on the one path that cannot show it.
     const body = new FormData();
     body.append('audio', blob, filename);
+    // The pairing id rides only on the two proxy branches: it is the SERVER's capture row that pairs
+    // this upload with the listen's raw corpus row, and the direct branch below never reaches that
+    // server — so appending it there would send a field no one reads.
+    if (listenId !== undefined) body.append('listenId', listenId);
     return api.voice.transcribe(body, { ...voiceConfigHeaders(), 'x-voice-provider': profile.id });
   }
 
@@ -1005,7 +1020,32 @@ export async function transcribeVoice(blob: Blob, filename: string): Promise<Res
   // CloudCLI (field `audio`, model and key in headers), not to the recogniser's endpoint.
   const body = new FormData();
   body.append('audio', blob, filename);
+  if (listenId !== undefined) body.append('listenId', listenId);
   return api.voice.transcribe(body, voiceConfigHeaders());
+}
+
+/**
+ * Uploads one listen's RAW (pre-VAD) audio into the deployment's passive corpus, paired by `listenId`.
+ *
+ * IT GOES THROUGH THE PROXY ONLY, and that is the whole routing decision: raw capture is the
+ * DEPLOYMENT's corpus — kept by the server that owns the capture directory — so unlike a
+ * transcription there is no user's own backend to send it to. A direct-backend deployment with raw
+ * capture on still uploads raw here, to the CloudCLI it is already authenticated against.
+ *
+ * NOTHING IS READ FROM THE ANSWER. The server writes a row and (when the switch is on for it) a file;
+ * the bytes of the response carry nothing the recording path acts on. The promise still rejects when
+ * the transport fails, so the caller can decide not to care — see `useVoiceInput`, which never awaits
+ * it and swallows the rejection, because a corpus upload must not become a dictation failure.
+ */
+export async function captureRawVoice(
+  listenId: string,
+  blob: Blob,
+  filename: string,
+): Promise<Response> {
+  const body = new FormData();
+  body.append('audio', blob, filename);
+  body.append('listenId', listenId);
+  return api.voice.captureRaw(body, voiceConfigHeaders());
 }
 
 /**
