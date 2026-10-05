@@ -65,6 +65,8 @@ AC-254（GOAL-020 设置页；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.1「�
 - src/modules/settings/tabs/api-settings/CredentialsSettingsTab.tsx
 - src/modules/settings/hooks/useCredentialsSettings.ts
 - src/shared/api.ts
+- src/shared/constants.ts
+- src/shared/types.ts
 - server/modules/settings/settings.routes.ts
 - server/modules/settings/settings.service.ts
 - server/modules/settings/settings.module.ts

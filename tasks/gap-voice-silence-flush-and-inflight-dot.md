@@ -83,6 +83,7 @@ L_G 该轴仍暗，理由：同上。
 - src/modules/chat/tests/voiceClipPlayback.test.tsx
 - src/modules/chat/tests/voiceErrorMessages.test.tsx
 - src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx
+- src/modules/chat/tests/voiceRawCaptureUpload.test.tsx
 - src/shared/tests/voiceUpload16k.test.ts
 
 ## Evidence
@@ -119,33 +120,20 @@ L_G 该轴仍暗，理由：同上。
   2. 圆点常驻（`{inFlight && (` → `{true && (`）→ `-g "the in-flight dot tracks requests"` **红**：首个「没有请求在途时不存在」断言 `toHaveCount(0)` 失败（exit 1）。
   3. 去掉 `motion-safe:`（`motion-safe:animate-pulse` → `animate-pulse`）→ 渲染测试 **红**：`the dot's pulse must be gated behind motion-safe`（exit 1）。
 
-### 本轮修复的两处既有缺陷（测试侧，非产品逻辑）
+### 上一轮修复的两处既有缺陷（测试侧，非产品逻辑）
 
 1. **静音 leg 继承了上一 leg 的 `voiceIdleSec=2`**：调试开关记在 `localStorage`，`a silent listen auto-stops…` 那条 leg 把空闲自动停止调到 2 秒；新增的 flush leg 没有重新声明它，于是被压住的 4 秒在途请求期间麦克风自动关闭（失败页快照里按钮已是 `Voice input`、输入框已有 `alpha bravo`），第二次说话打到了已停止的采集上。修法：新增常量 `IDLE_WINDOW_SEC = 120`，四条 flush leg 显式声明 `voiceIdleSec`（并显式声明 `voiceMinSegmentSec`），符合该 spec 自己写下的「flags are remembered」纪律。
 2. **两个 spec 在同一次 `playwright test` 调用里抢同一个账号**：`playwright.config.ts` 一次调用只建一个 data dir / 一个 `auth.db`（`workers: 1`），而 `voice-continuous` 与 `voice-live-vad-ab` 的 `beforeAll` 都填 `#username` + `input[type=password].nth(1)` 建 `e2euser`。第一个 spec 建完账号后，第二个 spec 的 `/` 渲染的是 `LoginForm`（`#username` + 仅 1 个 password 字段），`nth(1)` 永不出现 → beforeAll 60 秒超时。修法：以 `#confirmPassword`（只有 `SetupForm` 有、且始终渲染）区分两种表单，无此字段则改走 `Sign In`。两份 spec 对称修改，因此与调用顺序无关。
 
+### 本轮修复（suite 红：漏补的一处整模块 mock 键）
+
+上一轮 fan-in 的 suite 红落在一个具体文件：`src/modules/chat/tests/voiceRawCaptureUpload.test.tsx`（3/3 tests failed，`AssertionError: the send must happen even while the raw upload is still in flight`）。
+
+- **根因**：本任务给 `useVoiceInput` 新增了 `voiceDebugFlushSilenceSec()` 调用（listen 开始时读静音触发窗口）。该测试对 `@/shared/voiceDebug` 做整模块 `vi.mock`，键集合里缺 `voiceDebugFlushSilenceSec` → 每次 `toggle()`/`start()` 都抛 `TypeError: voiceDebugFlushSilenceSec is not a function`，转写请求从未发出；第三例（raw upload 不阻塞 send）因此永远等不到 send。机制与 `export-addition-forces-undeclared-collateral-mock-edits` 记录的「新增 export 逼出未声明的附带 mock 补全」完全一致。
+- **为何漏了这份**：其余 10 份整模块 mock `@/shared/voiceDebug` 的文件（均在 `## Touches`）上一轮已补全，唯独这份的 import 面（经 `useVoiceInput` 间接）在一跳检查里没被算进 delta，故上一轮的 delta-relatedness 报了 UNRELATED；它其实是本任务 delta 的附带碰撞，属真实发现。
+- **修法**：按同一格式补 `voiceDebugFlushSilenceSec: () => undefined`（= 出厂 5 秒默认），并把该文件加入 `## Touches`（写入点必须声明）。
+- **读数**：`npm run test:client -- <该文件 + voiceClipPlayback / occupiedSessionReadOnly / composerCompactTier / chatComposerResponsive / residentComposerEnableAffordance / voiceUpload16k>` → **64 passed（7 files）**；`npm run typecheck`、`npm run lint` 均 exit 0。
+
 ### 门
 
 - 合并 `develop` 后 `bash scripts/test.sh --for-task gap-voice-silence-flush-and-inflight-dot --allow-thin` → **exit 0**（`voiceInputButton.test.tsx`、`voiceLiveSegmenter.test.ts` 均 passed）。
-
-## Needs-Human
-
-**执行 2026-10-04T16:36:12.519Z — 连续修满重试上限仍不合格（标 needs-human）**
-
-- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
-- 失败步/判词：step=suite: __PERFILE__ duration_ms=1448 server/modules/commands/tests/commands.test.ts passed=false end_ms=1791131559245
-- run_id：wk-prod-anchor
-- session_id：ee4deabb-1e81-40ed-b24c-a39ef5b5e634
-- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-silence-flush-and-inflight-dot~wk-prod-anchor~1791131532528-72224d.log
-- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-silence-flush-and-inflight-dot-wk-prod-anchor.log
-
-## Needs-Human
-
-**执行 2026-10-05T01:46:37.924Z — 连续修满重试上限仍不合格（标 needs-human）**
-
-- 阻碍原因：suite 红但归因不出任何失败测试文件（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (the suite log names nothing a worker could fix); stopping instead of spending another worker session
-- 失败步/判词：step=suite: __PERFILE__ duration_ms=2401 server/modules/websocket/tests/activity-protocol.test.ts passed=false end_ms=1791164632316
-- run_id：wk-prod-anchor
-- session_id：cc9e188c-3478-4718-9b95-7e02e5947014
-- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-silence-flush-and-inflight-dot~wk-prod-anchor~1791164562769-fbeb37.log
-- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-silence-flush-and-inflight-dot-wk-prod-anchor.log
