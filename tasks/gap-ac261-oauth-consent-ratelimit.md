@@ -57,16 +57,16 @@ GOAL-021 退出条件 3（AC-261）要求在授权页的密码提交上有限速
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-261 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-consent-ratelimit.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-consent-ratelimit.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 同一来源 10 次错密码后，第 11 次（密码正确）→ 429；前 10 次非 429；第 11 次 `provider.authorize` 间谍计数为 0 且无授权码；逐字写出 11 个状态码。
-- [ ] AC4 (b) `nowMs += windowMs + 1` 后同来源 POST 正确密码 → 302（窗口恢复）；逐字写出推进量与状态码。
-- [ ] AC5 (c) `trustProxy: true` 下来源 A（`CF-Connecting-IP: 1.1.1.1`）第 11 次 → 429，来源 B（`2.2.2.2`）首次 → 非 429；逐字写出。
-- [ ] AC6 (d) 未配置代理时伪造的 `CF-Connecting-IP`/`X-Forwarded-For` 不改变来源：10 次失败在 `CF-Connecting-IP: 9.9.9.9` 与 `8.8.8.8`（及仅 `X-Forwarded-For: 7.7.7.7`）间交替，第 11 次 → 429；逐字写出伪造头值与状态码。
-- [ ] AC7 (e) A、B 各失败 5 次后 A 成功（302），B 再失败 6 次其第 6 次 → 429（B 桶未被清零），且 A 自身计数被重置（A 再失败 10 次才 429）；逐字写出两来源各次状态码。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 无条件信任 `CF-Connecting-IP` ⇒ AC6 红；(ii) 成功清零全部桶 ⇒ AC7 红；(iii) 窗口永不过期 ⇒ AC4 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`server/modules/oauth/tests/oauth-consent-page.test.ts`（AC-260 判据，不改一字仍逐字通过）、`server/modules/oauth/tests/oauth-provider.test.ts`、`server/modules/oauth/tests/oauth-store.test.ts`、`server/modules/oauth/tests/access-tokens.service.test.ts`、`server/modules/oauth/tests/token-info.routes.test.ts` 不改一字仍逐字通过。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-261 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-consent-ratelimit.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-consent-ratelimit.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 同一来源 10 次错密码后，第 11 次（密码正确）→ 429；前 10 次非 429；第 11 次 `provider.authorize` 间谍计数为 0 且无授权码；逐字写出 11 个状态码。
+- [x] AC4 (b) `nowMs += windowMs + 1` 后同来源 POST 正确密码 → 302（窗口恢复）；逐字写出推进量与状态码。
+- [x] AC5 (c) `trustProxy: true` 下来源 A（`CF-Connecting-IP: 1.1.1.1`）第 11 次 → 429，来源 B（`2.2.2.2`）首次 → 非 429；逐字写出。
+- [x] AC6 (d) 未配置代理时伪造的 `CF-Connecting-IP`/`X-Forwarded-For` 不改变来源：10 次失败在 `CF-Connecting-IP: 9.9.9.9` 与 `8.8.8.8`（及仅 `X-Forwarded-For: 7.7.7.7`）间交替，第 11 次 → 429；逐字写出伪造头值与状态码。
+- [x] AC7 (e) A、B 各失败 5 次后 A 成功（302），B 再失败 6 次其第 6 次 → 429（B 桶未被清零），且 A 自身计数被重置（A 再失败 10 次才 429）；逐字写出两来源各次状态码。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 无条件信任 `CF-Connecting-IP` ⇒ AC6 红；(ii) 成功清零全部桶 ⇒ AC7 红；(iii) 窗口永不过期 ⇒ AC4 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`server/modules/oauth/tests/oauth-consent-page.test.ts`（AC-260 判据，不改一字仍逐字通过）、`server/modules/oauth/tests/oauth-provider.test.ts`、`server/modules/oauth/tests/oauth-store.test.ts`、`server/modules/oauth/tests/access-tokens.service.test.ts`、`server/modules/oauth/tests/token-info.routes.test.ts` 不改一字仍逐字通过。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
