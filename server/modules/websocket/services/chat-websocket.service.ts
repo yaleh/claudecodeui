@@ -17,6 +17,7 @@ import type {
 } from '@/modules/providers/index.js';
 import { sessionHostManager } from '@/modules/session-hosts/index.js';
 import type { SessionHostManager } from '@/modules/session-hosts/index.js';
+import { voiceLexicon } from '@/modules/voice/index.js';
 import {
   activityAnnouncement,
   attachActivityHeartbeat,
@@ -747,6 +748,20 @@ export async function dispatchRun(
   const rawClientOptions = (data.options ?? {}) as AnyRecord;
   const clientOptions = (dependencies.dropClientEnv ?? withoutClientEnv)(rawClientOptions);
   const command = typeof data.content === 'string' ? data.content : '';
+
+  // THE ONE PLACE a message the person composed is recorded into the U-source
+  // lexicon. `dispatchRun` is the single funnel every accepted human turn passes
+  // through — the control service's `chat.send` and the inline `chat.edit-send`
+  // both land here — so this is the whole auto-record path, not one of several.
+  // A second hook anywhere else would count a message twice, which is exactly the
+  // number this index exists to report.
+  //
+  // It is deliberately AFTER the `!run` refusal above: a turn that was refused
+  // because the session was busy was never sent, so its words are not something
+  // the user said yet. `command` is what the comment below already calls "a
+  // message somebody composed"; the injected prompts and credential-style
+  // messages are filtered inside the lexicon, so no caller has to know the rules.
+  voiceLexicon.observeSentText(command, session.project_path ?? '');
 
   // Record what this turn runs with so reopening the session later restores the
   // same model and reasoning effort, and so the resume path has a

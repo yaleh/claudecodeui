@@ -17,6 +17,7 @@ import {
   voiceCaptureDirStartupLine,
 } from './voice-capture.js';
 import { createVoiceRouter } from './voice.routes.js';
+import { voiceLexicon } from './voice-lexicon.js';
 import { createVoiceService, createVoiceSettingsService } from './voice.service.js';
 
 /**
@@ -215,6 +216,10 @@ const voiceSettingsService = createVoiceSettingsService(voiceSettingsDb);
 export const voiceRoutes = createVoiceRouter({
   voiceService,
   voiceSettingsService,
+  // The U-source lexicon, whose singleton binds the database store to the session
+  // index. It is the SAME instance the chat dispatch records into, so a token a
+  // sent message just deposited is immediately visible to `GET /lexicon`.
+  lexiconService: voiceLexicon,
   parseAudioUpload: audioUpload.single('audio'),
   // The raw endpoint's own parser, built above from its own ceiling. The router owns both routes and
   // never learns a size; which figure bounds which endpoint is decided here, at the one place that

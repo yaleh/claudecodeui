@@ -294,6 +294,41 @@ CREATE TABLE IF NOT EXISTS user_voice_settings (
 `;
 
 /**
+ * The U-source: identifier-shaped tokens the user has *sent*, and how often.
+ *
+ * WHY IT IS A TABLE OF COUNTS AND NOT OF MESSAGES. The whole point of this store
+ * is that a token's frequency is the signal — a word the user genuinely uses
+ * shows up repeatedly, while a one-off appears once — and the signal is readable
+ * from a count. Keeping the sentences would keep a second copy of the user's own
+ * text next to the transcript that already holds it, for no reading this store
+ * serves, so nothing but the token, its counts and its timestamps is stored.
+ *
+ * `(token_lower, project_key)` is the key: the same spelling in two projects is
+ * two rows, which is what lets a future per-project view exist without a
+ * migration, while `listTop` sums across them for the one global list the API
+ * returns today. `token_lower` is the lookup key and `canonical` keeps the
+ * spelling first seen, so `CloudCLI` and `cloudcli` count as one token and the
+ * listing still shows a real casing.
+ *
+ * `first_seen_at` / `last_seen_at` are epoch milliseconds written by the
+ * service's injected clock rather than `CURRENT_TIMESTAMP`, so a criterion can
+ * pin them. No foreign key: the lexicon is scoped by `project_key` (a path), not
+ * by a `projects` row, so a project removed from the sidebar leaves its word
+ * frequencies readable rather than cascading them away.
+ */
+export const VOICE_USER_IDENTIFIERS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS voice_user_identifiers (
+    token_lower TEXT NOT NULL,
+    canonical TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    project_key TEXT NOT NULL,
+    PRIMARY KEY (token_lower, project_key)
+);
+`;
+
+/**
  * Provider sessions an app session has moved off, and must never move back to.
  *
  * Editing a message on a provider that cannot resume a transcript partway
@@ -530,4 +565,6 @@ ${SESSION_DRAFTS_TABLE_SCHEMA_SQL}
 ${SUPERSEDED_PROVIDER_SESSIONS_TABLE_SCHEMA_SQL}
 
 ${USER_VOICE_SETTINGS_TABLE_SCHEMA_SQL}
+
+${VOICE_USER_IDENTIFIERS_TABLE_SCHEMA_SQL}
 `;

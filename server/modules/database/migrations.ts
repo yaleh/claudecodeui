@@ -23,6 +23,7 @@ import {
   USER_PREFERENCES_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
   VAPID_KEYS_TABLE_SCHEMA_SQL,
+  VOICE_USER_IDENTIFIERS_TABLE_SCHEMA_SQL,
 } from '@/modules/database/schema.js';
 
 const SQLITE_UUID_SQL = `
@@ -932,6 +933,12 @@ export const runMigrations = (db: Database) => {
     db.exec(SESSION_DRAFTS_TABLE_SCHEMA_SQL);
     db.exec(SUPERSEDED_PROVIDER_SESSIONS_TABLE_SCHEMA_SQL);
     addSupersededTranscriptPathColumn(db);
+
+    // The U-source lexicon (gap-voice-user-identifier-index-import). Owned by no
+    // other table — it keys off a project path, not a `projects` row — so it has
+    // no place among the ordered rebuilds below and is created here beside the
+    // other standalone feature tables.
+    db.exec(VOICE_USER_IDENTIFIERS_TABLE_SCHEMA_SQL);
 
     db.exec(PROJECTS_TABLE_SCHEMA_SQL);
     rebuildProjectsTableWithPrimaryKeySchema(db);
