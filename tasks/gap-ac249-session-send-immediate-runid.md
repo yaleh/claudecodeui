@@ -76,18 +76,18 @@ AC-249（GOAL-020 退出条件 8 的第一条；SPEC `docs/proposals/mcp-gateway
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-249 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-send.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-send.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-send.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) `session_send` 在运行仍 running 时返回；`runId` 与注册表当前运行逐字相等、`getRunById(runId).source === 'mcp'`、`listRunningRuns()` 与 `GET /api/providers/sessions/running` 都含该会话；逐字写出 runId/source/status 与两处列表读数；正例对照 runId 非空。
-- [ ] AC4 (b) 控制服务收到的 `caller.userId` 等于令牌属主且非 null，注册表运行 `userId` 与属主相等；逐字写出两侧 id。
-- [ ] AC5 (c) 常驻会话忙时返回 `queued: true` 与非空 `queuedMessageUuid`，且 uuid 等于驱动队列末条；逐字写出 queued 与 uuid。
-- [ ] AC6 (d) 按次进程会话忙时返回结构化 `RUN_IN_PROGRESS`，带当前运行 runId 与含 `run_get`/「稍后重试」的提示；逐字写出错误体与当前 runId。
-- [ ] AC7 (e) `waitSeconds: 40` 而运行第 3 秒结束 ⇒ `elapsedMs < 40000` 且带回最终消息并与夹具末条助手消息逐字相等（逐字写 elapsed 与两侧文本）。
-- [ ] AC8 (f) 仅 `cloudcli:read` 令牌调用被拒（isError）、`mcp_audit_log` 新增恰好一行 `tool='session_send'`/`outcome='denied'`、控制服务 send 计数为 0；逐字写出该行与前后计数。
-- [ ] AC9 (g) 同一控制服务实例：WS `chat.send` 与 MCP `session_send` 都使同一个 spy 计数 +1；逐字写出 wsCount/mcpCount 与实例身份判定。
-- [ ] AC10 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 等运行结束才返回 ⇒ AC3 红；(ii) 来源记成 scheduled ⇒ AC3 红；(iii) 忙时一律拒绝 ⇒ AC5 红；(iv) 网关自造控制服务 ⇒ AC9 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有控制服务判据 `server/modules/websocket/tests/chat-control-*.test.ts`、AC-245 判据 `mcp-read-tools.test.ts` 与 AC-248 判据 `mcp-run-get.test.ts` 不改一字仍逐字通过（本任务只新增写工具与适配层，不改控制服务、不改只读工具集合）。
-- [ ] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-249 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-send.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-send.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-send.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) `session_send` 在运行仍 running 时返回；`runId` 与注册表当前运行逐字相等、`getRunById(runId).source === 'mcp'`、`listRunningRuns()` 与 `GET /api/providers/sessions/running` 都含该会话；逐字写出 runId/source/status 与两处列表读数；正例对照 runId 非空。
+- [x] AC4 (b) 控制服务收到的 `caller.userId` 等于令牌属主且非 null，注册表运行 `userId` 与属主相等；逐字写出两侧 id。
+- [x] AC5 (c) 常驻会话忙时返回 `queued: true` 与非空 `queuedMessageUuid`，且 uuid 等于驱动队列末条；逐字写出 queued 与 uuid。
+- [x] AC6 (d) 按次进程会话忙时返回结构化 `RUN_IN_PROGRESS`，带当前运行 runId 与含 `run_get`/「稍后重试」的提示；逐字写出错误体与当前 runId。
+- [x] AC7 (e) `waitSeconds: 40` 而运行第 3 秒结束 ⇒ `elapsedMs < 40000` 且带回最终消息并与夹具末条助手消息逐字相等（逐字写 elapsed 与两侧文本）。
+- [x] AC8 (f) 仅 `cloudcli:read` 令牌调用被拒（isError）、`mcp_audit_log` 新增恰好一行 `tool='session_send'`/`outcome='denied'`、控制服务 send 计数为 0；逐字写出该行与前后计数。
+- [x] AC9 (g) 同一控制服务实例：WS `chat.send` 与 MCP `session_send` 都使同一个 spy 计数 +1；逐字写出 wsCount/mcpCount 与实例身份判定。
+- [x] AC10 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 等运行结束才返回 ⇒ AC3 红；(ii) 来源记成 scheduled ⇒ AC3 红；(iii) 忙时一律拒绝 ⇒ AC5 红；(iv) 网关自造控制服务 ⇒ AC9 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；既有控制服务判据 `server/modules/websocket/tests/chat-control-*.test.ts`、AC-245 判据 `mcp-read-tools.test.ts` 与 AC-248 判据 `mcp-run-get.test.ts` 不改一字仍逐字通过（本任务只新增写工具与适配层，不改控制服务、不改只读工具集合）。
+- [x] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -117,3 +117,78 @@ AC-249（GOAL-020 退出条件 8 的第一条；SPEC `docs/proposals/mcp-gateway
 - (g) 的形态照 SPEC §203 与 AC-233 的间谍计数：装配点 `server/index.ts` 只构造一个控制服务实例，同一对象交给 `createWebSocketServer`、scheduled-messages 与 `mountMcpGateway`；判据用同一对象身份判定 + 两向计数。取假形态 (iv) 证明这条闸有效。
 - 写工具集合 `MCP_STAGE4_WRITE_TOOLS` 是写工具名的唯一事实来源（AC-252 的自指保护读它取网关写工具名，不手写第二份）；AC-250/251 只替换 handler，不改集合。
 - `waitSeconds` 上限复用 AC-248 的 `MCP_RUN_GET_MAX_WAIT_SECONDS`（从 `./mcp-run-get.js` 导入），不重写第二份字面量；等待循环只经注入的 `now`/`sleep`。
+
+## Change Notes (worker, 2026-10-05)
+
+实现提交：`224e8646 feat(mcp-gateway): session_send returns a runId at once (AC-249)`（含判据）。以下为逐条 AC 证据。
+
+### AC1 红态基线（判据文件尚不存在时）
+命令：
+`for f in server/modules/mcp-gateway/tests/mcp-session-send.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-send.test.ts`
+输出（stderr）：`缺判据文件：server/modules/mcp-gateway/tests/mcp-session-send.test.ts`；退出码 1。
+
+### AC2 绿
+`# tests 7` / `# pass 7` / `# fail 0`（退出 0）。
+
+### AC3 (a) 立即返回 + 同一种运行（逐字）
+`session-send (a) payload={"runId":"eeed5fc7-36c6-44f4-8e1d-1fb1fc6d98a0","queued":false,"queuedMessageUuid":null,"source":"mcp"}`
+`session-send (a) registry.current={"runId":"eeed5fc7-...","source":"mcp","status":"running"}`
+`session-send (a) registry.byId={"runId":"eeed5fc7-...","sessionId":"20deed9b-...","source":"mcp","status":"running",...}`
+`session-send (a) listRunningRuns(for session)=[{"sessionId":"20deed9b-...","provider":"debug","startedAt":...}]`
+`session-send (a) GET /api/providers/sessions/running sessions=["20deed9b-..."]`
+正例对照：runId 非空且与注册表逐字相等；`byId.source` = `mcp`。
+
+### AC4 (b) caller.userId
+`session-send (b) spy.callers=[{"userId":1,"via":"mcp"}] tokenOwner=1 runWriterUserId=1`（两侧相等且非 null）。
+
+### AC5 (c) 常驻忙时排队
+`session-send (c) second={"runId":"24411b3c-...","queued":true,"queuedMessageUuid":"2a4801cf-eb3f-4767-9fc8-875fa27ce7f8","source":"mcp"} queue={"list":["2a4801cf-..."],"tail":"2a4801cf-..."}`（uuid === 驱动队列末条）。
+
+### AC6 (d) 按次进程忙时拒绝
+`session-send (d) errorBody={"code":"RUN_IN_PROGRESS","runId":"bc935920-4d55-4e40-9f21-167cd1ed3419","message":"Session \"83e13986-...\" already has a run in progress.","hint":"该会话已有运行在进行；改用 run_get 查询它的进展，或稍后重试。"} isError=true`（runId === 当前运行；hint 含 `run_get` 与「稍后重试」）。
+
+### AC7 (e) 有界等待
+`run.elapsedMs=3195`（< 40000），`realElapsedMs=18`，`outcome="settled"`，`lastAssistantMessage.content="最后一条助手消息：运行已结束。"`（与夹具末条助手消息逐字相等）。
+
+### AC8 (f) scope 不足
+`session-send (f) isError=true text="Insufficient scope for this tool." sendCallsBefore=0 sendCallsAfter=0`
+`session-send (f) newAuditRows=[{"id":1,"token_id":2,"client_id":null,"tool":"session_send","args_digest":"{\"session\":\"a8071ff0-...\",\"message\":{\"length\":6,\"preview\":\"denied\"}}","outcome":"denied","duration_ms":0}]`（恰好一行；控制服务 send 计数 0）。
+
+### AC9 (g) 同一控制服务实例
+`session-send (g) before=0 wsCount=1 mcpCount=2 callers=[{"userId":1,"via":"websocket"},{"userId":1,"via":"mcp"}]`（同一 spy 对象两向各 +1）。
+
+### AC10 取假形态（先提交 224e8646，再逐条变异；恢复命令 `git checkout -- <file>`；恢复后整判据重跑 `# pass 7 / # fail 0`）
+(i) `mcp-session-send.ts`：`waitSeconds === 0` 时轮询等待运行结束（新增 setTimeout 轮询块）⇒ AC3 红，逐字失败行：
+`AssertionError [ERR_ASSERTION]: the run must still be running when the tool returns` / `actual: 'completed',` / `expected: 'running',`
+恢复：`git checkout -- server/modules/mcp-gateway/mcp-session-send.ts`
+(ii) `mcp-session-send.ts`：`ControlCaller.via` 类型放宽为 `'mcp' | 'scheduled'` 且传 `via: 'scheduled'` ⇒ AC3 红，逐字失败行：
+`AssertionError [ERR_ASSERTION]: the run source must read mcp` / `actual: 'scheduled',` / `expected: 'mcp',`
+恢复：`git checkout -- server/modules/mcp-gateway/mcp-session-send.ts`
+(iii) `mcp-session-send.ts`：成功后 `if (result.queued) throw refusal({code:'RUN_IN_PROGRESS',...})`（不透出 queued）⇒ AC5 红，逐字失败行：
+`AssertionError [ERR_ASSERTION]: the busy send must queue, not throw (text={"code":"RUN_IN_PROGRESS",...})` / `actual: true,` / `expected: false,`
+恢复：`git checkout -- server/modules/mcp-gateway/mcp-session-send.ts`
+(iv) `mcp-gateway.transport.ts`：`registerMcpWriteTools(register, { ...writeTools, control: { send: async () => ({ok:true,runId:'gateway-self-made',...}) } })`（网关自造控制答复，不接注入的单例）⇒ AC9 红，逐字失败行：
+`AssertionError [ERR_ASSERTION]: the MCP session_send must bump the SAME spy by one more` / `actual: 1,` / `expected: 2,`
+恢复：`git checkout -- server/modules/mcp-gateway/mcp-gateway.transport.ts`
+
+### AC11 不回归与仓库门
+- `npm run typecheck`：退出 0（三个 tsconfig 全过）。
+- `npm run lint`：`: error ` 计数 = 0。
+- 未改一字、逐字仍绿的既有判据：`chat-control-send/busy/access/source` + `mcp-read-tools` + `mcp-run-get` 合并跑读数 `# tests 30 / # pass 30 / # fail 0`。
+
+### AC12 diff 与 Touches 对齐
+`git diff --stat develop...HEAD`：
+```
+ server/index.ts                                    |  34 +-
+ server/modules/mcp-gateway/index.ts                |  34 +
+ server/modules/mcp-gateway/mcp-gateway.transport.ts| 106 ++-
+ server/modules/mcp-gateway/mcp-gateway.write-tools.ts (new) | 190 ++
+ server/modules/mcp-gateway/mcp-session-send.ts     (new) | 241 ++
+ server/modules/mcp-gateway/tests/mcp-session-send.test.ts (new) | 703 ++
+```
+逐条对应 `## Touches`；另 `tasks/gap-ac249-session-send-immediate-runid.md` 由 task_write 提交。
+
+### 实现说明（与判据形态有关的两个事实）
+- 判据用**真实调试 agent 且不分子进程**：文件顶部在**任何 aliased import 之前**写 `process.env.DEBUG_AGENT='on'` / `DEBUG_AGENT_HOME`（并把 `HOME` 重定向到 scratch），因此 `provider.registry` 在 gate 打开后才构建。AC-245 判据注释里「gate 已在 import 时关闭」的前提只在先有静态 application import 时成立；本文件无静态 application import，故 gate 可开，常驻/按次进程两种会话都是调试 agent 真会话。
+- `writeTools` 未接线时传输行为与 AC-240/244/245 完全一致（不注册任何写工具），因此只读集合判据不受影响。
+- 判据的 REST 运行中列表在同一 app 上挂 `GET /api/providers/sessions/running`，处理函数**请求时**读 `chatRunRegistry.listRunningRuns()`（与生产该路由同一数据源），不是夹具事先拍下的快照。
