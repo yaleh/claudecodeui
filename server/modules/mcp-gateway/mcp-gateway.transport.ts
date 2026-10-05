@@ -14,6 +14,8 @@ import { MCP_GATEWAY_PATH, readMcpGatewayGate } from './mcp-gateway.gate.js';
 import { createMcpLoopbackGuard } from './mcp-gateway.loopback.js';
 import { registerMcpReadTools } from './mcp-gateway.read-tools.js';
 import type { McpReadToolDeps, McpReadToolSeam } from './mcp-gateway.read-tools.js';
+import { registerMcpResidentTools } from './mcp-gateway.resident-tools.js';
+import type { McpResidentToolDeps, McpResidentToolSeam } from './mcp-gateway.resident-tools.js';
 import { registerMcpWriteTools } from './mcp-gateway.write-tools.js';
 import type { McpWriteToolDeps, McpWriteToolSeam } from './mcp-gateway.write-tools.js';
 import { resolveInputTargets } from './mcp-resolve-target.js';
@@ -80,12 +82,19 @@ const SERVER_INFO = { name: 'claudecodeui-mcp-gateway', version: '0.1.0' };
  * `session_interrupt` handlers; a bag without them keeps the placeholders. An
  * unwired mount registers neither read nor write tools and keeps answering an
  * empty `tools/list`.
+ *
+ * Stage-6 resident tools (AC-271) register through that same seam when
+ * {@link McpGatewayDeps.residentTools} is present. They are a SEPARATE table
+ * from the stage-4 write tools — `session_cancel_queued` is not one of the five
+ * — so the stage-4 name set AC-249 pins stays exactly five, and the resident
+ * bag flows to `registerMcpResidentTools` over the same one control service.
  */
 function createMcpServer(
   registerTools: McpToolRegistrar | undefined,
   principal: McpPrincipal | null,
   readTools: McpReadToolDeps | undefined,
   writeTools: McpWriteToolDeps | undefined,
+  residentTools: McpResidentToolDeps | undefined,
   resolveDeps: McpResolveDeps | undefined
 ): McpServer {
   const server = new McpServer(SERVER_INFO, { capabilities: { tools: {} } });
@@ -93,7 +102,7 @@ function createMcpServer(
     registerTools(server, principal);
     return server;
   }
-  if (!readTools && !writeTools) {
+  if (!readTools && !writeTools && !residentTools) {
     server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
     return server;
   }
@@ -156,6 +165,27 @@ function createMcpServer(
     registerMcpWriteTools(register, writeTools);
   }
 
+  if (residentTools) {
+    const register: McpResidentToolSeam = (registration) =>
+      audited(
+        registration.name,
+        registration.description,
+        registration.requiredScope,
+        registration.inputSchema,
+        registration.outputSchema,
+        (args) => {
+          if (principal === null) {
+            // Unreachable: `withMcpAudit` denies a null principal before the
+            // handler is reached. Stated rather than asserted so a future
+            // wrapper change fails loudly instead of handing `null` on.
+            throw new Error(`${registration.name} requires an authenticated principal.`);
+          }
+          return registration.handler(args, { principal });
+        },
+      );
+    registerMcpResidentTools(register, residentTools);
+  }
+
   return server;
 }
 
@@ -175,6 +205,7 @@ function attachTransport(
   registerTools: McpToolRegistrar | undefined,
   readTools: McpReadToolDeps | undefined,
   writeTools: McpWriteToolDeps | undefined,
+  residentTools: McpResidentToolDeps | undefined,
   resolveDeps: McpResolveDeps | undefined
 ): void {
   const loopbackGuard = createMcpLoopbackGuard(env);
@@ -182,7 +213,14 @@ function attachTransport(
   app.post(MCP_GATEWAY_PATH, loopbackGuard, authorize, async (req, res) => {
     // The principal the auth middleware attached; audited tools are registered
     // per request against it, so the audit row names the invoking token.
-    const server = createMcpServer(registerTools, readMcpPrincipal(res), readTools, writeTools, resolveDeps);
+    const server = createMcpServer(
+      registerTools,
+      readMcpPrincipal(res),
+      readTools,
+      writeTools,
+      residentTools,
+      resolveDeps,
+    );
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
       transport.close();
@@ -279,6 +317,20 @@ export type McpGatewayDeps = {
    */
   writeTools?: McpWriteToolDeps;
   /**
+   * The services AC-271's stage-6 resident tools answer from, assembled by the
+   * composition root (`server/index.ts`) over the process singletons. AC-271
+   * delivers `session_cancel_queued`, whose one dep is the SAME chat control
+   * service `writeTools.control` points at (AC-233's single instance) — the
+   * resident bag restates only the `cancelQueued` verb it reads, so the gateway
+   * still holds one control service, not two.
+   *
+   * Supplying it registers {@link MCP_STAGE6_RESIDENT_TOOLS} through the SAME
+   * audited seam the read and write tools use. Absent keeps a mount that only
+   * exercises the stage-3/4 tools (AC-240/244/245/249's criteria) registering
+   * exactly what it did before.
+   */
+  residentTools?: McpResidentToolDeps;
+  /**
    * The active project/session entries AC-246's target gate resolves a
    * `project` / `session` argument against. Supplying it turns on the gate for
    * every tool this mount registers: the reference is rewritten to an id before
@@ -319,6 +371,7 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     deps.registerTools,
     deps.readTools,
     deps.writeTools,
+    deps.residentTools,
     deps.resolveDeps
   );
   return { mounted: true, reason: gate.reason };

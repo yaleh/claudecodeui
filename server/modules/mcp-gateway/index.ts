@@ -229,3 +229,26 @@ export type {
   McpResolveResult,
   McpTargetKind,
 } from './mcp-resolve-target.js';
+
+// The stage-6 resident tools (AC-271). `MCP_STAGE6_RESIDENT_TOOLS` is the one
+// statement of which stage-6 tools exist and the scope each requires — a later
+// stage-6 task (AC-272–AC-274) appends to it rather than minting a second list,
+// and AC-252's self-referential guard reads the gateway tool names from these
+// tables. `registerMcpResidentTools` installs them through the same audited
+// seam the read/write tools use; the transport calls it when the mount carries
+// a resident-tools deps bag. `buildSessionCancelQueued` is `session_cancel_queued`'s
+// adapter — it translates the control service's `withdrawn` into AC-271's
+// `cancelled`, and never reads a non-withdrawn verdict as `cancelled` — driven
+// by the criterion through the real mount; `server/index.ts` supplies the deps.
+export { MCP_STAGE6_RESIDENT_TOOLS, registerMcpResidentTools } from './mcp-gateway.resident-tools.js';
+export type { McpResidentToolDeps, McpResidentToolSeam, McpStage6ResidentToolName } from './mcp-gateway.resident-tools.js';
+
+export { buildSessionCancelQueued, readSessionCancelQueuedInput, SESSION_CANCEL_QUEUED_INPUT_SCHEMA } from './mcp-session-cancel-queued.js';
+export type {
+  McpSessionCancelQueuedDeps,
+  McpSessionCancelQueuedInput,
+  McpSessionCancelQueuedRegistration,
+  McpSessionCancelQueuedSeam,
+  SessionCancelQueuedOutcome,
+  SessionCancelQueuedPayload,
+} from './mcp-session-cancel-queued.js';
