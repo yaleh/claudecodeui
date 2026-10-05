@@ -1,7 +1,7 @@
 ---
 id: gap-undici-blocked-ports-held-in-server-test-lane
 title: server 测试通道占住 undici 拦截的 18 个端口，消除 listen(0) 路由测试的 bad port 随机红
-status: ready
+status: done
 labels:
   - gap
   - defect
