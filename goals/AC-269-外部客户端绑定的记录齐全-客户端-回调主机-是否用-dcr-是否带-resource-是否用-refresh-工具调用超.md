@@ -1,7 +1,7 @@
 ---
 id: AC-269
 title: 外部客户端绑定的记录齐全：客户端、回调主机、是否用 DCR、是否带 resource、是否用 refresh、工具调用超时实测、overview 结果
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: for f in scripts/mcp-smoke.mjs
@@ -18,4 +18,15 @@ expect: 记录文件逐节齐全，每节有「读数：」与「结论：」两
   输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:23:51.500Z
+statusLog:
+  - at: 2026-10-05T02:23:51.500Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:23:51.500Z
 ---
