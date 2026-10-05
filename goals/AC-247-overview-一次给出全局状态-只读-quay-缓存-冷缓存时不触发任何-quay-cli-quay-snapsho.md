@@ -1,7 +1,7 @@
 ---
 id: AC-247
 title: overview 一次给出全局状态，只读 quay 缓存，冷缓存时不触发任何 quay CLI；quay_snapshot 单独负责刷新，一次一个项目
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-overview.test.ts; do [
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T07:57:12.033Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
