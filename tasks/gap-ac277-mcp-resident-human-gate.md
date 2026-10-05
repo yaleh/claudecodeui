@@ -67,22 +67,23 @@ goal_ac: AC-277
 - 记录文件是只读面：worker 不修改它，只读它并在本任务 `## Evidence` 里摘录读数。
 - 绝不碰生产 3001：不连接、不启用 `MCP_ENABLED`、不重启（内存 `never-restart-3001-from-inside-a-session-it-hosts`）。
 - 常驻专有冒烟的真跑成本（真 Claude CLI + 真模型调用 + 审批路径）已由 AC-276 承担一次；本条不重跑冒烟，只重跑机械复核（`--check-resident-record` 是纯读）。
+- **人工关卡已于 2026-10-06 解除**：人 yale 于 07:17 授权写入验收行（会话 `eee45110-fdea-48c8-b1bc-c9812c7a500e` 的人轮逐字「通过。授权你更新这两个文件。」），记录文件于 07:17:52 写入并由提交 `79003c92`（`docs(mcp): 人 yale 写入两条人工验收行 —— AC-257 与 AC-277`）落在 develop；AC6 判据退出 **0**。因此本任务不再停在 `needs-human`——上面「停在 needs-human 才是设计终态」说的是**人写入之前**的形态，写入后按 Plan 第 5 步「勾 AC6 → 正常推进」。勾选经由 develop 的该提交随 `git merge develop` 带入本分支，worker 未代写验收行、未手改勾选字符。
 
 ## Evidence
 
-**AC1 — 前置齐全（AC-276 判据绿）。** 逐字命令 `for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-resident-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**。stdout 逐字：`记录合格：docs/proposals/cloudcli-mcp-resident-smoke.md 八节齐全、每节 读数：/结论： 非空、撤回节 pid-before == pid-after`。
+**AC1 — 前置齐全（AC-276 判据绿）。** 逐字命令 `for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-resident-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**。stdout 逐字：`记录合格：docs/proposals/cloudcli-mcp-resident-smoke.md 八节齐全、每节 读数：/结论： 非空、撤回节 pid-before == pid-after`。（2026-10-06 本轮在人证行写入后复跑，仍退出 **0**、stdout 逐字相同——第九节「人证行」的追加不影响八节机械复核。）
 
 **AC2 — 记录八节齐全且每节读数非空。** `node scripts/mcp-smoke.mjs --check-resident-record docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**（stdout 同上）。逐节标题与两行存在性（机械判定：该节正文含非空 `读数：`行 与 非空 `结论：`行）：`## 环境与版本` 读数非空 / 结论非空；`## 常驻会话启动与 pid` 读数非空 / 结论非空；`## 忙时发送` 读数非空 / 结论非空；`## 撤回与 pid 不变` 读数非空 / 结论非空；`## 重配置下一轮生效` 读数非空 / 结论非空；`## 后台任务列出与停止` 读数非空 / 结论非空；`## 审批` 读数非空 / 结论非空；`## 收尾残留与生产监听 pid` 读数非空 / 结论非空。八节共 8/8 全非空。
 
-**AC3 — 撤回节 pid 不变（+ 正控制）。** 撤回节 `读数：` 行逐字：`读数：session_cancel_queued 返回逐字 {"outcome":"cancelled","session":"6f79fd6a-d74c-4b94-a574-a7f5edafdf07","messageUuid":"435e3bca-3cdb-416e-8985-0201b880806d","message":"该排队消息已撤回，不会成为一轮。"}；outcome=cancelled；pid-before=3891032 pid-after=3891032（相同即未换进程）；撤回的 uuid=435e3bca-3cdb-416e-8985-0201b880806d。`。对该节运行 `grep -oE 'pid-(before|after)=[0-9]+'` 得到 `pid-before=3891032` 与 `pid-after=3891032`，二者**相等**。正控制：把记录拷贝到 `mktemp -d` 临时目录、将 `pid-after=3891032` 改成 `pid-after=9999999` 后 `--check-resident-record` 退出 **1**，stderr 逐字点名 `缺节：撤回与 pid 不变 —— pid 不等：pid-before=3891032 pid-after=9999999（撤回不得换进程）`——证明该读数有分辨力、不是恒等。临时拷贝在临时目录内、已删除，未入库。
+**AC3 — 撤回节 pid 不变（+ 正控制）。** 撤回节 `读数：` 行逐字：`读数：session_cancel_queued 返回逐字 {"outcome":"cancelled","session":"6f79fd6a-d74c-4b94-a574-a7f5edafdf07","messageUuid":"435e3bca-3cdb-416e-8985-0201b880806d","message":"该排队消息已撤回，不会成为一轮。"}；outcome=cancelled；pid-before=3891032 pid-after=3891032（相同即未换进程）；撤回的 uuid=435e3bca-3cdb-416e-8985-0201b880806d。`。对该节运行 `grep -oE 'pid-(before|after)=[0-9]+'` 得到 `pid-before=3891032` 与 `pid-after=3891032`，二者**相等**（2026-10-06 本轮复跑，读数不变）。正控制：把记录拷贝到 `mktemp -d` 临时目录、将 `pid-after=3891032` 改成 `pid-after=9999999` 后 `--check-resident-record` 退出 **1**，stderr 逐字点名 `缺节：撤回与 pid 不变 —— pid 不等：pid-before=3891032 pid-after=9999999（撤回不得换进程）`——证明该读数有分辨力、不是恒等。临时拷贝在临时目录内、已删除，未入库。
 
-**AC4 — 反自点亮（负控制 + 正控制）。** 负控制：`grep -c '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` → **0**（grep 退出 1，无匹配）；`grep -c '常驻专有能力验收：通过' scripts/mcp-smoke.mjs` → **0**（grep 退出 1，无匹配）。正控制：把记录拷贝到 `mktemp -d` 临时目录、在文件行首插入一行 `常驻专有能力验收：通过（正控制临时拷贝）` 后同一 `grep -c '^常驻专有能力验收：通过'` → **1**（grep 退出 0）——证明负控制的 0 有分辨力、不是恒零。临时拷贝在临时目录内、已删除，未入库。
+**AC4 — 反自点亮（负控制 + 正控制）。** 负控制（人写入前登记）：`grep -c '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` → **0**（grep 退出 1，无匹配）；`grep -c '常驻专有能力验收：通过' scripts/mcp-smoke.mjs` → **0**（grep 退出 1，无匹配）。正控制：把记录拷贝到 `mktemp -d` 临时目录、在文件行首插入一行 `常驻专有能力验收：通过（正控制临时拷贝）` 后同一 `grep -c '^常驻专有能力验收：通过'` → **1**（grep 退出 0）——证明负控制的 0 有分辨力、不是恒零。临时拷贝在临时目录内、已删除，未入库。**人写入后复测（2026-10-06）：**脚本腿 `grep -c '常驻专有能力验收：通过' scripts/mcp-smoke.mjs` → **0**（脚本里始终无该字样，worker 未自点亮）；记录腿 → **1**，因为人 yale 已按预期写入验收行——这正是本门的目的，不是自点亮（谁写的见 AC6 的授权出处）。
 
-**AC5 — 红态基线逐字记录。** 命令逐字：`grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md || { echo '缺人工验收行：docs/proposals/cloudcli-mcp-resident-smoke.md 里没有以「常驻专有能力验收：通过」开头的一行（只能由人 yale 写入）' >&2; exit 1; }`。输出（stderr）逐字：`缺人工验收行：docs/proposals/cloudcli-mcp-resident-smoke.md 里没有以「常驻专有能力验收：通过」开头的一行（只能由人 yale 写入）`。退出码 **1**。
+**AC5 — 红态基线逐字记录。** 命令逐字：`grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md || { echo '缺人工验收行：docs/proposals/cloudcli-mcp-resident-smoke.md 里没有以「常驻专有能力验收：通过」开头的一行（只能由人 yale 写入）' >&2; exit 1; }`。输出（stderr）逐字：`缺人工验收行：docs/proposals/cloudcli-mcp-resident-smoke.md 里没有以「常驻专有能力验收：通过」开头的一行（只能由人 yale 写入）`。退出码 **1**。**这是一次性基线**：人 yale 写入验收行后同一命令退出 **0**（见 AC6），本条保留的是**写入前**的红态读数，先例同 `gap-ac257` AC4 / `gap-ac270` AC5。
 
-**AC6 — 人证行（未满足，等 yale 写入）。** 人 yale 尚未写入；AC6 判据保持红（AC5 即其红态读数）。worker 不代写、不勾选该 AC。本任务终态应为 `needs-human`。
+**AC6 — 人证行已由人 yale 写入；该红由人的写入消掉，非 worker 自点亮。** 判据 `grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**（2026-10-06 实测）。人证行逐字（记录 `docs/proposals/cloudcli-mcp-resident-smoke.md:54`）：`常驻专有能力验收：通过 —— 裁定人：yale，2026-10-06。裁定依据为上列八节承重读数（忙时发送拿到 queuedMessageUuid；撤回 outcome=cancelled 且 pid-before == pid-after；重配置下一轮生效；后台任务列出并停止；非 bypass 权限模式下由需权限工具 Write 撞出审批、approvals_list 逐字看到、approval_answer(allow) 解除且探针文件真的写盘；收尾残留三条命中全 0；:3001 监听 pid 与 systemd MainPID 起终点逐字相同）。本行由受权会话代录，裁定本身出自人 yale。`**授权出处（逐字）**：会话 `eee45110-fdea-48c8-b1bc-c9812c7a500e`、时间 2026-10-05T23:17:22.451Z（= 2026-10-06 07:17:22 +0800）、`role=user` 的人轮，正文逐字含「在 docs/proposals/cloudcli-mcp-resident-smoke.md 里，另起一行写：常驻专有能力验收：通过」「**通过。授权你更新这两个文件。**」——写入授权出自人 yale 本人，不是执行者自造。**落地路径**：记录文件于 07:17:52 写入，由提交 `79003c92`（`docs(mcp): 人 yale 写入两条人工验收行 —— AC-257 与 AC-277`）落在 develop；本分支以 `git merge develop`（无冲突）带入该提交，故本任务文件里的 AC6 勾选来自 develop 的已提交状态，worker 既未代写验收行、也未手改勾选字符。
 
-**AC7 — 只写本任务文件。** `git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac277-mcp-resident-human-gate.md'` 无输出（除本任务文件外，产品代码与记录文件一行未改）。
+**AC7 — 只写本任务文件。** `git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac277-mcp-resident-human-gate.md'` 无输出（除本任务文件外，产品代码与记录文件一行未改；2026-10-06 合并 develop 后复跑仍无输出）。
 
 **承重读数摘录（均引自记录 `docs/proposals/cloudcli-mcp-resident-smoke.md`，逐字）。**
 
@@ -95,7 +96,7 @@ goal_ac: AC-277
 - **收尾残留三条命中数 0（§收尾残留与生产监听 pid）。** 临时根 `/tmp/ac276-resident-20261006-063224`：`pgrep-命中=0`、`/proc environ-命中=0`、`systemctl --user scope-命中=0`（前两条只认本次冒烟子树内的进程）。
 - **`:3001` 起终点监听 pid 相同（§收尾残留与生产监听 pid）。** 起点读数 `listener-pid=2286735 systemd-main-pid=2286735`；终点读数 `listener-pid=2286735 systemd-main-pid=2286735`（逐字相同即监听 pid 与 systemd MainPID 都没被动过）；全程未连接 / 未启用 / 未重启 3001。
 
-**请求人 yale 做的唯一动作。** 在记录文件 `docs/proposals/cloudcli-mcp-resident-smoke.md`（主检出 `/data/home/yale/work/claudecodeui/docs/proposals/cloudcli-mcp-resident-smoke.md`）写入一行、以「常驻专有能力验收：通过」开头（行首起、无前导空白）。写入后重跑 AC6 判据 `grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` 即退出 **0**，届时勾选 AC6、任务方可推进，GOAL-022 方可判 achieved。
+**请求人 yale 做的唯一动作（已于 2026-10-06 07:17 完成）。** 原请求：在记录文件 `docs/proposals/cloudcli-mcp-resident-smoke.md`（主检出 `/data/home/yale/work/claudecodeui/docs/proposals/cloudcli-mcp-resident-smoke.md`）写入一行、以「常驻专有能力验收：通过」开头（行首起、无前导空白）。**实际已完成**：人 yale 于 07:17:22 逐字答复「通过。授权你更新这两个文件。」，记录文件于 07:17:52 写入该行，由提交 `79003c92` 落在 develop；重跑 AC6 判据 `grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**。GOAL-022 退出条件 6 的两条 AC（AC-276 记录八节齐全 + AC-277 人证行）现已同时成立。
 
 ## Needs-Human
 
@@ -105,3 +106,5 @@ goal_ac: AC-277
 - 失败步/判词：AC 未全勾（checked 6/7，剩余未勾 1）——续做只需验证并勾选 AC
 - run_id：wk-prod-anchor
 - session_id：6ddec578-dc61-4a2e-9db9-3208b66c2689
+
+（本段是**写入前**的历史停摆记录，保留备查；AC6 已于 2026-10-06 由人 yale 的写入满足，见上。）
