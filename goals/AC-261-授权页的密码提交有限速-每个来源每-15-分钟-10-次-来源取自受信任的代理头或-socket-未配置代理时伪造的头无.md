@@ -1,7 +1,7 @@
 ---
 id: AC-261
 title: 授权页的密码提交有限速：每个来源每 15 分钟 10 次，来源取自受信任的代理头或 socket，未配置代理时伪造的头无效
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-consent-ratelimit.test.ts;
@@ -23,6 +23,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:24:44.416Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
