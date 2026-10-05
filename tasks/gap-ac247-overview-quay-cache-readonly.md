@@ -2,7 +2,7 @@
 id: gap-ac247-overview-quay-cache-readonly
 title: AC-247 overview 一次给出全局状态：只读 quay 缓存（冷缓存零 quay CLI 调用）、quay_snapshot
   单独刷新且一次一个项目；判据 server/modules/mcp-gateway/tests/mcp-overview.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
