@@ -62,7 +62,7 @@ import {
   readSessionSendInput,
   SESSION_SEND_INPUT_SCHEMA,
 } from './mcp-session-send.js';
-import type { McpControlSeam, McpRunReader, McpSessionRunGetSeam } from './mcp-session-send.js';
+import type { McpSessionSendDeps } from './mcp-session-send.js';
 
 // --------------------------- scope vocabulary ---------------------------
 
@@ -120,11 +120,14 @@ export type McpStage4WriteToolName = (typeof MCP_STAGE4_WRITE_TOOLS)[number]['na
  * control service every front end shares (AC-233), the run registry, and AC-248's
  * `run_get` builder over its own deps. The criterion passes the same real
  * objects over its fixture.
+ *
+ * The three `session_send` services come from {@link McpSessionSendDeps} so
+ * AC-272's optional stored-selection reader rides the same bag — a mount that
+ * supplies it dispatches an options-less send under the session's recorded
+ * model/effort/permissionMode; a mount that does not (AC-249's criterion) keeps
+ * AC-249's exact options-less send.
  */
-export type McpWriteToolDeps = {
-  control: McpControlSeam;
-  runs: McpRunReader;
-  runGet: McpSessionRunGetSeam;
+export type McpWriteToolDeps = McpSessionSendDeps & {
   /**
    * The services `session_create` answers from (AC-250). Optional so a mount
    * that only exercises `session_send` — AC-240/244/245/249's criteria — stays a

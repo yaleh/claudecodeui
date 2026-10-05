@@ -11,6 +11,7 @@ import type {
   HostBindErrorCode,
   HostMode,
   HostQueuedInputCancelResult,
+  HostReconfigurePatch,
   HostResidentStartResult,
   HostTurnInput,
   LLMProvider,
@@ -84,6 +85,22 @@ export type ControlBackgroundTaskOutcome =
   | 'unsupported'
   | 'timeout'
   | 'error';
+
+/**
+ * The answer the `reconfigure` verb gives about a live setting change.
+ *
+ * `live` and `next-turn` are the resident driver's own verdicts
+ * (`IProviderHostDriver.reconfigure`): the change took effect on the running
+ * process, or it will be picked up by the next turn's launch. `unsupported` is
+ * this layer's answer to every question it cannot place — an unknown provider, a
+ * session that is not resident, a driver without the verb, a host that is gone —
+ * and it is deliberately distinct from `next-turn`: "there is no live process to
+ * change" must never be reported as "the change is queued for the next one".
+ *
+ * Consumed by the MCP gateway's `session_reconfigure` adapter (AC-272), which
+ * maps `live`/`next-turn`/`unsupported` onto its own `applied` reading.
+ */
+export type HostReconfigureOutcome = 'live' | 'next-turn' | 'unsupported';
 
 /**
  * The per-run runtime's own background verb, read structurally.
@@ -761,6 +778,56 @@ export function createProviderRuntimeService(
       } catch {
         return null;
       }
+    },
+
+    /**
+     * Applies a model / effort / permission-mode change to a session's live
+     * resident process, or reports that it cannot be placed.
+     *
+     * This verb is a PASS-THROUGH and nothing else — it does not decide whether
+     * the provider supports live reconfiguration. That question belongs to the
+     * capability matrix (`residentFeatures.liveReconfigure`) and is read by the
+     * caller (the MCP `session_reconfigure` adapter, AC-272) before it reaches
+     * here; a second, competing judgement at this layer would be the one that
+     * drifts. What this verb does decide is *placement*: it resolves the
+     * session's resident driver and the process it is holding, and hands the
+     * patch to the driver's own `IProviderHostDriver.reconfigure`, passing the
+     * driver's verdict back unchanged.
+     *
+     * `unsupported` is the answer to every question this service cannot place —
+     * an unknown provider, a session that is not resident, a driver that carries
+     * no `reconfigure` verb, or (load-bearing) a session with no live host.
+     * A change with nothing running to apply it to is answered `unsupported`,
+     * never `next-turn`: the caller must be able to tell "the change is queued
+     * for the next turn" from "there is no live process to change".
+     *
+     * Consumed by the MCP gateway's `session_reconfigure` handler, which is
+     * wired to the process singleton (`server/index.ts`) and, in the criterion,
+     * to a runtime built over the scripted resident driver.
+     */
+    async reconfigure(
+      providerName: LLMProvider,
+      sessionId: string,
+      patch: HostReconfigurePatch,
+    ): Promise<HostReconfigureOutcome> {
+      let provider: IProvider;
+      try {
+        provider = dependencies.resolveProvider(providerName);
+      } catch {
+        return 'unsupported';
+      }
+
+      const resolved = resolveResidentDriver(provider, sessionId);
+      if (!resolved) {
+        return 'unsupported';
+      }
+
+      const driver = provider.hostDriver;
+      if (!driver || typeof driver.reconfigure !== 'function') {
+        return 'unsupported';
+      }
+
+      return driver.reconfigure(resolved.host, sessionId, patch);
     },
 
     /**

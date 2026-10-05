@@ -22,11 +22,17 @@
  * holds no clock of its own — it never calls `Date.now()` or `setTimeout`, so
  * the bounded wait moves only through the injected `now`/`sleep` inside
  * `buildRunGet`.
+ *
+ * AC-272 adds the optional {@link McpSessionSendSelection}: when it is wired, an
+ * options-less send reads the session's recorded model/effort/permissionMode and
+ * puts them on the run, so a `session_reconfigure` a caller made is what the next
+ * `session_send` actually runs with. Absent, the send is byte-identical to
+ * AC-249's.
  */
 
 import { z } from 'zod';
 
-import type { NormalizedMessage } from '@/shared/types.js';
+import type { LLMProvider, NormalizedMessage } from '@/shared/types.js';
 
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import { MCP_RUN_GET_MAX_WAIT_SECONDS } from './mcp-run-get.js';
@@ -69,7 +75,10 @@ export type McpControlSendResult =
 
 /** The one control verb `session_send` needs: opening a run. */
 export type McpControlSeam = {
-  send(caller: McpControlCaller, input: { sessionId: string; content: string }): Promise<McpControlSendResult>;
+  send(
+    caller: McpControlCaller,
+    input: { sessionId: string; content: string; options?: Record<string, unknown> },
+  ): Promise<McpControlSendResult>;
 };
 
 // --------------------------- run reading ---------------------------
@@ -106,11 +115,44 @@ export type McpSessionRunGetSeam = {
   build(input: { runId: string; waitSeconds?: number }, deps: McpRunGetDeps): Promise<RunGetPayload>;
 };
 
+/**
+ * The two readers AC-272 uses to assemble an options-less send's run options.
+ *
+ * `session_send`'s input carries no model/effort/permissionMode (the SPEC's
+ * argument shape is `{session, message, waitSeconds?}`), so when a caller has
+ * just changed a session's stored selection with `session_reconfigure`, the
+ * values have to be read back off the session row and put on the RUN — not left
+ * to the provider runtime's own resume default, which covers the model only.
+ * `sessions` names which provider the row belongs to (the selection lookup is
+ * provider-scoped) and `models` reads the recorded model, effort and permission
+ * mode.
+ *
+ * Optional as a whole, and absent means "do not assemble": AC-249's criterion
+ * wires no selection reader, so its `session_send` keeps sending an options-less
+ * run exactly as before. Production (`server/index.ts`) and AC-272's own
+ * criterion wire the process singletons.
+ */
+export type McpSessionSendSelection = {
+  sessions: { getSessionById(sessionId: string): { provider: string } | null | undefined };
+  models: {
+    resolveSessionModel(
+      provider: LLMProvider,
+      options: { sessionId: string },
+    ): Promise<{ model: string | null; effort: string | null; permissionMode: string | null }>;
+  };
+};
+
 /** The services `session_send` answers from, all injected. */
 export type McpSessionSendDeps = {
   control: McpControlSeam;
   runs: McpRunReader;
   runGet: McpSessionRunGetSeam;
+  /**
+   * The stored-selection reader AC-272 adds (see
+   * {@link McpSessionSendSelection}). Optional: absent keeps AC-249's
+   * options-less send verbatim.
+   */
+  selection?: McpSessionSendSelection;
 };
 
 // --------------------------- input and payload ---------------------------
@@ -180,6 +222,48 @@ function refusal(body: Record<string, unknown>): Error {
   return new Error(JSON.stringify(body));
 }
 
+/**
+ * Assembles the run options an options-less `session_send` should carry.
+ *
+ * Reads the session row's provider, then the model/effort/permissionMode
+ * `session_reconfigure` (or an ordinary UI send) last recorded for it, and
+ * returns them under the option names the dispatch path reads (`model`,
+ * `effort`, `permissionMode`). A field with no recorded value is omitted rather
+ * than sent as `null`, so a provider runtime's own default still applies to the
+ * fields nobody set.
+ *
+ * Returns `undefined` when no selection reader was wired, when the session row
+ * cannot be read, or when the row records none of the three values — in every
+ * case the send proceeds exactly as it did before AC-272, options-less.
+ */
+async function resolveSendOptions(
+  sessionId: string,
+  selection: McpSessionSendSelection | undefined,
+): Promise<Record<string, unknown> | undefined> {
+  if (!selection) {
+    return undefined;
+  }
+
+  const session = selection.sessions.getSessionById(sessionId);
+  if (!session || typeof session.provider !== 'string' || session.provider.length === 0) {
+    return undefined;
+  }
+
+  const recorded = await selection.models.resolveSessionModel(session.provider as LLMProvider, { sessionId });
+  const options: Record<string, unknown> = {};
+  if (typeof recorded.model === 'string' && recorded.model.length > 0) {
+    options.model = recorded.model;
+  }
+  if (typeof recorded.effort === 'string' && recorded.effort.length > 0) {
+    options.effort = recorded.effort;
+  }
+  if (typeof recorded.permissionMode === 'string' && recorded.permissionMode.length > 0) {
+    options.permissionMode = recorded.permissionMode;
+  }
+
+  return Object.keys(options).length > 0 ? options : undefined;
+}
+
 // --------------------------- buildSessionSend ---------------------------
 
 /**
@@ -206,7 +290,12 @@ export async function buildSessionSend(
   deps: McpSessionSendDeps,
 ): Promise<SessionSendPayload> {
   const caller: McpControlCaller = { userId: ctx.principal.userId, via: 'mcp' };
-  const result = await deps.control.send(caller, { sessionId: input.session, content: input.message });
+  const options = await resolveSendOptions(input.session, deps.selection);
+  const result = await deps.control.send(caller, {
+    sessionId: input.session,
+    content: input.message,
+    ...(options ? { options } : {}),
+  });
 
   if (!result.ok) {
     if (result.code === 'RUN_IN_PROGRESS') {

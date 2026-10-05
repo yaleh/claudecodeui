@@ -262,10 +262,11 @@ export type {
   McpTargetKind,
 } from './mcp-resolve-target.js';
 
-// The stage-6 resident tools (AC-271). `MCP_STAGE6_RESIDENT_TOOLS` is the one
-// statement of which stage-6 tools exist and the scope each requires — a later
-// stage-6 task (AC-272–AC-274) appends to it rather than minting a second list,
-// and AC-252's self-referential guard reads the gateway tool names from these
+// The stage-6 resident tools (AC-271, extended by AC-272). `MCP_STAGE6_RESIDENT_TOOLS`
+// is the one statement of the table-listed stage-6 tools and the scope each
+// requires — AC-272 adds `session_reconfigure` alongside it rather than growing
+// the table, because AC-271's criterion pins the table's observable contents;
+// AC-252's self-referential guard reads the gateway tool names from these
 // tables. `registerMcpResidentTools` installs them through the same audited
 // seam the read/write tools use; the transport calls it when the mount carries
 // a resident-tools deps bag. `buildSessionCancelQueued` is `session_cancel_queued`'s
@@ -284,3 +285,26 @@ export type {
   SessionCancelQueuedOutcome,
   SessionCancelQueuedPayload,
 } from './mcp-session-cancel-queued.js';
+
+// `session_reconfigure` (AC-272). `buildSessionReconfigure` records a session's
+// model/effort/permissionMode and, when the provider declares the setting live,
+// asks the running resident process to move; an unsupported permission mode is
+// REFUSED with the supported list (the deliberate opposite of the WebSocket
+// path's silent ignore). `registerMcpSessionReconfigureTool` installs it through
+// the audited seam under `cloudcli:session:control`; the transport registers it
+// via `registerMcpResidentTools` and `server/index.ts` supplies the deps.
+export {
+  buildSessionReconfigure,
+  readSessionReconfigureInput,
+  registerMcpSessionReconfigureTool,
+  SESSION_RECONFIGURE_FIELDS,
+  SESSION_RECONFIGURE_INPUT_SCHEMA,
+} from './mcp-session-reconfigure.js';
+export type {
+  McpSessionReconfigureDeps,
+  McpSessionReconfigureInput,
+  McpSessionReconfigureRegistration,
+  McpSessionReconfigureSeam,
+  SessionReconfigureField,
+  SessionReconfigurePayload,
+} from './mcp-session-reconfigure.js';

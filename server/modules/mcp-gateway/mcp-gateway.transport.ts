@@ -321,17 +321,22 @@ export type McpGatewayDeps = {
    */
   writeTools?: McpWriteToolDeps;
   /**
-   * The services AC-271's stage-6 resident tools answer from, assembled by the
+   * The services the stage-6 resident tools answer from, assembled by the
    * composition root (`server/index.ts`) over the process singletons. AC-271
    * delivers `session_cancel_queued`, whose one dep is the SAME chat control
    * service `writeTools.control` points at (AC-233's single instance) — the
    * resident bag restates only the `cancelQueued` verb it reads, so the gateway
-   * still holds one control service, not two.
+   * still holds one control service, not two. AC-272's `reconfigure` member
+   * carries `session_reconfigure`'s services: the provider runtime's
+   * `reconfigure` passthrough over the SAME `providerRuntimeService` singleton
+   * plus the session/model/capability readers.
    *
-   * Supplying it registers {@link MCP_STAGE6_RESIDENT_TOOLS} through the SAME
-   * audited seam the read and write tools use. Absent keeps a mount that only
-   * exercises the stage-3/4 tools (AC-240/244/245/249's criteria) registering
-   * exactly what it did before.
+   * Supplying it registers the stage-6 tools through the SAME audited seam the
+   * read and write tools use. Absent keeps a mount that only exercises the
+   * stage-3/4 tools (AC-240/244/245/249's criteria) registering exactly what it
+   * did before; a bag without `reconfigure` (AC-271's criterion) keeps the
+   * cancel-queued-only registration, so AC-272's tool is present only when its
+   * deps are wired.
    */
   residentTools?: McpResidentToolDeps;
   /**

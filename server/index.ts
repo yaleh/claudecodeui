@@ -14,6 +14,8 @@ import type { HostMode, LLMProvider, ProviderRuntimeWriter } from '@/shared/type
 import {
     closeSessionsWatcher,
     initializeSessionsWatcher,
+    providerCapabilitiesService,
+    providerModelsService,
     providerRegistry,
     providerRuntimeService,
     readClaudeSessionOccupancy,
@@ -597,6 +599,30 @@ const mcpGateway = mountMcpGateway(app, {
         control: chatControl,
         runs: { getRun: (sessionId: string) => chatRunRegistry.getRun(sessionId) },
         runGet: { deps: mcpRunGetDeps, build: buildRunGet },
+        // AC-272: an options-less `session_send` reads the session's recorded
+        // model/effort/permissionMode and puts them on the run, so a
+        // `session_reconfigure` (or an ordinary UI send) is what the next run
+        // actually carries. `sessionsDb` names the session's provider; the
+        // model reader is the same singleton the WebSocket send path records to.
+        selection: {
+            sessions: { getSessionById: (sessionId: string) => sessionsDb.getSessionById(sessionId) },
+            models: {
+                resolveSessionModel: (provider, options) => providerModelsService.resolveSessionModel(provider, options),
+            },
+        },
+    },
+    // AC-271's `session_cancel_queued` over the same one control service, plus
+    // AC-272's `session_reconfigure`: the provider runtime's `reconfigure`
+    // passthrough over the SAME `providerRuntimeService` singleton the WebSocket
+    // dispatch uses, with the session/model/capability readers it needs.
+    residentTools: {
+        control: chatControl,
+        reconfigure: {
+            sessions: { getSessionById: (sessionId: string) => sessionsDb.getSessionById(sessionId) },
+            runtime: providerRuntimeService,
+            models: providerModelsService,
+            capabilities: providerCapabilitiesService,
+        },
     },
 });
 console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);

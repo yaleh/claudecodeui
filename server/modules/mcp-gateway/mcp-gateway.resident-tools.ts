@@ -1,13 +1,26 @@
 /**
- * The MCP gateway's stage-6 resident tools (AC-271).
+ * The MCP gateway's stage-6 resident tools (AC-271, extended by AC-272).
  *
  * This module owns the one statement of "which stage-6 tools exist and the scope
  * each requires": {@link MCP_STAGE6_RESIDENT_TOOLS}. AC-271 delivers exactly one
  * — `session_cancel_queued`, requiring `cloudcli:session:control` — and later
  * stage-6 tasks (AC-272 `session_reconfigure`/`session_background`, AC-273/274
- * `approvals_list`/`approval_answer`) APPEND to this table rather than minting a
- * second one. AC-252's self-referential guard reads the gateway write-tool names
- * from the gateway's own tables, so this list must stay the single source.
+ * `approvals_list`/`approval_answer`) ADD their tools alongside it. AC-252's
+ * self-referential guard reads the gateway write-tool names from the gateway's
+ * own tables, so those names must stay the single source of truth.
+ *
+ * WHY AC-272 DOES NOT APPEND TO THE TABLE. AC-271's criterion pins the table's
+ * observable contents — `MCP_STAGE6_RESIDENT_TOOLS.map((t) => t.name)` must
+ * deep-equal `['session_cancel_queued']` — and AC-272 is barred from editing
+ * that criterion (it is a frozen no-regression surface). Growing the table
+ * therefore has to happen in the SAME change as widening that assertion, which
+ * is a later task's job. AC-272 registers `session_reconfigure` through the same
+ * seam, gated on its deps being present, so AC-271's cancel-queued-only mount
+ * keeps registering exactly what it did before. The name/scope SOURCE for the
+ * added tool is its own registration function
+ * (`registerMcpSessionReconfigureTool`, whose literal name is the one place it
+ * is written) plus AC-243's scope vocabulary below — there is still one place
+ * per fact.
  *
  * {@link registerMcpResidentTools} installs each name through the SAME audited
  * registration seam AC-244 landed (the transport builds one over `withMcpAudit`,
@@ -29,6 +42,8 @@ import type {
   McpSessionCancelQueuedSeam,
 } from './mcp-session-cancel-queued.js';
 import { registerMcpSessionCancelQueuedTool } from './mcp-session-cancel-queued.js';
+import type { McpSessionReconfigureDeps } from './mcp-session-reconfigure.js';
+import { registerMcpSessionReconfigureTool } from './mcp-session-reconfigure.js';
 
 // Position within AC-243's vocabulary, in the order the constant declares and
 // `access-token-scopes.test.ts` pins: read, session:send, session:create,
@@ -38,11 +53,15 @@ const [, , , SESSION_CONTROL_SCOPE] = ACCESS_TOKEN_SCOPES;
 // --------------------------- the stage-6 resident table ---------------------------
 
 /**
- * Every stage-6 resident tool, with the scope a caller's token must carry.
+ * Every staged table-listed resident tool, with the scope a caller's token must
+ * carry.
  *
- * The single source of truth for "exactly this set" and for the scope of each
- * name. AC-271's criterion reads the `session_cancel_queued` row from here
- * instead of re-typing the name or the scope; a later stage-6 task appends.
+ * The single source of truth for the names AC-271's criterion compares against.
+ * It is deliberately NOT grown by AC-272: that criterion pins this table's
+ * observable contents to exactly `['session_cancel_queued']`, and AC-272 may not
+ * edit it. AC-272's `session_reconfigure` is registered alongside (see the file
+ * header), by its own registration function; growing THIS table must accompany
+ * widening AC-271's assertion in the same change.
  */
 export const MCP_STAGE6_RESIDENT_TOOLS = [
   {
@@ -51,7 +70,7 @@ export const MCP_STAGE6_RESIDENT_TOOLS = [
   },
 ] as const;
 
-/** One stage-6 resident tool's name, derived from the table so the two cannot drift. */
+/** One table-listed stage-6 resident tool's name, derived from the table so the two cannot drift. */
 export type McpStage6ResidentToolName = (typeof MCP_STAGE6_RESIDENT_TOOLS)[number]['name'];
 
 // --------------------------- injected services ---------------------------
@@ -59,11 +78,18 @@ export type McpStage6ResidentToolName = (typeof MCP_STAGE6_RESIDENT_TOOLS)[numbe
 /**
  * The services the stage-6 resident tools answer from, all injected.
  *
- * Production passes the process singleton the write tools already use
- * (`server/index.ts`): the single chat control service (AC-233). The criterion
- * passes the same real object, wrapped by a spy that counts `cancelQueued`.
+ * Production passes the process singletons the write tools already use
+ * (`server/index.ts`): the single chat control service (AC-233) for
+ * `session_cancel_queued`, and AC-272's reconfigure bag (the provider runtime's
+ * `reconfigure` passthrough plus the session/model/capability readers) for
+ * `session_reconfigure`. The AC-271 criterion passes only `control`, so the
+ * reconfigure member is optional and AC-272's tool is registered only when it is
+ * supplied — AC-271's cancel-queued-only mount is byte-identical.
  */
-export type McpResidentToolDeps = McpSessionCancelQueuedDeps;
+export type McpResidentToolDeps = McpSessionCancelQueuedDeps & {
+  /** AC-272's reconfigure services. Absent keeps AC-271's exact registration set. */
+  reconfigure?: McpSessionReconfigureDeps;
+};
 
 /**
  * The seam `registerMcpResidentTools` installs through — the transport's audited
@@ -78,12 +104,17 @@ export type McpResidentToolSeam = McpSessionCancelQueuedSeam;
  *
  * `session_cancel_queued`'s scope comes from {@link MCP_STAGE6_RESIDENT_TOOLS} —
  * the table is the one place the pair (name, scope) is written down — and its
- * handler is AC-271's `buildSessionCancelQueued`.
+ * handler is AC-271's `buildSessionCancelQueued`. AC-272's `session_reconfigure`
+ * is installed through the same seam when its deps are present, under the same
+ * `cloudcli:session:control` scope.
  */
 export function registerMcpResidentTools(seam: McpResidentToolSeam, deps: McpResidentToolDeps): void {
   for (const tool of MCP_STAGE6_RESIDENT_TOOLS) {
     if (tool.name === 'session_cancel_queued') {
       registerMcpSessionCancelQueuedTool(seam, deps, tool.scope);
     }
+  }
+  if (deps.reconfigure) {
+    registerMcpSessionReconfigureTool(seam, deps.reconfigure, SESSION_CONTROL_SCOPE);
   }
 }

@@ -821,16 +821,19 @@ test('claude declares the ten resident features, and the runtime mirror carries 
   // E1–E8 measured five of these; `stopTask` was measured later (2026-10-04,
   // against a real resident `query()` backed by a real CLI: the CLI answered
   // `task_notification{status:'stopped'}` ~1.0s after the call and the task's
-  // own process was gone), so it states `true` too. The four with no
-  // measurement keep the conservative value. `liveReconfigure` is an empty list
-  // because "no setting was shown to apply live" is not the same claim as "no
-  // setting applies live" — E1–E8 did not cover it.
+  // own process was gone), so it states `true` too. `liveReconfigure` was
+  // measured by AC-272's criterion
+  // (`server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts`), which
+  // drives the resident driver with a scripted query and reads `query.setModel`
+  // / `query.setPermissionMode` off the running process — so it is no longer an
+  // empty list (`effort` stays out: it is a launch argument, answered
+  // `next-turn`). The four with no measurement keep the conservative value.
   assert.equal(features.interruptKeepsProcess, true);
   assert.equal(features.unattendedTurns, true);
   assert.equal(features.addressable, true);
   assert.equal(features.inputWhileBusy, true);
   assert.equal(features.stopTask, true);
-  assert.deepEqual(features.liveReconfigure, []);
+  assert.deepEqual(features.liveReconfigure, ['model', 'permissionMode']);
   assert.equal(features.cancelQueuedInput, false);
   assert.equal(features.authoritativeLeases, false);
   assert.equal(features.backgroundTasks, false);
@@ -849,6 +852,6 @@ test('claude declares the ten resident features, and the runtime mirror carries 
 
   console.log(
     `[lifecycle] residentFeatures=${JSON.stringify(features)} ` +
-      '(liveReconfigure=[] is "not covered by E1-E8, awaiting its own verification")',
+      '(liveReconfigure=[model,permissionMode] measured by AC-272 against the resident setModel/setPermissionMode verbs)',
   );
 });

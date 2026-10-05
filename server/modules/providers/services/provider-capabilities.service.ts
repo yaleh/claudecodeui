@@ -127,14 +127,23 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     multiplexedHost: false,
     // The five measured entries come from the phase-0 experiments E1–E8
     // (`docs/proposals/claude-resident-sessions.md`, "阶段 0 结论"), each with
-    // its own experiment number kept beside it. The three that follow them were
+    // its own experiment number kept beside it. The two that follow them were
     // *not* covered by those experiments and so state the conservative value: a
     // capability nobody measured is not a capability this matrix may promise.
-    // `liveReconfigure` in particular is an empty list for the same reason and
-    // is called out as "待单独验证" rather than "known to apply nothing".
     residentFeatures: {
       interruptKeepsProcess: true, // E4
-      liveReconfigure: [], // not covered by E1–E8; awaiting its own verification
+      // Measured by AC-272's criterion
+      // (`server/modules/mcp-gateway/tests/mcp-session-reconfigure.test.ts`),
+      // which drives the real resident driver with a scripted query and reads
+      // the live verbs off the running process: a `session_reconfigure` patch
+      // naming `model` reaches `query.setModel` and one naming `permissionMode`
+      // reaches `query.setPermissionMode`, both on the *same* host id and pid as
+      // the driver's own `claude-resident-permissions.test.ts` (AC-168). `effort`
+      // is deliberately NOT in the list: it is a launch argument folded into the
+      // process's env/flags at spawn (see the driver's `reconfigure` comment), so
+      // a patch naming it is answered `next-turn` — the same split the MCP tool's
+      // `liveSupported` reading reports.
+      liveReconfigure: ['model', 'permissionMode'],
       unattendedTurns: true, // E1, E3
       addressable: true, // E6
       inputWhileBusy: true, // E2
