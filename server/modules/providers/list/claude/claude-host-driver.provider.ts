@@ -2543,6 +2543,42 @@ export class ClaudeResidentHostDriver implements IProviderHostDriver {
   }
 
   /**
+   * The uuid of the newest message this host queued while busy, or null.
+   *
+   * The id `cancelQueuedInput` withdraws a message by, read off the same
+   * `state.queuedInputs` record {@link busyInputReading} reports: an entry's
+   * uuid is the CLI's own `command_uuid` for that message (the CLI's
+   * `command_lifecycle` reports it back), so it is the value a control caller
+   * must hold to withdraw the message. "Newest and not started" is the message
+   * a withdrawal can still reach — a `started` entry has been dequeued into a
+   * turn of its own and can no longer be taken back, and an older unstarted
+   * entry is unreachable behind the newest for the same reason.
+   *
+   * Synchronous because the queue is this driver's own memory; the message is
+   * written before the dispatch that queued it resolves, so there is no I/O to
+   * await. `null` for a session this driver is not hosting, a closed host, or a
+   * queue with nothing left to withdraw — the conservative direction, so a
+   * caller that reads it never holds an id no withdrawal can match. Consumed by
+   * the runtime gateway's `queuedInputUuid` (`provider-runtime.service.ts`),
+   * which the websocket control service's busy-send branch reads
+   * (`chat-control.service.ts`).
+   */
+  queuedInputUuid(appSessionId: string): string | null {
+    const state = this.liveStateFor(appSessionId);
+    if (!state || state.closed) {
+      return null;
+    }
+
+    for (let index = state.queuedInputs.length - 1; index >= 0; index -= 1) {
+      const input = state.queuedInputs[index];
+      if (input.startedAt === null) {
+        return input.uuid;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Reports what a live resident host is holding, and how it came to hold it.
    *
    * The manager's snapshot already answers "what reasons does this binding
