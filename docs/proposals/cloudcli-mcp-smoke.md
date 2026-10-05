@@ -48,3 +48,8 @@
 读数：临时根 /tmp/ac256-run4：pgrep-命中=0、/proc environ-命中=0、systemctl --user scope-命中=0（三条都要求 0；前两条只认本次冒烟子树内的进程，argv/env 里恰好含临时根串的旁观进程不计——否则「把日志路径写进命令行的观察者」会被读成残留）；:3001 起点读数 listener-pid=537272 systemd-main-pid=537272；:3001 终点读数 listener-pid=537272 systemd-main-pid=537272（与起点逐字相同即监听 pid 与 systemd MainPID 都没被动过）；全程未连接 / 未启用 / 未重启 3001。
 结论：收尾后三条残留命中均为 0，3001 的监听 pid 与 systemd MainPID 起点终点逐字相同。
 
+## 人证行（AC-257）
+
+嵌套冒烟验收：通过 —— 裁定人：yale，2026-10-06。裁定依据为上列八节承重读数（独立实例 port=5683 ≠ 3001；发消息 run 来源逐字 `mcp`；`run_get` 按 runId 命中；`session_interrupt` 前后常驻 pid 1175777 不变；收尾残留三条命中全 0；`:3001` 监听 pid 与 systemd MainPID 起终点逐字相同）。本行由受权会话代录，**裁定本身出自人 yale**。
+
+
