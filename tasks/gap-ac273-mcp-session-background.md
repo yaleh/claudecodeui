@@ -106,6 +106,7 @@ AC-273（GOAL-022 退出条件 3；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 - server/modules/mcp-gateway/mcp-gateway.resident-tools.ts
 - server/modules/mcp-gateway/mcp-gateway.transport.ts
 - server/modules/mcp-gateway/index.ts
+- server/index.ts
 - server/modules/mcp-gateway/tests/mcp-session-background.test.ts (new)（判据）
 - tasks/gap-ac273-mcp-session-background.md
 
