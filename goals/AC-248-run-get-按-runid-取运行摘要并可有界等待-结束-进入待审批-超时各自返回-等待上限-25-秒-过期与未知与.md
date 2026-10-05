@@ -1,7 +1,7 @@
 ---
 id: AC-248
 title: run_get 按 runId 取运行摘要并可有界等待：结束、进入待审批、超时各自返回，等待上限 25 秒，过期与未知与重启各有说法
-status: draft
+status: active
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/mcp-gateway/tests/mcp-run-get.test.ts; do [
@@ -18,4 +18,15 @@ expect: 假运行时加可注入时钟。读数：(a) 摘要含
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:12:05.951Z
+statusLog:
+  - at: 2026-10-05T02:12:05.951Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:12:05.950Z
 ---
