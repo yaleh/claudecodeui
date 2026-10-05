@@ -1,11 +1,17 @@
 ---
 id: GOAL-020
 title: CloudCLI MCP 在本机可用：令牌认证的 /mcp 提供只读与写工具，经同一个控制服务驱动会话，只听本机，嵌套冒烟由人确认
-status: active
+status: achieved
 kind: goal
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
 activatedAt: 2026-10-05T02:03:54.122Z
+statusLog:
+  - at: 2026-10-05T23:22:35.845Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 
 ## 背景

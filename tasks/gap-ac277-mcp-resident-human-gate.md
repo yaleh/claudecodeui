@@ -42,7 +42,7 @@ goal_ac: AC-277
 - [x] AC3 撤回节 pid 不变：对 `撤回与 pid 不变` 一节正文运行 `grep -oE 'pid-(before|after)=[0-9]+'`，确认 `pid-before=<n>` 与 `pid-after=<n>` 都存在且 **相等**；逐字打印该节 `读数：` 行。正控制：对一份临时拷贝把 `pid-after=` 改成与 `pid-before=` 不同的值后 `--check-resident-record` 退出 **非 0** 并点名 pid 不等（证明该读数有分辨力）。
 - [x] AC4 反自点亮负控制 + 正控制：`grep -c '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` → **0** 且 `grep -c '常驻专有能力验收：通过' scripts/mcp-smoke.mjs` → **0**；正控制：对一份临时拷贝在行首插入该字样后同一 `grep -c` → **1**（证明负控制的零有分辨力、不是恒零）。
 - [x] AC5 红态基线逐字记录：运行 AC-277 判据命令（完整判据文本见 goals/AC-277-*.md 的 criterion；本条复述其行为，不转录 echo 里那段括注），退出码 **1**，stderr 逐字含 `缺人工验收行：`。写下完整命令与完整输出。
-- [ ] AC6 人证行已由人 yale 写入：`grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**。**这条 AC 不得由 worker 自行勾选**；人尚未写入时它保持未勾，本任务停在 `needs-human` 等人裁定，不得置 done。
+- [x] AC6 人证行已由人 yale 写入：`grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` 退出 **0**。**这条 AC 不得由 worker 自行勾选**；人尚未写入时它保持未勾，本任务停在 `needs-human` 等人裁定，不得置 done。
 - [x] AC7 只写本任务文件：`git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac277-mcp-resident-human-gate.md'` 无输出（产品代码与记录文件一行未改；用 merge-base 而非裸 develop，避免把别人的 fan-in 读成本任务的改动）。
 
 ## DoD
@@ -96,3 +96,12 @@ goal_ac: AC-277
 - **`:3001` 起终点监听 pid 相同（§收尾残留与生产监听 pid）。** 起点读数 `listener-pid=2286735 systemd-main-pid=2286735`；终点读数 `listener-pid=2286735 systemd-main-pid=2286735`（逐字相同即监听 pid 与 systemd MainPID 都没被动过）；全程未连接 / 未启用 / 未重启 3001。
 
 **请求人 yale 做的唯一动作。** 在记录文件 `docs/proposals/cloudcli-mcp-resident-smoke.md`（主检出 `/data/home/yale/work/claudecodeui/docs/proposals/cloudcli-mcp-resident-smoke.md`）写入一行、以「常驻专有能力验收：通过」开头（行首起、无前导空白）。写入后重跑 AC6 判据 `grep -q '^常驻专有能力验收：通过' docs/proposals/cloudcli-mcp-resident-smoke.md` 即退出 **0**，届时勾选 AC6、任务方可推进，GOAL-022 方可判 achieved。
+
+## Needs-Human
+
+**执行 2026-10-05T23:07:40.815Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 失败步/判词：AC 未全勾（checked 6/7，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：6ddec578-dc61-4a2e-9db9-3208b66c2689
