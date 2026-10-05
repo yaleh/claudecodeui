@@ -3,7 +3,7 @@ id: gap-ac242-mcp-loopback-guard-before-auth
 title: AC-242 MCP_OAUTH_ENABLED 未开启时 /mcp 只接受本机直连：socket
   非回环地址与任一转发头（X-Forwarded-For / Forwarded / CF-Connecting-IP / X-Real-IP）存在即
   403，且守卫在认证之前；判据 server/modules/mcp-gateway/tests/mcp-loopback-guard.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
