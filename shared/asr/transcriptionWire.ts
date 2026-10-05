@@ -97,12 +97,58 @@ export function createTranscriptionRequest(
 }
 
 /**
- * Reads the transcript out of a transcription response, under the named tolerance.
+ * One token of a recogniser's answer: the piece of text, and the per-token facts a token-aware
+ * recogniser can attach. This is the WIRE's spelling of `AsrToken` in `asrRegistry.ts`, kept local
+ * because this file is compiled by both compiler configurations and deliberately imports nothing.
+ * Every field but `text` is optional: whether a recogniser produces it is its own declaration.
+ */
+export type TranscriptionToken = {
+  text: string;
+  confidence?: number;
+  startMs?: number;
+};
+
+/**
+ * The successful-transcription envelope as it travels — richer than the `text` every caller before
+ * this one read.
  *
- * The two branches are the two historical implementations, kept apart on purpose and selected by
- * an argument rather than by which file the call is in. `strict` propagates the parse failure (the
- * caller's `catch` turns it into a failed transcription); `lenient` treats an unparseable body as
- * the transcript itself.
+ * `tokens` and `meta.buildId` are carried through VERBATIM when the answer has them. Whether a
+ * recogniser produces per-token facts is its `AsrCapabilities.tokens` declaration rather than this
+ * wire's guess, so the wire retains and never invents: an answer without them yields an envelope
+ * with no such keys at all, which is what makes the historical answer's parse byte-identical to the
+ * one it got before these fields existed.
+ */
+export type TranscriptionEnvelope = {
+  text: string;
+  tokens?: TranscriptionToken[];
+  meta?: { buildId?: string };
+};
+
+/**
+ * Builds the envelope from a decoded body WITHOUT inventing keys: a body that carries no `tokens`
+ * and no `meta.buildId` yields `{ text }` and nothing else.
+ */
+function envelopeOf(text: string, decoded: unknown): TranscriptionEnvelope {
+  const envelope: TranscriptionEnvelope = { text };
+  if (typeof decoded !== 'object' || decoded === null) return envelope;
+  const record = decoded as Record<string, unknown>;
+  if (Array.isArray(record.tokens)) envelope.tokens = record.tokens as TranscriptionToken[];
+  const meta = record.meta;
+  if (typeof meta === 'object' && meta !== null) {
+    const buildId = (meta as Record<string, unknown>).buildId;
+    if (typeof buildId === 'string') envelope.meta = { buildId };
+  }
+  return envelope;
+}
+
+/**
+ * Reads the WHOLE envelope out of a transcription response, under the named tolerance.
+ *
+ * This is the one implementation of the read; `parseTranscriptionResponse` is the text view of the
+ * same result, so the two cannot drift. The two branches are the two historical implementations,
+ * kept apart on purpose and selected by an argument rather than by which file the call is in.
+ * `strict` propagates the parse failure (the caller's `catch` turns it into a failed
+ * transcription); `lenient` treats an unparseable body as the transcript itself.
  *
  * This takes the `Response` and not a body already read out of it, because the two branches do not
  * read a body the same way: the direct path has always gone through `json()` and the proxy path
@@ -111,23 +157,64 @@ export function createTranscriptionRequest(
  * paths rather than merging them. `strict` consumes the response as JSON, `lenient` as text, and
  * neither is read twice; each caller reads the body for its own error path before calling this.
  */
-export async function parseTranscriptionResponse(
+export async function readTranscriptionEnvelope(
   response: Response,
   tolerance: TranscriptionTolerance,
-): Promise<string> {
+): Promise<TranscriptionEnvelope> {
   if (tolerance === 'lenient') {
     const responseText = await response.text();
     try {
+      // The historical read, VERBATIM INCLUDING ITS THROW. The cast is what let the old body
+      // access `.text` on whatever `JSON.parse` returned; a `null` body did not answer `''`, it
+      // threw on the property access and the `catch` below handed the raw text back — which is
+      // what makes the literal `null` a transcript on this path (`json-null` in the AC4 baseline).
+      // A `parsed === null` guard here would be a one-character change that silently re-answers a
+      // recorded reading, so the access is left exactly as it was and the envelope is built around
+      // its result.
       const parsed = JSON.parse(responseText) as { text?: unknown };
-      return typeof parsed.text === 'string' ? parsed.text : '';
+      const text = typeof parsed.text === 'string' ? parsed.text : '';
+      return envelopeOf(text, parsed);
     } catch {
-      return responseText;
+      return { text: responseText };
     }
   }
 
   // Cast rather than annotated: this file is compiled by both configurations, and the DOM lib
   // types `json()` as `any` while `@types/node` types it as `unknown`. The assertion is the one
   // the direct path's inline expression always relied on, now written where both compilers see it.
-  const data = (await response.json()) as { text?: unknown } | null;
-  return String(data?.text || '');
+  const data = (await response.json()) as unknown;
+  const text =
+    typeof data === 'object' && data !== null
+      ? String((data as { text?: unknown }).text || '')
+      : '';
+  return envelopeOf(text, data);
+}
+
+/**
+ * Reads the transcript out of a transcription response, under the named tolerance.
+ *
+ * THE TEXT VIEW, UNCHANGED. Called with two arguments this returns exactly the string it always
+ * returned — the envelope's `text` — which is what every existing caller (the browser's direct
+ * path, the proxy path, the command line) continues to receive. Called with the literal
+ * `'envelope'` as a third argument it returns the WHOLE envelope instead, so a caller that wants
+ * the per-token facts or the build identity does not have to parse the body a second time and
+ * cannot drift from the text view. The extra argument is a shape selector rather than a second
+ * function so the two readings are one implementation by construction.
+ */
+export function parseTranscriptionResponse(
+  response: Response,
+  tolerance: TranscriptionTolerance,
+): Promise<string>;
+export function parseTranscriptionResponse(
+  response: Response,
+  tolerance: TranscriptionTolerance,
+  shape: 'envelope',
+): Promise<TranscriptionEnvelope>;
+export async function parseTranscriptionResponse(
+  response: Response,
+  tolerance: TranscriptionTolerance,
+  shape?: 'envelope',
+): Promise<string | TranscriptionEnvelope> {
+  const envelope = await readTranscriptionEnvelope(response, tolerance);
+  return shape === 'envelope' ? envelope : envelope.text;
 }
