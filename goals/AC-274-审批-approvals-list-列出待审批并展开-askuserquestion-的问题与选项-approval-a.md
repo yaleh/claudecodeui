@@ -2,7 +2,7 @@
 id: AC-274
 title: 审批：approvals_list 列出待审批并展开 AskUserQuestion 的问题与选项，approval_answer
   解除审批，过期或不存在的请求有明确说法
-status: draft
+status: active
 kind: criterion
 goal: GOAL-022
 criterion: for f in server/modules/mcp-gateway/tests/mcp-approvals.test.ts; do [
@@ -22,4 +22,15 @@ expect: "假运行时的 `getPendingApprovalsForSession` 与 `resolveToolApprova
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。"
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:27:33.159Z
+statusLog:
+  - at: 2026-10-05T02:27:33.159Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:27:33.159Z
 ---
