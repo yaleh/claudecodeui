@@ -151,6 +151,21 @@ practice). Its positive control is a benign fixture holding ~30 % of the ceiling
 
 ### `scripts/serve-scoped.sh start|stop|restart|status`
 
+> **Fixed unit (2026-10-05).** In production this script no longer creates a transient unit and no
+> longer passes any `PATH`. It drives the installed `claudecodeui-server.service`
+> (`scripts/systemd/claudecodeui-server.service`, installed by `scripts/install-server-unit.sh`,
+> which adds a per-host drop-in with `WorkingDirectory=` and the log path). `node` and `claude` come
+> from the *user manager's* environment, set by the user in
+> `~/.config/environment.d/995-nvm-node.conf` (the file name must sort after `99-environment.conf`,
+> which resets `PATH`; after editing it run `systemctl --user daemon-reload`). The old
+> `--setenv=PATH="$PATH"` copied the starting shell's PATH into the unit and froze old plugin bin dirs
+> (quay 0.11.0, archguard 0.1.33) into the server and every session under it. The text below
+> describes the properties, which now live in the unit file; the transient mode survives only as the
+> `QUAY_SERVER_CMD` test seam. To switch or restart from inside a session the server hosts, use
+> `scripts/restart-server-detached.sh` (runs as its own transient unit, writes a VERDICT to
+> `~/.ccui-restart/restart-unit.log`, and checks that the new server's PATH carries no plugin bin
+> dirs and resolves the nvm node).
+
 Runs `npm run server` as the transient unit `claudecodeui-server.service` with the repo as working
 directory, `HOST` (default `0.0.0.0`) and `SERVER_PORT` (default `3001`), and stdout/stderr appended
 to `server.log`. Refuses to `start` when already active, and refuses to run at all — exit 3, with

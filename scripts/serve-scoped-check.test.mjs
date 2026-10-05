@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECK = join(HERE, 'serve-scoped-check.sh');
 const SERVE = join(HERE, 'serve-scoped.sh');
+const UNIT_FILE = join(HERE, 'systemd', 'claudecodeui-server.service');
 
 const TMP = mkdtempSync(join(tmpdir(), 'serve-scoped-check-test-'));
 process.on('exit', () => rmSync(TMP, { recursive: true, force: true }));
@@ -46,7 +47,8 @@ let treeSeq = 0;
 function makeTree() {
   treeSeq += 1;
   const root = join(TMP, `tree-${treeSeq}`);
-  mkdirSync(join(root, 'scripts'), { recursive: true });
+  mkdirSync(join(root, 'scripts', 'systemd'), { recursive: true });
+  copyFileSync(UNIT_FILE, join(root, 'scripts', 'systemd', 'claudecodeui-server.service'));
   copyFileSync(SERVE, join(root, 'scripts', 'serve-scoped.sh'));
   copyFileSync(CHECK, join(root, 'scripts', 'serve-scoped-check.sh'));
   return root;
@@ -127,6 +129,9 @@ test('a pristine tree passes the fake section, and the fake section touches no u
   assert.ok(out.stdout.includes('ok   fake/caller-node-options:'), out.stdout);
   assert.ok(out.stdout.includes('ok   fake/cmd-override:'), out.stdout);
   assert.ok(out.stdout.includes('ok   fake/no-user-manager:'), out.stdout);
+  for (const label of ['no-path-setenv', 'fixed-unit-start', 'fixed-unit-no-systemd-run', 'fixed-unit-not-installed', 'unit-file']) {
+    assert.ok(out.stdout.includes(`ok   fake/${label}:`), out.stdout);
+  }
   assert.ok(out.stdout.includes('ok   fake/usage:'), out.stdout);
   assert.ok(out.stdout.includes('serve-scoped-check: PASS'), out.stdout);
 
@@ -183,17 +188,34 @@ test('AC1: QUAY_SERVER_HEAP_MB=off removes the flag rather than blanking it', ()
   assert.ok(line.includes('actual argv:'), line);
 });
 
-test('AC1: the managed command defaults to `npm run server` and the default is asserted', () => {
-  const stdout = afterMutation('default-command-changed', (root) => {
-    mutate(root, 'SERVER_CMD="${QUAY_SERVER_CMD:-npm run server}"', 'SERVER_CMD="${QUAY_SERVER_CMD:-npm run serve}"');
+test('production mode drives the fixed unit: ignoring the empty-CMD branch reds fixed-unit-start', () => {
+  const stdout = afterMutation('fixed-start-bypassed', (root) => {
+    mutate(root, 'if [ -z "$SERVER_CMD" ]; then start_fixed; exit 0; fi', ':');
   });
-  const line = failLine(stdout, 'default');
-  assert.ok(line.includes('-- npm run server'), line);
+  const line = failLine(stdout, 'fixed-unit-start');
+  assert.ok(line.includes('--user start'), line);
+});
+
+test('no PATH is handed to a transient unit: re-adding --setenv=PATH reds no-path-setenv', () => {
+  const stdout = afterMutation('path-setenv-readded', (root) => {
+    mutate(root, '      --setenv=SERVER_PORT="$SERVER_PORT"\n    )', '      --setenv=SERVER_PORT="$SERVER_PORT"\n      --setenv=PATH="$PATH"\n    )');
+  });
+  const line = failLine(stdout, 'no-path-setenv');
+  assert.ok(line.includes('--setenv=PATH'), line);
+});
+
+test('the shipped unit file may not carry a PATH: adding one reds unit-file', () => {
+  const root = makeTree();
+  const unit = join(root, 'scripts', 'systemd', 'claudecodeui-server.service');
+  writeFileSync(unit, readFileSync(unit, 'utf8') + 'Environment=PATH=/x/plugins/cache/quay/quay/0.11.0/bin\n');
+  const after = runCheck(root, 'fake');
+  assert.notEqual(after.status, 0, after.stdout);
+  assert.ok(failLine(after.stdout, 'unit-file').includes('forbidden-directive'), after.stdout);
 });
 
 test('AC1: QUAY_SERVER_CMD is a real seam — ignoring it reds the override case', () => {
   const stdout = afterMutation('cmd-override-ignored', (root) => {
-    mutate(root, 'SERVER_CMD="${QUAY_SERVER_CMD:-npm run server}"', 'SERVER_CMD="npm run server"');
+    mutate(root, 'SERVER_CMD="${QUAY_SERVER_CMD:-}"', 'SERVER_CMD="npm run server"');
   });
   const line = failLine(stdout, 'cmd-override');
   assert.ok(line.includes('-- node /tmp/serve-scoped-check-stub.js'), line);
