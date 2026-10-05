@@ -88,6 +88,11 @@ const SERVER_INFO = { name: 'claudecodeui-mcp-gateway', version: '0.1.0' };
  * from the stage-4 write tools — `session_cancel_queued` is not one of the five
  * — so the stage-4 name set AC-249 pins stays exactly five, and the resident
  * bag flows to `registerMcpResidentTools` over the same one control service.
+ * The bag's optional members register their own tools alongside the table, gated
+ * on being supplied: AC-272's `reconfigure`, AC-273's `background`, and AC-274's
+ * `approvals` (`approvals_list` / `approval_answer`). AC-271's criterion pins the
+ * table's observable contents, so those tools are registered by
+ * `registerMcpResidentTools`, never by growing {@link MCP_STAGE6_RESIDENT_TOOLS}.
  */
 function createMcpServer(
   registerTools: McpToolRegistrar | undefined,

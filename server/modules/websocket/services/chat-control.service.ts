@@ -14,6 +14,7 @@ import type {
   ChatRunSource,
   HostQueuedInputCancelResult,
   LLMProvider,
+  ProviderPermissionDecision,
   RealtimeClientConnection,
 } from '@/shared/types.js';
 
@@ -180,6 +181,70 @@ type StopTaskResult = ControlStopTaskOutcome | ControlVerbRefusal;
 type BackgroundTaskResult = ControlBackgroundTaskOutcome | ControlVerbRefusal;
 
 /**
+ * One pending tool approval, as a provider runtime reports it.
+ *
+ * Structurally the claude runtime's own entry (`claude-runtime.provider.ts`,
+ * `getPendingApprovalsForSession`): the request id, the tool name, its raw input,
+ * the runtime's opaque `context`, the session it belongs to, and when the
+ * request arrived. `receivedAt` is a `Date`, which is what lets an adapter
+ * compute "how long has this waited".
+ */
+type PendingApproval = {
+  requestId: string;
+  toolName: string;
+  input: unknown;
+  context: unknown;
+  sessionId: string;
+  receivedAt: Date;
+};
+
+/**
+ * What `pendingApprovals` returns.
+ *
+ * Success carries the (possibly merged) pending entries — an empty array is the
+ * normal "nothing is waiting", not an error. A refusal is a value with a stable
+ * `code`: `FORBIDDEN` is the shared access entry's word, `SESSION_NOT_FOUND` the
+ * same code `send` states for a named session that does not exist.
+ */
+type PendingApprovalsResult =
+  | { ok: true; approvals: PendingApproval[] }
+  | { ok: false; code: 'FORBIDDEN' | 'SESSION_NOT_FOUND'; message: string };
+
+/** The input `answerApproval` accepts. */
+type AnswerApprovalInput = {
+  /** The runtime's id for the approval being decided. */
+  requestId: string;
+  /** The decision handed to `resolveToolApproval`. */
+  allow: boolean;
+  /**
+   * For an `AskUserQuestion`, the chosen answers. Forwarded as the decision's
+   * `updatedInput` — not a field of its own — so it reaches the runtime on the
+   * same vocabulary the WebSocket `chat.permission-response` path uses.
+   */
+  answers?: unknown;
+  /** An optional note forwarded alongside the decision. */
+  message?: string;
+};
+
+/**
+ * What `answerApproval` returns.
+ *
+ * Success is "the decision was handed to the runtime": `resolveToolApproval` has
+ * no return value, so there is no second verdict to read and none is invented.
+ * `ok:false` is stated ONLY for a request that is no longer in the registry
+ * (`APPROVAL_EXPIRED_OR_NOT_FOUND`) or a caller the shared access entry refuses
+ * (`FORBIDDEN`); BOTH refuse without calling `resolveToolApproval`, because the
+ * in-registry check comes first and the access check before the call.
+ */
+type AnswerApprovalResult =
+  | { ok: true; requestId: string }
+  | {
+      ok: false;
+      code: 'APPROVAL_EXPIRED_OR_NOT_FOUND' | 'FORBIDDEN';
+      message: string;
+    };
+
+/**
  * Upper bound on how long `send` waits for the provider to hand over a queued
  * message's uuid before degrading to `queuedMessageUuid: null`.
  *
@@ -242,10 +307,11 @@ type ChatControlDependencies = {
   runtime: ProviderRuntimeGateway;
   /**
    * The single access entry every control verb shares (`send`, `abort`,
-   * `cancelQueued`, `stopTask`, `backgroundTask`).
+   * `cancelQueued`, `stopTask`, `backgroundTask`, `pendingApprovals`,
+   * `answerApproval`).
    *
    * Defaults to this module's own {@link assertSessionAccess}. The seam exists
-   * so a criterion can hand over a counting spy and observe that all five verbs
+   * so a criterion can hand over a counting spy and observe that all seven verbs
    * go through the *same* entry — delegating to the production one, so the
    * verdict is the real ownership answer rather than a stub — instead of each
    * carrying a check of its own.
@@ -254,6 +320,14 @@ type ChatControlDependencies = {
     userId: string | number | null,
     session: ReturnType<typeof sessionsDb.getSessionById>,
   ) => boolean;
+  /**
+   * The session ids `pendingApprovals` / `answerApproval` scan when no session is
+   * named. Defaults to {@link chatRunRegistry}'s running sessions (a pending
+   * approval can only belong to a session with a turn in flight) and is
+   * injectable so a criterion can name its own candidate set — including a
+   * session the registry does not know about.
+   */
+  listApprovalSessionIds?: () => string[];
 };
 
 /**
@@ -273,6 +347,51 @@ function accessEntry(
 }
 
 /**
+ * The session ids the approval verbs scan when no session is named.
+ *
+ * The default is the run registry's running sessions: a tool approval can only
+ * be waiting on a session that has a turn in flight, so that set is both the
+ * complete and the cheapest candidate list. The seam exists so a criterion can
+ * name its own candidates without a live registry run.
+ */
+function approvalSessionIds(dependencies: ChatControlDependencies): string[] {
+  return (
+    dependencies.listApprovalSessionIds?.()
+    ?? chatRunRegistry.listRunningRuns().map((run) => run.sessionId)
+  );
+}
+
+/** Reads a runtime gateway's pending approvals for one session, typed to the entry shape it reports. */
+function readPendingApprovals(
+  dependencies: ChatControlDependencies,
+  sessionId: string,
+): PendingApproval[] {
+  return dependencies.runtime.getPendingApprovalsForSession(sessionId) as PendingApproval[];
+}
+
+/**
+ * The id of the session whose runtime currently holds `requestId`, or null when
+ * no candidate session does.
+ *
+ * This is the in-registry precheck `answerApproval` runs BEFORE any decision:
+ * `resolveToolApproval` is silent for an unknown id (`claude-runtime.provider.ts`
+ * only calls a stored resolver), so "was this request ever here" must be read
+ * from the pending set, never probed by calling the resolver.
+ */
+function findApprovalSession(
+  dependencies: ChatControlDependencies,
+  requestId: string,
+): string | null {
+  for (const sessionId of approvalSessionIds(dependencies)) {
+    const pending = readPendingApprovals(dependencies, sessionId);
+    if (pending.some((entry) => entry.requestId === requestId)) {
+      return sessionId;
+    }
+  }
+  return null;
+}
+
+/**
  * Builds the transport-agnostic control plane for chat sessions.
  *
  * This is the seam the WebSocket gateway, the scheduled-message dispatcher and
@@ -285,10 +404,11 @@ function accessEntry(
  * no frames and reports nothing by emitting. It ships `send` — including the
  * resident-session busy branch that queues into a running process and hands the
  * queued message's uuid back — `cancelQueued`, which withdraws a message by that
- * uuid, and `abort`/`stopTask`/`backgroundTask`, which reach the provider's own
- * control verbs. All five take the one shared access entry before any driver
- * call. The remaining verbs (`editSend`/`answerApproval`/`pendingApprovals`)
- * arrive with a later AC.
+ * uuid, `abort`/`stopTask`/`backgroundTask`, which reach the provider's own
+ * control verbs, and (AC-274) `pendingApprovals`/`answerApproval`, which read and
+ * decide the runtime's pending tool approvals. All seven take the one shared
+ * access entry before any driver call. The remaining verb (`editSend`) arrives
+ * with a later AC.
  *
  * Consumed by this module's criteria
  * (`server/modules/websocket/tests/chat-control-send.test.ts`,
@@ -620,5 +740,105 @@ export function createChatControlService(deps: ChatControlDependencies) {
     );
   }
 
-  return { send, abort, cancelQueued, stopTask, backgroundTask };
+  /**
+   * Lists the tool approvals one session — or every candidate session — is
+   * waiting on, through the provider runtime's own pending set.
+   *
+   * With a `sessionId`: the shared access entry is consulted first (so an
+   * unauthenticated caller is refused before any runtime read), then the session
+   * must exist. With it omitted the candidate sessions are enumerated
+   * ({@link approvalSessionIds}) and each one passes the same entry, so a caller
+   * only ever sees approvals for sessions it may access; the merged list is the
+   * answer. Entries are returned verbatim — the adapter above computes "how long
+   * has this waited" from `receivedAt`.
+   */
+  async function pendingApprovals(
+    caller: ControlCaller,
+    input: { sessionId?: string },
+  ): Promise<PendingApprovalsResult> {
+    if (input.sessionId !== undefined) {
+      const session = sessionsDb.getSessionById(input.sessionId);
+      if (!accessEntry(deps)(caller.userId, session)) {
+        return {
+          ok: false,
+          code: 'FORBIDDEN',
+          message: `Caller is not allowed to read session "${input.sessionId}" approvals.`,
+        };
+      }
+      if (!session) {
+        return {
+          ok: false,
+          code: 'SESSION_NOT_FOUND',
+          message: `Session "${input.sessionId}" was not found.`,
+        };
+      }
+      return { ok: true, approvals: readPendingApprovals(deps, input.sessionId) };
+    }
+
+    const approvals: PendingApproval[] = [];
+    for (const sessionId of approvalSessionIds(deps)) {
+      const session = sessionsDb.getSessionById(sessionId);
+      // A session the caller may not read, or one that no longer exists, is
+      // skipped rather than refused: an unnameable candidate is not an error for
+      // a listing that spans the workspace.
+      if (!session || !accessEntry(deps)(caller.userId, session)) {
+        continue;
+      }
+      approvals.push(...readPendingApprovals(deps, sessionId));
+    }
+    return { ok: true, approvals };
+  }
+
+  /**
+   * Decides one pending tool approval through the provider runtime's own
+   * resolver.
+   *
+   * The in-registry check comes FIRST, and it is what makes "expired" a fact
+   * rather than a guess: a request that has already timed out (the runtime
+   * deleted it) or never existed is reported `APPROVAL_EXPIRED_OR_NOT_FOUND`
+   * and `resolveToolApproval` is NEVER called for it — the resolver is silent on
+   * a missing id, so calling it would leave the caller unable to tell a real
+   * decision from a no-op. Only once the id is known to be held does the shared
+   * access entry run, and only after it passes is the decision handed over.
+   *
+   * `answers` is forwarded as the decision's `updatedInput` and `message`
+   * alongside it — the same `ProviderPermissionDecision` vocabulary the
+   * WebSocket `chat.permission-response` path uses. `rememberEntry` is not
+   * introduced here.
+   */
+  async function answerApproval(
+    caller: ControlCaller,
+    input: AnswerApprovalInput,
+  ): Promise<AnswerApprovalResult> {
+    const holderSessionId = findApprovalSession(deps, input.requestId);
+    if (holderSessionId === null) {
+      return {
+        ok: false,
+        code: 'APPROVAL_EXPIRED_OR_NOT_FOUND',
+        message: '该审批请求已过期或不存在（可能已超时被自动拒绝）。',
+      };
+    }
+
+    const session = sessionsDb.getSessionById(holderSessionId);
+    if (!accessEntry(deps)(caller.userId, session)) {
+      return {
+        ok: false,
+        code: 'FORBIDDEN',
+        message: `Caller is not allowed to answer approvals for session "${holderSessionId}".`,
+      };
+    }
+
+    const decision: ProviderPermissionDecision = { allow: input.allow };
+    if (input.answers !== undefined) {
+      decision.updatedInput = input.answers;
+    }
+    if (input.message !== undefined) {
+      decision.message = input.message;
+    }
+    deps.runtime.resolveToolApproval(input.requestId, decision);
+
+    return { ok: true, requestId: input.requestId };
+  }
+
+  return { send, abort, cancelQueued, stopTask, backgroundTask, pendingApprovals, answerApproval };
 }

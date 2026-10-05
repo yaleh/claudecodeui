@@ -327,3 +327,28 @@ export type {
   SessionBackgroundPayload,
   SessionBackgroundTask,
 } from './mcp-session-background.js';
+
+// The approval tools (AC-274). `buildApprovalsList` lists the pending approvals
+// for a session (or every running session), expanding an `AskUserQuestion` into
+// its questions and options; `buildApprovalAnswer` decides one through the shared
+// control service, forwarding `message` / `answers` (the latter as the runtime's
+// `updatedInput`) and reporting a no-longer-pending request as
+// `APPROVAL_EXPIRED_OR_NOT_FOUND` without calling the runtime.
+// `registerMcpApprovalTools` installs `approvals_list` (`cloudcli:read`) and
+// `approval_answer` (`cloudcli:approve`) through the audited seam; the transport
+// registers them via `registerMcpResidentTools` when `McpResidentToolDeps.approvals`
+// is supplied, and `server/index.ts` supplies the one control service + a clock.
+// The two input schemas / readers are the one argument shape, shared by
+// registration and validation.
+export { buildApprovalAnswer, buildApprovalsList, registerMcpApprovalTools } from './mcp-approvals.js';
+export type {
+  ApprovalAnswerPayload,
+  ApprovalsListPayload,
+  McpApprovalAnswerInput,
+  McpApprovalListItem,
+  McpApprovalOption,
+  McpApprovalPending,
+  McpApprovalQuestion,
+  McpApprovalsDeps,
+  McpApprovalsListInput,
+} from './mcp-approvals.js';

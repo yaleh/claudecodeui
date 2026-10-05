@@ -36,6 +36,8 @@
 
 import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
 
+import type { McpApprovalsDeps } from './mcp-approvals.js';
+import { registerMcpApprovalTools } from './mcp-approvals.js';
 import type { McpSessionBackgroundDeps } from './mcp-session-background.js';
 import { registerMcpSessionBackgroundTool } from './mcp-session-background.js';
 import type {
@@ -98,6 +100,14 @@ export type McpResidentToolDeps = McpSessionCancelQueuedDeps & {
    * which is what AC-271's and AC-272's criteria read.
    */
   background?: McpSessionBackgroundDeps;
+  /**
+   * AC-274's approval tools (`approvals_list` / `approval_answer`): the SAME
+   * control service AC-271 uses, presented under its approval verbs, plus the
+   * injected clock. Absent keeps the cancel-queued (and reconfigure/background)
+   * registration byte-identical — AC-271's criterion pins the table to exactly
+   * `['session_cancel_queued']`, so the two approval tools register ALONGSIDE it.
+   */
+  approvals?: McpApprovalsDeps;
 };
 
 /**
@@ -134,5 +144,13 @@ export function registerMcpResidentTools(seam: McpResidentToolSeam, deps: McpRes
   // read half; the stop branch's control check lives in the handler.
   if (deps.background) {
     registerMcpSessionBackgroundTool(seam, deps.background, READ_SCOPE);
+  }
+  // AC-274's `approvals_list` / `approval_answer` register ALONGSIDE the frozen
+  // table for the same reason AC-272/AC-273's tools did (see the file header):
+  // AC-271's criterion pins `MCP_STAGE6_RESIDENT_TOOLS` to exactly
+  // `['session_cancel_queued']`. Their two scopes are written once in
+  // `mcp-approvals.ts`, read from AC-243's vocabulary.
+  if (deps.approvals) {
+    registerMcpApprovalTools(seam, deps.approvals);
   }
 }
