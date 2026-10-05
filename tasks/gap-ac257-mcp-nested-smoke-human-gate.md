@@ -2,7 +2,7 @@
 id: gap-ac257-mcp-nested-smoke-human-gate
 title: AC-257 人工关卡：嵌套冒烟记录送人 yale 验收——复核 AC-256 八节齐全与反自点亮，worker 只写读数与结论，停在
   needs-human 等人写入「嵌套冒烟验收：通过」
-status: ready
+status: done
 labels:
   - gap
 parent: null
