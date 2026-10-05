@@ -308,3 +308,22 @@ export type {
   SessionReconfigureField,
   SessionReconfigurePayload,
 } from './mcp-session-reconfigure.js';
+
+// `session_background` (AC-273). `buildSessionBackground` lists a session's
+// `background-task` / `cron` leases from the LIVE HOST SNAPSHOT (read-only
+// enough for `cloudcli:read`) and, with a `stopTaskId`, stops one through the
+// shared control service's `stopTask` under its own `cloudcli:session:control`
+// check placed BEFORE any control call; an id the snapshot does not hold is
+// `TASK_NOT_FOUND` and is never reported stopped. `registerMcpSessionBackgroundTool`
+// installs it through the audited seam under the read scope; the transport
+// registers it via `registerMcpResidentTools` and `server/index.ts` supplies the
+// deps (the session reader, AC-245's host read seam, and the one control service).
+export {
+  buildSessionBackground,
+  registerMcpSessionBackgroundTool,
+} from './mcp-session-background.js';
+export type {
+  McpSessionBackgroundDeps,
+  SessionBackgroundPayload,
+  SessionBackgroundTask,
+} from './mcp-session-background.js';

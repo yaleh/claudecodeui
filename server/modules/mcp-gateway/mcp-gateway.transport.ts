@@ -329,14 +329,17 @@ export type McpGatewayDeps = {
    * still holds one control service, not two. AC-272's `reconfigure` member
    * carries `session_reconfigure`'s services: the provider runtime's
    * `reconfigure` passthrough over the SAME `providerRuntimeService` singleton
-   * plus the session/model/capability readers.
+   * plus the session/model/capability readers. AC-273's `background` member
+   * carries `session_background`'s services: the session reader, AC-245's host
+   * snapshot read seam (`sessionHostManager`), and that same one control service
+   * (read through its `stopTask` verb).
    *
    * Supplying it registers the stage-6 tools through the SAME audited seam the
    * read and write tools use. Absent keeps a mount that only exercises the
    * stage-3/4 tools (AC-240/244/245/249's criteria) registering exactly what it
-   * did before; a bag without `reconfigure` (AC-271's criterion) keeps the
-   * cancel-queued-only registration, so AC-272's tool is present only when its
-   * deps are wired.
+   * did before; a bag without `reconfigure` / `background` (AC-271's criterion)
+   * keeps the cancel-queued-only registration, so AC-272's and AC-273's tools
+   * are each present only when their deps are wired.
    */
   residentTools?: McpResidentToolDeps;
   /**
