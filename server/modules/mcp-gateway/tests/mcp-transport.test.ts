@@ -330,6 +330,12 @@ test('(a)(b) /mcp is a stateless Streamable HTTP endpoint answering JSON-RPC, no
   try {
     const first = await toolsListRequest(baseUrl, 'tools/list #1', 1);
     const second = await toolsListRequest(baseUrl, 'tools/list #2', 2);
+    // The readings a mount-after-static build WOULD swallow: the static layer's
+    // SPA entry is a `router.get('*')`, so only a GET/DELETE `/mcp` is
+    // intercepted by it — a POST falls through to a later-mounted POST route.
+    // These two legs are therefore what makes the mount ORDER measurable.
+    const getReading = await request(baseUrl, 'GET', MCP_GATEWAY_PATH, { label: 'GET /mcp', accept: MCP_ACCEPT });
+    const deleteReading = await request(baseUrl, 'DELETE', MCP_GATEWAY_PATH, { label: 'DELETE /mcp', accept: MCP_ACCEPT });
 
     console.log(
       [
@@ -337,6 +343,8 @@ test('(a)(b) /mcp is a stateless Streamable HTTP endpoint answering JSON-RPC, no
         `[static] SPA catch-all mounted AFTER the gateway (as server/index.ts does)`,
         describeHttp(first.reading),
         describeHttp(second.reading),
+        describeHttp(getReading.reading),
+        describeHttp(deleteReading.reading),
         `[json] #1=${JSON.stringify(first.json)}`,
         `[json] #2=${JSON.stringify(second.json)}`,
       ].join('\n'),
@@ -369,6 +377,22 @@ test('(a)(b) /mcp is a stateless Streamable HTTP endpoint answering JSON-RPC, no
       false,
       `the answer must not be the SPA shell: ${describeHttp(first.reading)}`,
     );
+
+    // (b) continued — GET/DELETE `/mcp` answer JSON-RPC 405, not the SPA shell.
+    // These are the mount-order-sensitive readings: with the static layer first,
+    // its `router.get('*')` answers `200 text/html` here.
+    for (const exchange of [getReading, deleteReading]) {
+      assert.equal(exchange.reading.status, 405, `${exchange.reading.label} must answer 405: ${describeHttp(exchange.reading)}`);
+      assert.ok(
+        isJsonRpcContentType(exchange.reading.contentType),
+        `${exchange.reading.label} must answer JSON-RPC, not the SPA shell: ${describeHttp(exchange.reading)}`,
+      );
+      assert.equal(
+        (exchange.reading.contentType ?? '').includes('text/html'),
+        false,
+        `${exchange.reading.label} must not fall through to the SPA shell: ${describeHttp(exchange.reading)}`,
+      );
+    }
   } finally {
     await close();
     staticLayer.cleanup();
