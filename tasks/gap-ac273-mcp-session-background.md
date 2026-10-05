@@ -78,16 +78,16 @@ AC-273（GOAL-022 退出条件 3；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-273 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-background.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-background.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-background.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 经真实 HTTP + MCP `session_background({session})` 用只读令牌读出该会话的 `background-task` 与 `cron` lease，`tasks` 逐字含 `id`/`kind`/`recurring`（`bg-1`/`cron-1(recurring:true)`/`wake-1(recurring:false)`），`isError` 为假、`host` 非空；逐字写出返回。
-- [ ] AC4 (b) 只读令牌带 `stopTaskId` ⇒ `isError` 为真、（可读则）`code==='SCOPE_DENIED'`、控制服务 `stopTask` 计数为 **0**、lease 仍在；control 令牌同调 ⇒ `isError` 为假、`stopped===true`、计数为 **1**、脚本化 query 的 `stopTask` 收到 `'bg-1'`；逐字写出两侧返回与计数前后。
-- [ ] AC5 (c) 控制令牌停一个不存在的 id ⇒ `isError` 为真、`code==='TASK_NOT_FOUND'`、响应不含 `stopped:true`、控制计数**不变**、lease 集合不变；逐字写出返回与前后计数（可选：驱动回 `false` ⇒ 如实 `STOP_UNSUPPORTED`、不 `stopped:true`）。
-- [ ] AC6 (d) 成功停止（脚本化 query 已 `removeLease`）后经 MCP 再列 ⇒ `tasks` 含 `cron-1`/`wake-1`、**不含** `bg-1`；逐字写出停止前后两份 `tasks` 与两组 id。
-- [ ] AC7 (e) 冷会话（无宿主）经 MCP 列出 ⇒ `isError` 为假、`tasks` 为空、`host` 为 `null`（或明确「无宿主」字段）、`message` 逐字含「没有宿主」；正例对照 `S` 的 `host` 非空；逐字写出两侧。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 只读令牌也能停止 ⇒ AC4 红；(ii) 不存在的 id 回「已停止」⇒ AC5 红；(iii) 列表漏掉 cron ⇒ AC3 红。每条记录恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写下计数）；`mcp-cancel-queued.test.ts`、`mcp-session-reconfigure.test.ts`、`mcp-session-send.test.ts`、`mcp-read-tools.test.ts`、`chat-stop-task.test.ts`、`claude-resident-permissions.test.ts` 不改一字仍逐字通过；跨模块只经 barrel。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-273 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-session-background.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-session-background.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-session-background.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 经真实 HTTP + MCP `session_background({session})` 用只读令牌读出该会话的 `background-task` 与 `cron` lease，`tasks` 逐字含 `id`/`kind`/`recurring`（`bg-1`/`cron-1(recurring:true)`/`wake-1(recurring:false)`），`isError` 为假、`host` 非空；逐字写出返回。
+- [x] AC4 (b) 只读令牌带 `stopTaskId` ⇒ `isError` 为真、（可读则）`code==='SCOPE_DENIED'`、控制服务 `stopTask` 计数为 **0**、lease 仍在；control 令牌同调 ⇒ `isError` 为假、`stopped===true`、计数为 **1**、脚本化 query 的 `stopTask` 收到 `'bg-1'`；逐字写出两侧返回与计数前后。
+- [x] AC5 (c) 控制令牌停一个不存在的 id ⇒ `isError` 为真、`code==='TASK_NOT_FOUND'`、响应不含 `stopped:true`、控制计数**不变**、lease 集合不变；逐字写出返回与前后计数（可选：驱动回 `false` ⇒ 如实 `STOP_UNSUPPORTED`、不 `stopped:true`）。
+- [x] AC6 (d) 成功停止（脚本化 query 已 `removeLease`）后经 MCP 再列 ⇒ `tasks` 含 `cron-1`/`wake-1`、**不含** `bg-1`；逐字写出停止前后两份 `tasks` 与两组 id。
+- [x] AC7 (e) 冷会话（无宿主）经 MCP 列出 ⇒ `isError` 为假、`tasks` 为空、`host` 为 `null`（或明确「无宿主」字段）、`message` 逐字含「没有宿主」；正例对照 `S` 的 `host` 非空；逐字写出两侧。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 只读令牌也能停止 ⇒ AC4 红；(ii) 不存在的 id 回「已停止」⇒ AC5 红；(iii) 列表漏掉 cron ⇒ AC3 红。每条记录恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0；`npm run lint` 无 `: error `（写下计数）；`mcp-cancel-queued.test.ts`、`mcp-session-reconfigure.test.ts`、`mcp-session-send.test.ts`、`mcp-read-tools.test.ts`、`chat-stop-task.test.ts`、`claude-resident-permissions.test.ts` 不改一字仍逐字通过；跨模块只经 barrel。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)`）；若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
