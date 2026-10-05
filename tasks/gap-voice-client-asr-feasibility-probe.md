@@ -46,17 +46,17 @@ extra:
 
 ## AC
 
-- [ ] `experiments/voice-client-asr-probe/PREREG.md` 的首次提交时间早于 `docs/experiments/2026-10-06-voice-client-asr-probe.md` 的首次提交时间（`git log --diff-filter=A --format=%ct -- <文件> | tail -1` 逐个取值比较，前者更小），且 PREREG 含 §Proposal 第 6 条的全部阈值
-- [ ] `ls experiments/voice-client-asr-probe/` 含 `PREREG.md`、`index.html`、探针脚本、`serve.mjs`、`README.md`（README 写明构建复现步骤与所用 emscripten / onnxruntime-web 版本）；`git ls-files experiments/voice-client-asr-probe | grep -E '\.(onnx|wav|webm|bin|wasm)$'` 无输出（权重、音频、构建产物不入库）
-- [ ] 用 playwright MCP 的 `browser_navigate` 打开探针页后，`browser_evaluate` 调 `window.__probe.info()` 返回含 `crossOriginIsolated`、`wasmSimd`、`threads`、`runtime`（`sherpa-wasm` 或 `ort-web`）、`buildId` 的对象，该返回值逐字记入结论文档
-- [ ] 至少 50 条片段上的读数全部由 MCP 浏览器 `browser_evaluate` 取得并写入结论文档：实时因子 p50 / p90 / max、首次加载与二次加载耗时、模型下载字节数、WASM 堆峰值；文档列出取得每项读数所用的 evaluate 调用摘要
-- [ ] 置信度一致性：同一批片段上，探针输出与 `sv2/sv.jsonl` 对比，文档给出「服务端置信度 ≥ 0.85 的 token 中，客户端同位置同 token 的比例」，并另报文本逐字相同的比例（只作描述）
-- [ ] `node experiments/voice-client-asr-probe/serve.mjs --isolated` 下 `crossOriginIsolated === true` 且 `SharedArrayBuffer` 可用，文档给出多线程下的实时因子读数；无 `--isolated` 时仍为 false（两种情形的 `browser_evaluate` 读数都记入文档）
-- [ ] 移动视口：`browser_resize` 到 390×844 重跑一遍；MCP 浏览器支持 CDP 时再做 4× CPU 节流重测，不支持时文档写明「不支持」及原因
-- [ ] 结论文档含 go / no-go 判定表，逐条阈值给出读数与通过 / 不通过，并对 `crossOriginIsolated = false` 的后果与是否需要宿主加 COOP / COEP 头给出明确建议
-- [ ] `docs/proposals/voice-correction-feedback-loop.md` §5.10 的「要先测量」表每一行末尾追加「读数：」并指向结论文档对应小节（`awk '/^### 5.10/,/^## 6/' docs/proposals/voice-correction-feedback-loop.md | grep -c '读数：'` ≥ 6）
+- [x] `experiments/voice-client-asr-probe/PREREG.md` 的首次提交时间早于 `docs/experiments/2026-10-06-voice-client-asr-probe.md` 的首次提交时间（`git log --diff-filter=A --format=%ct -- <文件> | tail -1` 逐个取值比较，前者更小），且 PREREG 含 §Proposal 第 6 条的全部阈值
+- [x] `ls experiments/voice-client-asr-probe/` 含 `PREREG.md`、`index.html`、探针脚本、`serve.mjs`、`README.md`（README 写明构建复现步骤与所用 emscripten / onnxruntime-web 版本）；`git ls-files experiments/voice-client-asr-probe | grep -E '\.(onnx|wav|webm|bin|wasm)$'` 无输出（权重、音频、构建产物不入库）
+- [x] 用 playwright MCP 的 `browser_navigate` 打开探针页后，`browser_evaluate` 调 `window.__probe.info()` 返回含 `crossOriginIsolated`、`wasmSimd`、`threads`、`runtime`（`sherpa-wasm` 或 `ort-web`）、`buildId` 的对象，该返回值逐字记入结论文档
+- [x] 至少 50 条片段上的读数全部由 MCP 浏览器 `browser_evaluate` 取得并写入结论文档：实时因子 p50 / p90 / max、首次加载与二次加载耗时、模型下载字节数、WASM 堆峰值；文档列出取得每项读数所用的 evaluate 调用摘要
+- [x] 置信度一致性：同一批片段上，探针输出与 `sv2/sv.jsonl` 对比，文档给出「服务端置信度 ≥ 0.85 的 token 中，客户端同位置同 token 的比例」，并另报文本逐字相同的比例（只作描述）
+- [x] `node experiments/voice-client-asr-probe/serve.mjs --isolated` 下 `crossOriginIsolated === true` 且 `SharedArrayBuffer` 可用，文档给出多线程下的实时因子读数；无 `--isolated` 时仍为 false（两种情形的 `browser_evaluate` 读数都记入文档）
+- [x] 移动视口：`browser_resize` 到 390×844 重跑一遍；MCP 浏览器支持 CDP 时再做 4× CPU 节流重测，不支持时文档写明「不支持」及原因
+- [x] 结论文档含 go / no-go 判定表，逐条阈值给出读数与通过 / 不通过，并对 `crossOriginIsolated = false` 的后果与是否需要宿主加 COOP / COEP 头给出明确建议
+- [x] `docs/proposals/voice-correction-feedback-loop.md` §5.10 的「要先测量」表每一行末尾追加「读数：」并指向结论文档对应小节（`awk '/^### 5.10/,/^## 6/' docs/proposals/voice-correction-feedback-loop.md | grep -c '读数：'` ≥ 6）
 - [ ] 真机（iOS Safari、Android Chrome）读数：由人 yale 在真机上用同一探针页读取，并写入结论文档的「真机」小节（待外部）
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 

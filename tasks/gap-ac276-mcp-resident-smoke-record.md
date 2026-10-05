@@ -3,7 +3,7 @@ id: gap-ac276-mcp-resident-smoke-record
 title: AC-276 常驻专有能力冒烟记录齐全：scripts/mcp-smoke.mjs 追加 --check-resident-record +
   docs/proposals/cloudcli-mcp-resident-smoke.md 八节逐节非空；缺节必红、撤回节 pid 前后不同必红；不点亮
   AC-277
-status: todo
+status: ready
 labels:
   - gap
 parent: null

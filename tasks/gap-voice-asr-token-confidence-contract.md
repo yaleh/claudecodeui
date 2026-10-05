@@ -35,12 +35,12 @@ extra:
 
 ## AC
 
-- [ ] `npx vitest run src/shared/asr/tests/asrContractInvariants.test.ts` 退出码 0，且该文件新增的用例覆盖：三个现有适配器 `tokens` 都为 `false / false`、`locality` 都为 `'remote'`；声明 `confidence: true` 的假适配器返回带 `tokens` 的成功结果时不变量通过
-- [ ] 负对照：同一测试里，假适配器声明 `tokens.confidence = true` 但成功结果**不带** `tokens`（或某个 `confidence` 为 1.2、`-0.1`），不变量检查必须抛出；把对应检查注释掉后该断言必须变红（用例里以 `redWhenOff` 形式或等价的对照写出）
-- [ ] 往返：带 `tokens` 与 `meta.buildId` 的响应体经 `parseTranscriptionResponse(..., 'strict')` 解析后逐项保留；不带 `tokens` 的旧响应体解析结果与改动前的快照逐字相同（单测）
-- [ ] 回归：`node scripts/asr-contract-invariants-check.mjs`、`node scripts/asr-capability-check.mjs`、`node scripts/asr-health-provider-check.mjs` 退出码 0；三个现有适配器对同一份输入的输出与改动前的录制 fixture 逐字相同（`npx vitest run src/shared/asr/tests/multimodalAdapter.test.ts server/modules/voice/tests/voice-provider-dispatch.test.ts` 退出码 0）
-- [ ] `grep -rln "vi.mock(.*asrRegistry\|vi.mock(.*shared/asr" src server shared` 列出的每个文件在改动后仍通过：对这些文件执行 `npx vitest run <文件们>` 退出码 0
-- [ ] `npm run typecheck` 与 `npm run lint` 退出码 0；`npm run build` 退出码 0
+- [x] `npx vitest run src/shared/asr/tests/asrContractInvariants.test.ts` 退出码 0，且该文件新增的用例覆盖：三个现有适配器 `tokens` 都为 `false / false`、`locality` 都为 `'remote'`；声明 `confidence: true` 的假适配器返回带 `tokens` 的成功结果时不变量通过
+- [x] 负对照：同一测试里，假适配器声明 `tokens.confidence = true` 但成功结果**不带** `tokens`（或某个 `confidence` 为 1.2、`-0.1`），不变量检查必须抛出；把对应检查注释掉后该断言必须变红（用例里以 `redWhenOff` 形式或等价的对照写出）
+- [x] 往返：带 `tokens` 与 `meta.buildId` 的响应体经 `parseTranscriptionResponse(..., 'strict')` 解析后逐项保留；不带 `tokens` 的旧响应体解析结果与改动前的快照逐字相同（单测）
+- [x] 回归：`node scripts/asr-contract-invariants-check.mjs`、`node scripts/asr-capability-check.mjs`、`node scripts/asr-health-provider-check.mjs` 退出码 0；三个现有适配器对同一份输入的输出与改动前的录制 fixture 逐字相同（`npx vitest run src/shared/asr/tests/multimodalAdapter.test.ts server/modules/voice/tests/voice-provider-dispatch.test.ts` 退出码 0）
+- [x] `grep -rln "vi.mock(.*asrRegistry\|vi.mock(.*shared/asr" src server shared` 列出的每个文件在改动后仍通过：对这些文件执行 `npx vitest run <文件们>` 退出码 0
+- [x] `npm run typecheck` 与 `npm run lint` 退出码 0；`npm run build` 退出码 0
 
 ## DoD
 
