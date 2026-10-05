@@ -90,6 +90,25 @@ export type AsrCapabilities = {
    * rather than a route.
    */
   transport: 'direct' | 'proxy-only';
+  /**
+   * Whether this recogniser produces PER-TOKEN facts, and which ones.
+   *
+   * A recogniser that reports a confidence per word is a different instrument from one that
+   * reports a sentence: the confidence is what a correction loop ranks its candidates by, so a
+   * caller that wants to act on it has to know whether the answer carries it at all. `false` is
+   * "do not read this field off my results" rather than "I forgot": the invariant board reds a
+   * declaration that disagrees with the result it produced (see `asrInvariants.ts`).
+   */
+  tokens: { confidence: boolean; timestamps: boolean };
+  /**
+   * WHERE this recogniser runs, which is not the same question as `transport` (which asks which
+   * network path reaches it). A `'local-client'` engine runs on the recording device, a
+   * `'local-server'` one on this host, and `'remote'` one behind an HTTP endpoint. It is a
+   * declaration because a caller deciding whether audio may leave the device reads it, and a
+   * default would let an adapter that never thought about the question answer `'remote'` by
+   * omission and send a private recording somewhere it should not go.
+   */
+  locality: 'remote' | 'local-server' | 'local-client';
 };
 
 /** The audio half of a request. Bytes travel as a `Uint8Array` so the browser and Node agree. */
@@ -160,6 +179,20 @@ export type AsrErrorCode =
   | 'OVERSIZE'
   | 'UNSUPPORTED_MIME';
 
+/**
+ * One recognised token: the piece of text, and the per-token facts a token-aware recogniser can
+ * attach to it. Every field but `text` is optional because whether they are present is exactly
+ * what `AsrCapabilities.tokens` declares — a token from a word-level engine is what a correction
+ * loop ranks its candidates by, and one from a sentence-level engine carries the text alone.
+ */
+export type AsrToken = {
+  text: string;
+  /** The recogniser's own confidence in this token, in `[0, 1]`. */
+  confidence?: number;
+  /** Where this token begins, in milliseconds from the start of the audio. Never negative. */
+  startMs?: number;
+};
+
 export type AsrSuccess = {
   ok: true;
   /** Already processed according to `style`; the composer can use it as it stands. */
@@ -167,10 +200,31 @@ export type AsrSuccess = {
   style: 'verbatim' | 'written';
   transformations: AsrTransformation[];
   providerId: AsrProviderId;
+  /**
+   * The per-token view of `text`, when the recogniser produces one.
+   *
+   * OPTIONAL AND DECLARATION-GATED: a recogniser that declares `tokens.confidence: false` and
+   * `tokens.timestamps: false` (`asrRegistry`'s `AsrCapabilities`) leaves this absent, and the
+   * invariant board holds the declaration and the result to the same story. The text of the
+   * tokens is redundant with `text` on purpose — a caller that has already stopped reading this
+   * field must keep working, and a caller that needs the confidence needs the token boundary it
+   * belongs to.
+   */
+  tokens?: AsrToken[];
   meta?: {
     model?: string;
     latencyMs?: number;
     usage?: Record<string, number>;
+    /**
+     * The identity of the build that produced this text, for a recogniser whose behavior is a
+     * property of an artifact rather than of a service.
+     *
+     * A LOCAL engine's output is not reproducible across builds — the same audio through two
+     * checkpoints can differ in both text and confidence — so a reading taken on one build has to
+     * say which build it was. A remote service names its model instead (`meta.model`); this field
+     * exists for the recognisers that have no model name to point at.
+     */
+    buildId?: string;
     /**
      * Which version of a recogniser's own frozen prompt produced this text, for the services that
      * carry one (`dashscope-omni`). A value the adapter holds, not a derivation: the point of

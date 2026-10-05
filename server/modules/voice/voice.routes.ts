@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import express from 'express';
 
 import type {
+  VoiceLexiconService,
   VoiceRequestOverrides,
   VoiceService,
   VoiceServiceResult,
@@ -13,6 +14,14 @@ import { asyncHandler } from '@/shared/utils.js';
 type VoiceRouterDependencies = {
   voiceService: VoiceService;
   voiceSettingsService: VoiceSettingsService;
+  /**
+   * The U-source lexicon: the identifier-shaped tokens the user has sent.
+   *
+   * A SEPARATE SERVICE rather than a section of `voiceService`, because it holds a
+   * different dependency — a token store and a history source, not an outbound
+   * recogniser — and because one of its three routes reads no audio at all.
+   */
+  lexiconService: VoiceLexiconService;
   parseAudioUpload: express.RequestHandler;
   /**
    * The multipart parser for the raw-corpus endpoint, with its OWN size ceiling.
@@ -88,6 +97,28 @@ function sendFailure<TValue>(
     ...(result.upstreamCode === undefined ? {} : { upstreamCode: result.upstreamCode }),
   });
   return true;
+}
+
+/**
+ * The listing ceiling the `?limit=` query asks for.
+ *
+ * A CLAMP, not a refusal: this is a read of the caller's own vocabulary, so an
+ * absent, unparseable or out-of-range `limit` costs nothing to answer with the
+ * default or the cap rather than a `400` the caller would have to handle for a
+ * number that only trims a list. `DEFAULT_LEXICON_LIMIT` is what an unqualified
+ * read returns; `MAX_LEXICON_LIMIT` keeps one request from materialising the
+ * whole vocabulary of a heavy user.
+ */
+const DEFAULT_LEXICON_LIMIT = 100;
+const MAX_LEXICON_LIMIT = 1000;
+
+function readLexiconLimit(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_LEXICON_LIMIT;
+  }
+
+  return Math.min(Math.floor(parsed), MAX_LEXICON_LIMIT);
 }
 
 /**
@@ -319,6 +350,40 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
     }
 
     Readable.fromWeb(result.value.body).on('error', (error) => response.destroy(error)).pipe(response);
+  }));
+
+  // THE U-SOURCE LEXICON. The identifier-shaped words THIS user has typed, most
+  // frequent first — the first word source the voice feature derives from the
+  // user's own vocabulary rather than from a model.
+  //
+  // WHAT CROSSES THIS BOUNDARY IS THE TOKEN LIST, never the sentences behind it:
+  // the store only holds a token, its count and its timestamps (see
+  // `VoiceIdentifierListItem`), so there is nothing here a caller could mine text
+  // out of even if a route asked for it wrongly. The route's whole job is to read
+  // the clamped `?limit=` and hand it to the service.
+  router.get('/lexicon', (request, response) => {
+    response.json({ tokens: dependencies.lexiconService.list(readLexiconLimit(request.query.limit)) });
+  });
+
+  // Empties the lexicon. A `DELETE` rather than a `POST .../clear` because it is
+  // the plain removal of the resource the GET above reads, and it answers with
+  // nothing to say: the caller asked for the vocabulary to be gone, and whether
+  // it was is the next GET's answer.
+  router.delete('/lexicon', (_request, response) => {
+    dependencies.lexiconService.clear();
+    response.status(204).end();
+  });
+
+  // THE COLD START: recompute the lexicon from the whole indexed message history.
+  //
+  // It is a `POST` because it WRITES (it replaces the table) and it is not
+  // idempotent for free — the service makes it so by deriving the counts afresh
+  // rather than adding to what is there, which is what lets the route be retried
+  // without a doubling. The transport reads the history through the service's own
+  // source, so this route never learns which session or transcript a token came
+  // from; the response is only the two figures that say the pass ran.
+  router.post('/lexicon/import', asyncHandler(async (_request, response) => {
+    response.json(await dependencies.lexiconService.importFromHistory());
   }));
 
   return router;

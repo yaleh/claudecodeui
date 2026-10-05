@@ -101,6 +101,14 @@ function callRoute(service: VoiceService, init: RouteInit): Promise<Outcome> {
   const router = createVoiceRouter({
     voiceService: service,
     voiceSettingsService: settingsService,
+    // This file drives the raw-corpus upload; the lexicon's own routes are not
+    // reached, so an inert service keeps the dependency named without a store.
+    lexiconService: {
+      observeSentText: () => {},
+      importFromHistory: async () => ({ importedMessages: 0, tokenCount: 0 }),
+      list: () => [],
+      clear: () => {},
+    },
     parseAudioUpload: parser,
     parseRawAudioUpload: parser,
   });

@@ -162,6 +162,14 @@ async function withServer(run: (context: ServerContext) => Promise<void>): Promi
   app.use('/api/voice', authenticateToken, createVoiceRouter({
     voiceService: unusedVoiceService,
     voiceSettingsService: createVoiceSettingsService(voiceSettingsDb),
+    // The lexicon endpoints are not this file's subject; an inert service names
+    // the dependency without giving it a store or a history source.
+    lexiconService: {
+      observeSentText: () => {},
+      importFromHistory: async () => ({ importedMessages: 0, tokenCount: 0 }),
+      list: () => [],
+      clear: () => {},
+    },
     // Only the two settings endpoints are under test; the build-in upload parser
     // is never reached, so a pass-through stub keeps this file off multer.
     parseAudioUpload: (_request, _response, next) => next(),

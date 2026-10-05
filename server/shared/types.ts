@@ -1742,6 +1742,122 @@ export type VoiceLogPort = {
 };
 
 // ---------------------------
+//----------------- VOICE USER-IDENTIFIER LEXICON ------------
+
+/**
+ * One stored frequency row of the U-source lexicon.
+ *
+ * `tokenLower` is the lookup key (`canonical` lowercased) and `canonical` is the
+ * spelling first seen — the pair is what lets `CloudCLI` and `cloudcli` be one
+ * token that still displays a real casing. `firstSeenAt` / `lastSeenAt` are epoch
+ * milliseconds supplied by the service's clock, not `CURRENT_TIMESTAMP`, so a
+ * caller can pin them. `projectKey` is the path the message was sent from, which
+ * scopes the row; the listing sums across projects.
+ */
+export type VoiceIdentifierRow = {
+  tokenLower: string;
+  canonical: string;
+  count: number;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  projectKey: string;
+};
+
+/**
+ * One occurrence to add on the send path: which token, in which project, when.
+ *
+ * `at` is the epoch-millisecond instant the message was sent. It is carried per
+ * entry rather than read from the clock inside the store, so the store stays a
+ * pure writer and a criterion can deposit a row at a known instant.
+ */
+export type VoiceIdentifierIncrement = {
+  tokenLower: string;
+  canonical: string;
+  projectKey: string;
+  at: number;
+};
+
+/**
+ * One row of the lexicon listing: a token, its summed frequency, and when it was
+ * last seen. Deliberately carries no sentence and no message id — the API this
+ * shape serves returns frequencies, and a field that could hold text is the one
+ * thing that must never appear here.
+ */
+export type VoiceIdentifierListItem = {
+  token: string;
+  count: number;
+  lastSeenAt: number;
+};
+
+/**
+ * The persistence contract the lexicon service writes through.
+ *
+ * Declared as a narrow port rather than imported from the database module so the
+ * service can be unit-tested with an in-memory fake, and so the Voice module
+ * keeps talking to the database through its public barrel only. The database
+ * module's `voiceUserIdentifiersDb` is the production implementation.
+ */
+export type VoiceIdentifierStore = {
+  /** Adds one occurrence of each entry's token, creating rows on first sight. */
+  incrementTokens(entries: VoiceIdentifierIncrement[]): void;
+  /** Replaces the whole table with the derived rows; import's recompute write. */
+  replaceAll(entries: VoiceIdentifierRow[]): void;
+  /** The most frequent tokens, most frequent first, summed across projects. */
+  listTop(limit: number): VoiceIdentifierListItem[];
+  /** Empties the lexicon. */
+  clear(): void;
+  /** How many rows the table holds. */
+  countRows(): number;
+};
+
+/**
+ * One human-written message offered to the cold-start import.
+ *
+ * `id` is the message's stable identity (its app session id joined with the
+ * provider's own message id), used to count a message once even when two reads
+ * of the history return it. `projectKey` is the session's project path. `text` is
+ * the raw message body — the import applies the same shape, prompt and credential
+ * rules the live path does before any token is stored. `at` is the
+ * epoch-millisecond timestamp when the transcript carries one.
+ */
+export type VoiceHumanMessage = {
+  id: string;
+  projectKey: string;
+  text: string;
+  at?: number;
+};
+
+/**
+ * Application-service surface consumed by the Voice lexicon routes and by the
+ * automatic recording hook the chat dispatch calls.
+ *
+ * Kept separate from `VoiceService` because it is a different concern with a
+ * different dependency (a token store and a history source rather than an
+ * outbound HTTP adapter), and because the recording hook is called on the send
+ * path while the read/import surface is called on the request path.
+ */
+export type VoiceLexiconService = {
+  /**
+   * Records the identifier-shaped tokens of one message the user just sent.
+   *
+   * Credential-style messages and injected prompts contribute nothing — the same
+   * rules the import applies, so a token can never enter through the live path
+   * that the offline path would have refused.
+   */
+  observeSentText(text: string, projectKey: string): void;
+  /**
+   * Recomputes the lexicon from the whole indexed history: a cold start that
+   * makes the first day usable. Idempotent — it replaces the table with the
+   * derived rows, so running it twice leaves the same counts.
+   */
+  importFromHistory(): Promise<{ importedMessages: number; tokenCount: number }>;
+  /** The most frequent tokens, most frequent first, capped at `limit`. */
+  list(limit: number): VoiceIdentifierListItem[];
+  /** Empties the lexicon. */
+  clear(): void;
+};
+
+// ---------------------------
 //----------------- CLI MODULE CONTRACTS ------------
 /**
  * Output boundary used by the CLI and Sandbox services.

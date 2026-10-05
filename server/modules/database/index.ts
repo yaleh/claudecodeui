@@ -61,5 +61,7 @@ export { userPreferencesDb } from '@/modules/database/repositories/user-preferen
 export { vapidKeysDb } from '@/modules/database/repositories/vapid-keys.js';
 // voiceSettingsDb: used by the Voice module to serve the per-user voice backend settings that used to live in browser localStorage.
 export { voiceSettingsDb } from '@/modules/database/repositories/voice-settings.db.js';
+// voiceUserIdentifiersDb: used by the Voice module's U-source lexicon to persist the identifier-shaped tokens the user has sent, with their frequencies.
+export { voiceUserIdentifiersDb } from '@/modules/database/repositories/voice-user-identifiers.db.js';
 export { scheduledMessagesDb } from './repositories/scheduled-messages.db.js';
 export type { ScheduledMessageRow, ScheduledMessageStatus } from './repositories/scheduled-messages.db.js';

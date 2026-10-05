@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SenseVoice-Small 客户端 WASM 探针</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, monospace; margin: 1rem; }
+  #log { white-space: pre-wrap; background: #f6f6f6; padding: .5rem; border-radius: 6px; }
+  button { font: inherit; padding: .3rem .8rem; }
+</style>
+</head>
+<body>
+<h3>SenseVoice-Small 客户端 WASM 探针（D2）</h3>
+<p>读取 <code>window.__probe.info()</code> / <code>window.__probe.run(clipUrl)</code>。</p>
+<button id="go" disabled>run 一条样例</button>
+<div id="log">boot…</div>
+
+<script>
+// Capture every WebAssembly.Memory the runtime allocates, so the wasm linear-memory high-water
+// can be read from the page (onnxruntime-web does not expose it).
+window.__wasmMemories = [];
+(function () {
+  const Orig = WebAssembly.Memory;
+  function Wrapped(desc) { const m = new Orig(desc); window.__wasmMemories.push(m); return m; }
+  Wrapped.prototype = Orig.prototype;
+  try { WebAssembly.Memory = Wrapped; } catch (e) { /* frozen in some engines */ }
+})();
+window.__maxWasmHeap = () => {
+  let mx = 0;
+  for (const m of window.__wasmMemories) { try { if (m.buffer.byteLength > mx) mx = m.buffer.byteLength; } catch (e) {} }
+  return mx;
+};
+window.__jsHeap = () => (performance.memory ? performance.memory.usedJSHeapSize : null);
+</script>
+
+<script type="module">
+import * as ort from '/ort/ort.wasm.min.mjs';
+import { createProbe, PROBE_VERSION } from '/probe.mjs';
+
+const log = (m) => { document.getElementById('log').textContent = m; };
+const T0 = performance.now();
+window.__probeReady = false;
+
+ort.env.wasm.wasmPaths = '/ort/';
+
+async function loadModelBytes(url) {
+  try {
+    const cache = await caches.open('vcasr-probe-v1');
+    const hit = await cache.match(url);
+    if (hit) { window.__modelSource = 'cache'; return await hit.arrayBuffer(); }
+  } catch (e) { /* Cache API unavailable */ }
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`model fetch ${r.status}`);
+  const buf = await r.arrayBuffer();
+  window.__modelSource = 'network';
+  try {
+    const cache = await caches.open('vcasr-probe-v1');
+    await cache.put(url, new Response(buf.slice(0), { headers: { 'Content-Type': 'application/octet-stream' } }));
+  } catch (e) { /* quota */ }
+  return buf;
+}
+
+async function sha256Hex(buf) {
+  const d = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// wasm-SIMD feature detection (standard validate() probe)
+const WASM_SIMD = (() => {
+  try {
+    return WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]));
+  } catch (e) { return false; }
+})();
+
+(async () => {
+  try {
+    log('loading tokens…');
+    const tokensText = await (await fetch('/model/tokens.txt')).text();
+    log('loading model (239 MB)…');
+    const tFetch = performance.now();
+    const modelBuf = await loadModelBytes('/model/model.int8.onnx');
+    const modelFetchMs = performance.now() - tFetch;
+    const modelSha = await sha256Hex(modelBuf);
+    const buildId = `ort-web ${ort.env.versions ? ort.env.versions.web : '1.30.0'} | sensevoice-small-int8-2024-07-17 | probe-${PROBE_VERSION} | sha256:${modelSha.slice(0, 16)}`;
+    const probe = await createProbe({ ort, modelArrayBuffer: modelBuf, tokensText, buildId });
+    const readyMs = performance.now() - T0;
+
+    window.__probe = {
+      version: PROBE_VERSION,
+      info: () => ({
+        crossOriginIsolated: typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : null,
+        wasmSimd: WASM_SIMD,
+        threads: probe.numThreads,
+        runtime: 'ort-web',
+        buildId,
+        sharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        ortVersion: ort.env.versions ? ort.env.versions.web : '1.30.0',
+        modelBytes: modelBuf.byteLength,
+        modelSha256: modelSha,
+        modelSource: window.__modelSource,
+        userAgent: navigator.userAgent,
+      }),
+      readyMs,
+      sessionLoadMs: probe.loadMs,
+      modelFetchMs,
+      meta: () => ({
+        lfr_window_size: probe.meta.lfr_window_size,
+        lfr_window_shift: probe.meta.lfr_window_shift,
+        normalize_samples: probe.meta.normalize_samples,
+        vocab_size: probe.meta.vocab_size,
+        model_version: probe.meta.version,
+      }),
+      run: (url) => probe.run(url),
+      runSamples: (samples) => probe.runFromSamples(samples),
+      stats: () => ({ wasmHeapBytes: window.__maxWasmHeap(), jsHeapBytes: window.__jsHeap() }),
+    };
+    window.__probeReady = true;
+    const btn = document.getElementById('go');
+    btn.disabled = false;
+    btn.onclick = async () => { log(JSON.stringify(await window.__probe.run('/clips/' + (window.__clip || '1.wav')), null, 1).slice(0, 4000)); };
+    log(JSON.stringify({ ready: true, readyMs, ...window.__probe.info() }, null, 1));
+  } catch (e) {
+    window.__probeError = String(e && e.stack || e);
+    log('ERROR: ' + window.__probeError);
+  }
+})();
+</script>
+</body>
+</html>

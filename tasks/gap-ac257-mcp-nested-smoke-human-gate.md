@@ -2,7 +2,7 @@
 id: gap-ac257-mcp-nested-smoke-human-gate
 title: AC-257 人工关卡：嵌套冒烟记录送人 yale 验收——复核 AC-256 八节齐全与反自点亮，worker 只写读数与结论，停在
   needs-human 等人写入「嵌套冒烟验收：通过」
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -37,12 +37,12 @@ goal_ac: AC-257
 
 ## AC
 
-- [ ] AC1 前置齐全（AC-256 判据绿）：逐字命令 `for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcli-mcp-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node --test scripts/mcp-smoke.test.mjs && node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**；写下 tests/pass/fail 与 `--check-record` 的 stdout 逐字。
-- [ ] AC2 记录八节齐全且每节读数非空：`node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**；打印八节标题（环境与版本 / 起独立实例 / Claude Code 握手与工具列表 / 列出会话 / 发消息 / 查进度 / 中止 / 收尾残留）与每节 `读数：`/`结论：` 两行的存在性。
-- [ ] AC3 反自点亮负控制 + 正控制：`grep -c '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` → **0** 且 `grep -c '嵌套冒烟验收：通过' scripts/mcp-smoke.mjs` → **0**；正控制：对一份临时拷贝在行首插入该字样后同一 `grep -c` → **1**（证明负控制的零有分辨力、不是恒零）。
-- [ ] AC4 红态基线逐字记录：运行 `grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md || { echo '缺人工验收行：记录文件里没有以「嵌套冒烟验收：通过」开头的一行' >&2; exit 1; }`，退出码 **1**，stderr 逐字含 `缺人工验收行：`（完整判据文本见 goals/AC-257-*.md；本条复述其行为、不复述 echo 里的括注）。写下完整命令与完整输出。
+- [x] AC1 前置齐全（AC-256 判据绿）：逐字命令 `for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcli-mcp-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node --test scripts/mcp-smoke.test.mjs && node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**；写下 tests/pass/fail 与 `--check-record` 的 stdout 逐字。
+- [x] AC2 记录八节齐全且每节读数非空：`node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**；打印八节标题（环境与版本 / 起独立实例 / Claude Code 握手与工具列表 / 列出会话 / 发消息 / 查进度 / 中止 / 收尾残留）与每节 `读数：`/`结论：` 两行的存在性。
+- [x] AC3 反自点亮负控制 + 正控制：`grep -c '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` → **0** 且 `grep -c '嵌套冒烟验收：通过' scripts/mcp-smoke.mjs` → **0**；正控制：对一份临时拷贝在行首插入该字样后同一 `grep -c` → **1**（证明负控制的零有分辨力、不是恒零）。
+- [x] AC4 红态基线逐字记录：运行 `grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md || { echo '缺人工验收行：记录文件里没有以「嵌套冒烟验收：通过」开头的一行' >&2; exit 1; }`，退出码 **1**，stderr 逐字含 `缺人工验收行：`（完整判据文本见 goals/AC-257-*.md；本条复述其行为、不复述 echo 里的括注）。写下完整命令与完整输出。
 - [ ] AC5 人证行已由人 yale 写入：`grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**。**这条 AC 不得由 worker 自行勾选**；人尚未写入时它保持未勾，本任务停在 `needs-human` 等人裁定，不得置 done。
-- [ ] AC6 只写本任务文件：`git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac257-mcp-nested-smoke-human-gate.md'` 无输出（产品代码与记录文件一行未改；用 merge-base 而非裸 develop，避免把别人的 fan-in 读成本任务的改动）。
+- [x] AC6 只写本任务文件：`git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac257-mcp-nested-smoke-human-gate.md'` 无输出（产品代码与记录文件一行未改；用 merge-base 而非裸 develop，避免把别人的 fan-in 读成本任务的改动）。
 
 ## DoD
 
@@ -66,3 +66,30 @@ goal_ac: AC-257
 - 记录文件是只读面：worker 不修改它，只读它并在本任务 `## Evidence` 里摘录读数。
 - 绝不碰生产 3001：不连接、不启用、不重启。
 - 冒烟的真跑成本（真模型、真 Claude CLI）已由 AC-256 承担一次；本条不重跑真冒烟，只重跑机械复核（`--check-record` 是纯读）与 AC-256 的单测。
+
+## Evidence
+
+**AC1 — 前置齐全（AC-256 判据绿）。** 逐字命令 `for f in scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs docs/proposals/cloudcli-mcp-smoke.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node --test scripts/mcp-smoke.test.mjs && node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` 退出 **0**。`node --test scripts/mcp-smoke.test.mjs` 汇总逐字：`tests 25 / suites 0 / pass 25 / fail 0 / cancelled 0 / skipped 0 / todo 0 / duration_ms 1675.345937`。`node scripts/mcp-smoke.mjs --check-record docs/proposals/cloudcli-mcp-smoke.md` stdout 逐字：`记录合格：docs/proposals/cloudcli-mcp-smoke.md 八节齐全、每节 读数：/结论： 非空、端口不是 3001`（退出 0）。
+
+**AC2 — 记录八节齐全且每节读数非空。** `--check-record` 退出 **0**（stdout 同上）。逐节标题与两行存在性（1 = 该行存在且冒号后非空）：`## 环境与版本` 读数非空=1 / 结论非空=1；`## 起独立实例` 读数非空=1 / 结论非空=1；`## Claude Code 握手与工具列表` 读数非空=1 / 结论非空=1；`## 列出会话` 读数非空=1 / 结论非空=1；`## 发消息` 读数非空=1 / 结论非空=1；`## 查进度` 读数非空=1 / 结论非空=1；`## 中止` 读数非空=1 / 结论非空=1；`## 收尾残留` 读数非空=1 / 结论非空=1。八节共 8/8。
+
+**AC3 — 反自点亮（负控制 + 正控制）。** 负控制：`grep -c '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` → **0**（grep 退出 1，无匹配）；`grep -c '嵌套冒烟验收：通过' scripts/mcp-smoke.mjs` → **0**（grep 退出 1，无匹配）。正控制：把记录文件拷贝到临时目录、在行首插入一行 `嵌套冒烟验收：通过 —— 正控制临时拷贝（不入库）` 后，同一 `grep -c '^嵌套冒烟验收：通过' <临时拷贝>` → **1**（grep 退出 0）——证明负控制的 0 有分辨力、不是恒零。临时拷贝在临时目录（`mktemp -d`）中创建并已删除，未入库。
+
+**AC4 — 红态基线逐字记录。** 命令逐字：`grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md || { echo '缺人工验收行：记录文件里没有以「嵌套冒烟验收：通过」开头的一行' >&2; exit 1; }`。输出（stderr）逐字：`缺人工验收行：记录文件里没有以「嵌套冒烟验收：通过」开头的一行`。退出码 **1**。
+
+**AC5 — 人证行（未满足，等 yale 写入）。** 人 yale 尚未写入，AC5 判据保持红（AC4 即其红态读数）。worker 不代写、不勾选该 AC。
+
+**AC6 — 只写本任务文件。** `git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac257-mcp-nested-smoke-human-gate.md'` 无输出（除本任务文件外，产品代码与记录文件一行未改）。
+
+**承重读数摘录（均引自记录 `docs/proposals/cloudcli-mcp-smoke.md`，逐字）。** 独立实例端口 ≠ 3001：`port=5683`（由 `listen(0)` 探得，全程不碰 3001）；发消息的 run 来源逐字 `mcp`：`session_send` 返回 `{"runId":"ce4eff52-fafc-4918-a93e-9ba850e95272","queued":false,"queuedMessageUuid":null,"source":"mcp"}`，且同一读里非 MCP run（WS `chat.send` 发起的 `runId=a7064737-65f2-42f3-82ae-e0d45565ac41`）经 `run_get` 读到 `"source":"user"`（≠ mcp，字段有分辨力）；`run_get` 按 runId 命中：`run_get(runId=ce4eff52-…, waitSeconds=1)` 返回同一 run，`"source":"mcp","status":"running","phase":"tool"`；`session_interrupt` 返回 `{"aborted":true}` 且常驻进程 pid 中止前=1175777、中止后=1175777（相同即未换进程）；收尾残留全 0：临时根 `/tmp/ac256-run4` 的 `pgrep-命中=0`、`/proc environ-命中=0`、`systemctl --user scope-命中=0`；`:3001` 起终点监听 pid 逐字相同：起点 `listener-pid=537272 systemd-main-pid=537272`、终点 `listener-pid=537272 systemd-main-pid=537272`（全程未连接 / 未启用 / 未重启 3001）。
+
+**请求人 yale 做的唯一动作。** 在 `/data/home/yale/work/claudecodeui/docs/proposals/cloudcli-mcp-smoke.md` 写入一行、以「嵌套冒烟验收：通过」开头（行首起、无前导空白）。写入后重跑 AC5 判据 `grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` 即退出 0，届时勾选 AC5、任务方可推进，GOAL-020 方可判 achieved。
+
+## Needs-Human
+
+**执行 2026-10-05T22:15:55.329Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 失败步/判词：AC 未全勾（checked 5/6，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：2601cf76-e260-4e6c-a16a-1091b7990e3b

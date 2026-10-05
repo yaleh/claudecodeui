@@ -158,6 +158,14 @@ function postThroughRouter(uploadError: unknown): RouteOutcome {
       // asserting something about a layer this test never reaches.
       maskForReadback: (settings) => settings,
     },
+    // This file drives the upload parser's refusals; the lexicon is a dependency
+    // of the router it must name, and is never reached from these requests.
+    lexiconService: {
+      observeSentText: () => {},
+      importFromHistory: async () => ({ importedMessages: 0, tokenCount: 0 }),
+      list: () => [],
+      clear: () => {},
+    },
     parseAudioUpload: (_request, _response, callback) => callback(uploadError),
     // The raw endpoint's parser is never reached here — this file drives `/transcribe` — so it is a
     // pass-through that answers "no error" without touching the request.
