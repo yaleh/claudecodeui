@@ -2,7 +2,7 @@
 id: gap-ac248-run-get-bounded-wait
 title: AC-248 run_get 按 runId 取运行摘要并可有界等待：结束、进入待审批、超时各自返回，等待上限 25
   秒，过期与未知与重启各有说法；判据 server/modules/mcp-gateway/tests/mcp-run-get.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
