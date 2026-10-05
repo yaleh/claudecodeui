@@ -39,7 +39,14 @@ import { taskmasterRoutes } from './modules/taskmaster/index.js';
 import { quayRoutes } from './modules/quay/index.js';
 import { commandsRoutes } from './modules/commands/index.js';
 import { settingsRoutes } from './modules/settings/index.js';
-import { createAccessTokensService, createTokenInfoRouter } from './modules/oauth/index.js';
+import {
+    createAccessTokensService,
+    createOAuthClientsRouter,
+    createOAuthStore,
+    createTokenInfoRouter,
+    mountOAuthRegister,
+    readMcpAllowedRedirectHosts,
+} from './modules/oauth/index.js';
 import { createSystemModule } from './modules/system/index.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
@@ -76,6 +83,7 @@ import {
     MCP_GATEWAY_PATH,
     mountMcpGateway,
     mountOAuthMetadata,
+    readMcpDcrMode,
 } from './modules/mcp-gateway/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
@@ -267,6 +275,17 @@ app.use('/api/settings', authenticateToken, settingsRoutes);
 // threaded into `mountMcpGateway`'s `authorize` seam.
 const accessTokensService = createAccessTokensService({ now: () => new Date() });
 app.use('/api/oauth', createTokenInfoRouter(accessTokensService));
+
+// The OAuth store (AC-258), built ONCE and shared by both client paths below:
+// dynamic registration (`/oauth/register`) and manual creation
+// (`POST /api/oauth/clients`). A second store would be a second view of the same
+// file, so there is exactly one.
+const oauthStore = createOAuthStore();
+
+// Manual OAuth client creation (AC-264). Authenticated like every neighbouring
+// settings route: only a logged-in human may mint a client, and the response is
+// the plaintext secret's one and only appearance.
+app.use('/api/oauth/clients', authenticateToken, createOAuthClientsRouter({ store: oauthStore }));
 
 app.use('/api/system', authenticateToken, systemRoutes);
 
@@ -471,6 +490,23 @@ const oauthMetadata = mountOAuthMetadata(app);
 console.log(
     `[MCP] oauth metadata ${oauthMetadata.mounted ? 'mounted' : 'not mounted'} (${oauthMetadata.reason})`,
 );
+
+// The DCR registration endpoint (AC-264), mounted only when OAuth itself is on
+// (the metadata mount's own reading — NOT a second reader of the OAuth switch).
+// It still attaches BEFORE the static layer for the same reason as above: behind
+// the SPA catch-all, `/oauth/register` would answer `200 text/html`. The DCR
+// mode and the redirect allowlist come from their single readers; when the mode
+// is `off` nothing is attached and the path stays absent.
+if (oauthMetadata.mounted) {
+    const oauthRegister = mountOAuthRegister(app, {
+        store: oauthStore,
+        dcrMode: readMcpDcrMode(),
+        allowedHosts: readMcpAllowedRedirectHosts(),
+    });
+    console.log(
+        `[MCP] oauth register ${oauthRegister.mounted ? 'mounted' : 'not mounted'} at /oauth/register (${oauthRegister.reason})`,
+    );
+}
 
 // Static assets and the SPA entry, mounted after every API route so response
 // compression only ever applies to the bundle and HTML above (see the module

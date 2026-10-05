@@ -72,3 +72,32 @@ export type {
   VerifyAccessTokenReason,
   VerifyOAuthAccessTokenResult,
 } from '@/modules/oauth/oauth-provider.service.js';
+// readMcpAllowedRedirectHosts / validateRedirectUris: the DCR policy (AC-264) —
+// the allowlist reader and the pure redirect-uri validator. Consumers: the server
+// entrypoint (reads the allowlist and injects it into the register mount) and this
+// module's oauth-dcr criterion (which pins the policy branches directly).
+export { readMcpAllowedRedirectHosts, validateRedirectUris } from '@/modules/oauth/oauth-dcr.policy.js';
+export type {
+  OAuthDcrMode,
+  RedirectUriErrorCode,
+  RedirectUriValidation,
+  RedirectUriValidationInput,
+} from '@/modules/oauth/oauth-dcr.policy.js';
+// createOAuthRegisteredClientsStore / createOAuthClientsService: the DCR store
+// adapter and the manual-client service (AC-264). Consumers: this module's
+// oauth-clients routes and its oauth-dcr criterion.
+export {
+  createOAuthClientsService,
+  createOAuthRegisteredClientsStore,
+} from '@/modules/oauth/oauth-clients.service.js';
+export type {
+  CreateManualClientInput,
+  CreateManualClientResult,
+  OAuthClientsService,
+  OAuthRegisteredClientsStoreDeps,
+} from '@/modules/oauth/oauth-clients.service.js';
+// mountOAuthRegister / createOAuthClientsRouter: the SDK registration mount
+// (gated by MCP_DCR) and the manual-client route factory (AC-264). Consumers: the
+// server entrypoint (mounts both) and this module's oauth-dcr criterion.
+export { createOAuthClientsRouter, mountOAuthRegister } from '@/modules/oauth/oauth-clients.routes.js';
+export type { MountOAuthRegisterDeps, OAuthRegisterMountReading } from '@/modules/oauth/oauth-clients.routes.js';
