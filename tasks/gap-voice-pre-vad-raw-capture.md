@@ -160,3 +160,12 @@ AC13：`npm run lint` 退出码 0；`npm run typecheck` 三个 project（tsconfi
 修复（本分支 commit `e37f9512`）：借用兄弟判据相同的 pid 分域读数——本进程自己的副本无条件红（`own-temp-copies`），仅由他进程 pid 的临时副本构成的差集按跨进程伪影豁免（`concurrent-foreign-only=true`），任何其它增/删/改路径仍红。typecheck / oxlint 绿。
 
 正控：他进程 `env-only-configured` 对贯穿 AC9 时为绿（`temp-copies-any=2 foreign-temp-copies=2 own-temp-copies=none`，退出码 0；旧读数在同一边界红）。负控：留下的非临时游离文件仍红（`changed-worktree-git-status: added=[?? .../__residue-probe-intentional.ts]`，退出码 1）——牙齿保留。判据文件 `voice-capture-audio.false-forms.test.ts` 9/9 仍绿；`voice-capture-raw*.test.ts` / `voice-capture-audio.test.ts` / `voice-config.routes.test.ts` / `voiceTranscribeGaps.test.ts` / `voice.service.test.ts` 合并并发运行 51 pass / 0 fail；六个客户端 voice 测试 40 pass / 0 fail；AC13 两门退出码 0。
+
+
+续做轮 2（2026-10-05）。本轮 fan-in suite 红的真因定位与两处处置：
+
+(1) 真因 = undici bad-port 抽签，非本任务缺陷。上轮 exited-not-landed 的红是 `voice-capture-text.false-forms.test.ts` 的 AC10 断言，其失败读数是 `AC10 exit=1 cases=5 :: npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-config.routes.test.ts` —— 即 6 个用例里恰好 5 个通过。该文件独立跑 6/6 绿（多次），与本 delta 的改动只有加性 stub（`captureRaw` / `captureState` / `parseRawAudioUpload`）。这与本仓已记录的根因完全一致（undici 硬性拒收 18 个端口，`app.listen(0)` 每轮约 2% 概率抽中；同一文件在 `gap-claude-resident-slice-memory-cap` 轮已复现过一次，症状即「6 中 5 绿 + 未复现 + 独立跑绿」）。处置：不编辑该文件（它会触发 anti-drift），重跑 suite 即重抽。
+
+(2) 本轮新发现并修复一个本 delta 引入的真实缺陷：并发伪影前缀不匹配。`voice-capture-raw.false-forms.test.ts` 的临时副本前缀原为 `__criterion-raw-falsify-`，而五个兄弟判据（off / text / secrets / isolation / dashscope-settings）的「他进程在飞副本」豁免读数是 `line.includes('__criterion-falsify-')` —— 该子串在 `__criterion-raw-falsify-` 里**不出现**，故本文件自己的副本会被兄弟读成本次残留而非跨进程伪影，把兄弟判据判红。这与本任务上轮已修的 `voice-capture-audio.false-forms.test.ts` 是同一类问题，只是方向相反（那次是本文件漏了 pid 分域，这次是本文件的前缀没进共享约定）。
+
+修复：`TEMP_PREFIX` 改为 `__criterion-falsify-raw-`（保留 `raw` 标记，且包含共享子串）。正控：16 路并发跑全部 27 个 voice 测试文件，修复前**每轮 6 个 false-forms 判据红**（text 的红明确点名本文件副本 `removed=[?? .../__criterion-raw-falsify-switch-gate-removed-base-<pid>.ts]`），修复后 3/3 轮**全绿**。自测：本文件独立 2/2 绿；`npm run typecheck` 退出码 0；`npm run lint` 退出码 0（仅既有 warning）。AC 13/13 不变（本轮未触碰任何 AC 面）。
