@@ -43,15 +43,15 @@ goal_ac: AC-278
 
 ## AC
 
-- [ ] AC1 红态基线逐字记录：改动前运行 AC-278 判据命令（完整文本见 goals/AC-278-*.md 的 criterion），存在性闸退出码 **1** 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-production-session-wiring.test.ts`；并记录 `grep -c 'sessionCreate\|sessionInterrupt\|sessionHostControl' server/index.ts` 为 **0**。写下完整命令与完整输出。
-- [ ] AC2 判据绿：逐字命令退出 **0**，写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 生产装配交了三个 deps（静态面）：逐字打印 `server/index.ts` 的 `createMcpGatewayModule` 实参里 `writeTools` 的三个成员名与其绑定标识符，并证明与 WebSocket 与 scheduled-messages 路径是同一批单例；正例对照逐字打印（合成源码删掉 `sessionInterrupt` 后同一扫描器判出缺失）。
-- [ ] AC4 四个工具不再是占位（运行时面）：`session_create`、`session_interrupt`、`session_start`、`session_close` 逐个调用，逐字打印返回的 `code`，四条都 **≠** `MCP_TOOL_NOT_IMPLEMENTED`。
-- [ ] AC5 负控制有分辨力：不交这三项 deps 时同一探针拿到 `MCP_TOOL_NOT_IMPLEMENTED`，逐字打印 `owner`（`AC-250` 或 `AC-251`）——证明该探针能把「接上了」与「没接上」分开，不是恒真。
-- [ ] AC6 取假形态 (i)：从 `server/index.ts` 删掉 `writeTools.sessionCreate` ⇒ 判据退出**非 0**，逐字记录失败行；登记变异 diff 与恢复命令；恢复后重跑回绿。
-- [ ] AC7 取假形态 (ii)：交上 deps 但让网关内部另造一个实例 ⇒ (b) 的同一实例断言红，逐字记录失败行；登记变异 diff 与恢复命令；恢复后重跑回绿。
-- [ ] AC8 只动 Touches：`git diff --stat develop...HEAD` 与 Touches 逐条对齐（新增文件用 ASCII ` (new)` 标注）；四个工具的 handler 行为与传输层注册缝一行未改。
-- [ ] AC9 契约面：`npx oxlint` 对新/改文件退出 **0**；若提取了具名构造器，其新文件已在 Touches 里。
+- [x] AC1 红态基线逐字记录：改动前运行 AC-278 判据命令（完整文本见 goals/AC-278-*.md 的 criterion），存在性闸退出码 **1** 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-production-session-wiring.test.ts`；并记录 `grep -c 'sessionCreate\|sessionInterrupt\|sessionHostControl' server/index.ts` 为 **0**。写下完整命令与完整输出。
+- [x] AC2 判据绿：逐字命令退出 **0**，写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 生产装配交了三个 deps（静态面）：逐字打印 `server/index.ts` 的 `createMcpGatewayModule` 实参里 `writeTools` 的三个成员名与其绑定标识符，并证明与 WebSocket 与 scheduled-messages 路径是同一批单例；正例对照逐字打印（合成源码删掉 `sessionInterrupt` 后同一扫描器判出缺失）。
+- [x] AC4 四个工具不再是占位（运行时面）：`session_create`、`session_interrupt`、`session_start`、`session_close` 逐个调用，逐字打印返回的 `code`，四条都 **≠** `MCP_TOOL_NOT_IMPLEMENTED`。
+- [x] AC5 负控制有分辨力：不交这三项 deps 时同一探针拿到 `MCP_TOOL_NOT_IMPLEMENTED`，逐字打印 `owner`（`AC-250` 或 `AC-251`）——证明该探针能把「接上了」与「没接上」分开，不是恒真。
+- [x] AC6 取假形态 (i)：从 `server/index.ts` 删掉 `writeTools.sessionCreate` ⇒ 判据退出**非 0**，逐字记录失败行；登记变异 diff 与恢复命令；恢复后重跑回绿。
+- [x] AC7 取假形态 (ii)：交上 deps 但让网关内部另造一个实例 ⇒ (b) 的同一实例断言红，逐字记录失败行；登记变异 diff 与恢复命令；恢复后重跑回绿。
+- [x] AC8 只动 Touches：`git diff --stat develop...HEAD` 与 Touches 逐条对齐（新增文件用 ASCII ` (new)` 标注）；四个工具的 handler 行为与传输层注册缝一行未改。
+- [x] AC9 契约面：`npx oxlint` 对新/改文件退出 **0**；若提取了具名构造器，其新文件已在 Touches 里。
 
 ## DoD
 
