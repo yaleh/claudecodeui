@@ -3,7 +3,7 @@ id: gap-ac266-connected-apps-settings-browser-ui
 title: AC-266 真实浏览器设置页管理已连接的应用与 OAuth 客户端：列表显示客户端名称/回调主机/scope，吊销后该行消失且其令牌 /mcp
   401，手工创建客户端密钥只显示一次（刷新后页面任何文本节点不含它），禁用客户端后其令牌被拒；判据
   e2e/connected-apps-settings.spec.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -75,16 +75,16 @@ AC-266（GOAL-021 退出条件 6 的浏览器一半；SPEC `docs/proposals/mcp-g
 
 ## AC
 
-- [ ] AC1 红态基线逐字记录：改动前运行判据命令，存在性闸退出码 1 并逐字输出 `缺判据文件：e2e/connected-apps-settings.spec.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in e2e/connected-apps-settings.spec.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx playwright test e2e/connected-apps-settings.spec.ts` 退出 0；写下 passed/总数与墙钟（须 < 60s）。
-- [ ] AC3 (a) 已连接的应用列出预置授权：行含客户端名称、回调主机、scope；逐字写下该行读数。
-- [ ] AC4 (b) 吊销前 token `/mcp` 200（正例对照）；吊销后该行消失（reload 后仍不出现）且同一 token `/mcp` 401；逐字写下两次状态码与行数。
-- [ ] AC5 (c) 手工创建客户端：201；一次性提示含 `client_secret`；reload 后 content/innerText/localStorage/sessionStorage 命中数均为 0；列表行含名称与回调主机；逐字写下。
-- [ ] AC6 (d) 禁用客户端后其授权令牌 `/mcp` 401；禁用前 200（正例对照）；逐字写下两次状态码与 `disabledAt`。
-- [ ] AC7 页面无未翻译 i18n 字面量（命名空间含 settings）。
-- [ ] AC8 取假形态两条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 吊销只改前端状态 ⇒ AC4 的 401 一条红；(ii) 列表渲染密钥 ⇒ AC5 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）、`npm run test:client` 退出 0；`npx playwright test e2e/access-tokens-settings.spec.ts` 不改一字仍逐字通过（证明新 selection 未把 env 泄漏给其它 selection）。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 红态基线逐字记录：改动前运行判据命令，存在性闸退出码 1 并逐字输出 `缺判据文件：e2e/connected-apps-settings.spec.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in e2e/connected-apps-settings.spec.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx playwright test e2e/connected-apps-settings.spec.ts` 退出 0；写下 passed/总数与墙钟（须 < 60s）。
+- [x] AC3 (a) 已连接的应用列出预置授权：行含客户端名称、回调主机、scope；逐字写下该行读数。
+- [x] AC4 (b) 吊销前 token `/mcp` 200（正例对照）；吊销后该行消失（reload 后仍不出现）且同一 token `/mcp` 401；逐字写下两次状态码与行数。
+- [x] AC5 (c) 手工创建客户端：201；一次性提示含 `client_secret`；reload 后 content/innerText/localStorage/sessionStorage 命中数均为 0；列表行含名称与回调主机；逐字写下。
+- [x] AC6 (d) 禁用客户端后其授权令牌 `/mcp` 401；禁用前 200（正例对照）；逐字写下两次状态码与 `disabledAt`。
+- [x] AC7 页面无未翻译 i18n 字面量（命名空间含 settings）。
+- [x] AC8 取假形态两条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 吊销只改前端状态 ⇒ AC4 的 401 一条红；(ii) 列表渲染密钥 ⇒ AC5 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）、`npm run test:client` 退出 0；`npx playwright test e2e/access-tokens-settings.spec.ts` 不改一字仍逐字通过（证明新 selection 未把 env 泄漏给其它 selection）。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -119,6 +119,7 @@ AC-266（GOAL-021 退出条件 6 的浏览器一半；SPEC `docs/proposals/mcp-g
 - src/modules/i18n/locales/zh-CN/settings.json
 - src/modules/i18n/locales/zh-TW/settings.json
 - playwright.config.ts
+- server/modules/oauth/oauth-settings.service.ts
 - tasks/gap-ac266-connected-apps-settings-browser-ui.md
 
 ## Notes
@@ -129,3 +130,24 @@ AC-266（GOAL-021 退出条件 6 的浏览器一半；SPEC `docs/proposals/mcp-g
 - `listen(0)`/undici 端口取舍按既有约定（内存 `undici-bad-port-lottery-in-listen0-route-tests`）：spec 侧 fetch 直连 `QUAY_E2E_SERVER_PORT`，不经 undici 的 listen(0)。
 - 判据文件即 AC-266 `criterion:` 点名的那个 `e2e/connected-apps-settings.spec.ts`；不新建第二个判据文件。
 - 内存提示：e2e specs 在 typecheck/lint 之外（`e2e-specs-are-outside-typecheck-and-lint`）；新 e2e 文件可能在边界 lint 被拦截；判据文件已列入 `## Touches`。
+
+### 实现记录（实际契约，2026-10-05）
+
+- **手工创建客户端的实际线上形状**：请求体是 RFC 7591 的 snake_case `{ client_name, redirect_uris }`，成功响应 `201 { client_id, client_secret }`（`server/modules/oauth/oauth-clients.routes.ts` / AC-264）。`src/shared/api.ts` 的 `createOAuthClient` 在本层做 camelCase ↔ snake_case 映射，UI 只见 camelCase。
+- **预置不经 HTTP 授权流（偏差 1）**：`/oauth/authorize` 与 `/oauth/token` 的**生产挂载属 AC-268**，本树尚未落地——`server/index.ts` 只挂 `/mcp`（AC-263）、两个 well-known（AC-262）、`/oauth/register`（AC-264）、`/api/settings/oauth-grants|oauth-clients`（AC-265）与 `/api/oauth/clients`（AC-264）。故本 spec 的预置 = ①经**真实 DCR 端点** `POST /oauth/register` 注册两个客户端（`createdVia='dcr'` 由服务端写入）；②直接写入 store 本会写入的 grant / access_token 行（同一 `auth.db`、同一 SHA-256 hash 形式、同一 JSON 形状、同一受众）。**读数全部仍是服务端自身决策**：列表、吊销级联、禁用级联都由真实 `oauth-settings.service` / `oauthStore` 在那些行上执行，`/mcp` 由真实 AC-263 中间件判定；无任何请求被 stub。
+- **`oauth-settings.service.ts` 的 `listGrants` 改为只投影未吊销授权（偏差 2）**：`OAuthGrantSummary` 不含吊销字段，调用方无法自行过滤，而「已连接的应用」在吊销后必须不再列出该行（AC4 / DoD）。**已复核 AC-265 判据 `server/modules/oauth/tests/oauth-settings.routes.test.ts` 5/5 仍绿**（其 (a) 读的两条授权均未吊销；(b)/(d) 直接读 DB 行的 `revoked_at`）。该文件已补入 Touches 段。
+- **`PUBLIC_BASE_URL` 取 `http://127.0.0.1:${serverPort}`**（非 `localhost`）：与 webServer 的 `HOST=127.0.0.1` 一致；AC-262 对两者同样放行，且 spec 的受众是从服务端自己的 `/.well-known/oauth-protected-resource/mcp` 读回的，不重述字面量。
+
+### 逐字读数
+
+- **AC1 红态**：`for f in e2e/connected-apps-settings.spec.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done`（判据文件缺席的改动前状态）⇒ 退出码 1，逐字输出 `缺判据文件：e2e/connected-apps-settings.spec.ts`。
+- **AC2 绿**：`npx playwright test e2e/connected-apps-settings.spec.ts` 退出 0，`1 passed (15.0s)`（完整命令墙钟 16s < 60s）。
+- **AC3 (a)**：`(a) connected-app rows = 2; row for grant 1 reads "Preset Revoke App\nCallback host: 127.0.0.1\nScopes: cloudcli:read\nAuthorized: 10/5/2026 - Last used: Never\nRevoke"`。
+- **AC4 (b)**：`(b) /mcp with the preset token -> 200 before revoke, 401 after; connected-app rows 2 -> 1`；reload 后 `rows for the revoked grant = 0, for the untouched grant = 1`。
+- **AC5 (c)**：`(c) POST /api/oauth/clients -> 201; client_id=48d94ea020e8209e2b5c6080811ff990; the alert shows the same secret as the response = true`；reload 后 `secret hits in content=0, body.innerText=0, localStorage=0, sessionStorage=0`；列表行 `"Manual App …\nCallback host: 127.0.0.1\nRegistered via: Manual\nActive\nDisable"`（不含密钥）。
+- **AC6 (d)**：`(d) /mcp with the client's grant token -> 200 before disabling, 401 after`；该客户端行读到 `"Preset Disable App\nCallback host: 127.0.0.1\nRegistered via: Dynamic registration\nDisabled\nDisable"`（`disabledAt` 由服务端写入，行上呈现为 `Disabled`）。
+- **AC7**：页面 `body.innerText` 不匹配 `/\b(?:mainTabs|settings|chat|common|sidebar)\.[a-z][A-Za-z]+\b/`。
+- **AC8 (i)**：变异 `revokeGrant` 为「只本地过滤、不调 DELETE」⇒ 判据红在 `expect(afterRevoke.status).toBe(401)`，逐字 `Expected: 401 / Received: 200`；恢复命令 `git checkout -- src/modules/settings/hooks/useOAuthSettings.ts`，重跑 `1 passed`。
+- **AC8 (ii)**：变异 `NewOAuthClientAlert` 把密钥写进 `localStorage` ⇒ 判据红在 `expect(localHits).toBe(0)`，逐字 `Expected: 0 / Received: 1`；恢复命令 `git checkout -- src/modules/settings/tabs/api-settings/sections/NewOAuthClientAlert.tsx`，重跑 `1 passed`。
+- **AC9**：`npm run typecheck` 退出 0；`npm run lint` 退出 0 且 `: error ` 计数 **0**（209 条 warning，与既有同形，本次未新增 error）；`npm run test:client` 退出 0（`Test Files 163 passed`、`Tests 1053 passed | 1 skipped`）；`e2e/access-tokens-settings.spec.ts` 未改一字（`git diff develop...HEAD --name-only -- e2e/access-tokens-settings.spec.ts` 输出为空）仍 `1 passed (14.8s)`。
+- **AC10**：`git diff --stat develop...HEAD` = **22 个文件**，与 Touches 段逐条对齐（5 个新增文件标注 ASCII ` (new)`）。

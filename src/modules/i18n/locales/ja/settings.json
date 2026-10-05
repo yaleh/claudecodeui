@@ -570,5 +570,47 @@
     "copied": "コピーしました",
     "connectLabel": "接続コマンド",
     "enableHint": "MCP ゲートウェイは有効になっていません。サーバー環境で MCP_ENABLED=true を設定し、CloudCLI を再起動して有効にしてください。"
+  },
+  "connectedApps": {
+    "title": "接続済みアプリ",
+    "description": "CloudCLI MCP ゲートウェイ経由であなたの代理として動作することを許可したアプリケーションです。認可を取り消すと、その下で発行されたすべてのトークンが即座に拒否されます。",
+    "list": {
+      "empty": "接続済みアプリはまだありません。",
+      "redirectHost": "コールバックホスト:",
+      "scopes": "スコープ:",
+      "createdAt": "認可日時:",
+      "lastUsed": "最終使用:",
+      "never": "なし",
+      "revokeButton": "取り消す",
+      "revokeConfirm": "この認可を取り消しますか？そのトークンは即座に無効になります。この操作は元に戻せません。"
+    }
+  },
+  "oauthClients": {
+    "title": "OAuth クライアント（上級）",
+    "description": "この CloudCLI サーバーからトークンを取得するために登録されたアプリケーションです。ここで無効化したクライアントは、その下のすべての認可とトークンが即座に拒否されます。",
+    "newButton": "新規クライアント",
+    "form": {
+      "namePlaceholder": "クライアント名（例: 自分の連携）",
+      "redirectUrisPlaceholder": "リダイレクト URI（例: http://127.0.0.1:5173/callback）",
+      "createButton": "クライアントを作成",
+      "cancelButton": "キャンセル"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ クライアントシークレットを保存してください",
+      "alertMessage": "このシークレットが表示されるのは今回だけです。安全な場所に保管してください。",
+      "copy": "コピー",
+      "iveSavedIt": "保存しました"
+    },
+    "list": {
+      "empty": "登録済みの OAuth クライアントはまだありません。",
+      "redirectHost": "コールバックホスト:",
+      "createdVia": "登録方法:",
+      "dcr": "動的登録",
+      "manual": "手動",
+      "active": "有効",
+      "disabled": "無効",
+      "disableButton": "無効化",
+      "disableConfirm": "このクライアントを無効化しますか？その下のすべての認可とトークンが即座に拒否されます。この操作は元に戻せません。"
+    }
   }
 }

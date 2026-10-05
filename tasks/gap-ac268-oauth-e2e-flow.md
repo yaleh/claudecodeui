@@ -4,7 +4,7 @@ title: AC-268 端到端 OAuth 流程在真实 HTTP 上走通：临时实例（MC
   开、MCP_DCR=open）一次运行里完成发现/注册/授权换码/换令牌/调用 /mcp/刷新/吊销后被拒，且错误密码、错误
   verifier、授权码重放三条反例同在；判据
   server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -68,18 +68,18 @@ for f in server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts; do
 
 ## AC
 
-- [ ] AC1 红态基线逐字记录：改动前运行 AC-268 命令，退出码 1 且逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts`（写下完整命令与输出）。
-- [ ] AC2 判据绿：AC-268 命令退出 0；写下 `# tests`/`# pass`/`# fail`。
-- [ ] AC3 (a) 同一次运行依次完成元数据发现（两个 well-known 返回 `application/json`）、DCR 注册拿 `client_id`、`GET /oauth/authorize` 得服务端渲染密码页并解析出 CSRF token、带密码+CSRF 的 POST 302 回 `redirect_uri` 带 `code`、`/oauth/token` 以 PKCE S256 `code_verifier` 换到 access+refresh；逐字写出每步状态码与关键字段。
-- [ ] AC4 (b) 用 access token 调 `/mcp` 的 `tools/list` 与 `overview` 得正确结果（工具清单非空、overview 结构符合夹具）；逐字写出读数。
-- [ ] AC5 (c) refresh 换到新 access/refresh；旧 refresh 换令牌被拒；逐字写出新旧令牌与旧 refresh 的拒绝读数。
-- [ ] AC6 (d) 经设置接口吊销该授权后，同一个 access token 的下一次 `/mcp` 得 401；正例对照：吊销前同一 token 的 `/mcp` 为 200；逐字写出吊销响应与两条 `/mcp` 读数。
-- [ ] AC7 (e) 同一次运行的反例：错误密码拿不到 `code`、错误 `code_verifier` 换不到 token、`code` 重放被拒；逐字写出三条拒绝读数。
-- [ ] AC8 判据跑的是**生产装配**：实例是真 `server/index.ts` 进程（或经其调用的同一挂载工厂），`/oauth/authorize|token|revoke` 的生产挂载在 `server/index.ts`（静态路由之前）；写下证明读数（进程命令行/端口监听/挂载顺序扫描）。
-- [ ] AC9 实例隔离：`HOME`/`DATABASE_PATH` 及数据目录为临时路径、端口为临时端口且 `HOST=127.0.0.1`；起实例前显式覆盖（防写进真库）；结束时按进程组杀并清理；写下临时路径与端口读数。
-- [ ] AC10 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 授权页跳过密码 ⇒ AC7 红；(ii) 吊销不级联 ⇒ AC6 红；(iii) 刷新后旧 refresh 仍有效 ⇒ AC5 红；每条恢复后重跑回绿。
-- [ ] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写计数）；AC-245 与 AC-258..267 的判据文件不改一字仍逐字通过。
-- [ ] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件 ASCII `(new)`）；列出实际改动文件清单。
+- [x] AC1 红态基线逐字记录：改动前运行 AC-268 命令，退出码 1 且逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts`（写下完整命令与输出）。
+- [x] AC2 判据绿：AC-268 命令退出 0；写下 `# tests`/`# pass`/`# fail`。
+- [x] AC3 (a) 同一次运行依次完成元数据发现（两个 well-known 返回 `application/json`）、DCR 注册拿 `client_id`、`GET /oauth/authorize` 得服务端渲染密码页并解析出 CSRF token、带密码+CSRF 的 POST 302 回 `redirect_uri` 带 `code`、`/oauth/token` 以 PKCE S256 `code_verifier` 换到 access+refresh；逐字写出每步状态码与关键字段。
+- [x] AC4 (b) 用 access token 调 `/mcp` 的 `tools/list` 与 `overview` 得正确结果（工具清单非空、overview 结构符合夹具）；逐字写出读数。
+- [x] AC5 (c) refresh 换到新 access/refresh；旧 refresh 换令牌被拒；逐字写出新旧令牌与旧 refresh 的拒绝读数。
+- [x] AC6 (d) 经设置接口吊销该授权后，同一个 access token 的下一次 `/mcp` 得 401；正例对照：吊销前同一 token 的 `/mcp` 为 200；逐字写出吊销响应与两条 `/mcp` 读数。
+- [x] AC7 (e) 同一次运行的反例：错误密码拿不到 `code`、错误 `code_verifier` 换不到 token、`code` 重放被拒；逐字写出三条拒绝读数。
+- [x] AC8 判据跑的是**生产装配**：实例是真 `server/index.ts` 进程（或经其调用的同一挂载工厂），`/oauth/authorize|token|revoke` 的生产挂载在 `server/index.ts`（静态路由之前）；写下证明读数（进程命令行/端口监听/挂载顺序扫描）。
+- [x] AC9 实例隔离：`HOME`/`DATABASE_PATH` 及数据目录为临时路径、端口为临时端口且 `HOST=127.0.0.1`；起实例前显式覆盖（防写进真库）；结束时按进程组杀并清理；写下临时路径与端口读数。
+- [x] AC10 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 授权页跳过密码 ⇒ AC7 红；(ii) 吊销不级联 ⇒ AC6 红；(iii) 刷新后旧 refresh 仍有效 ⇒ AC5 红；每条恢复后重跑回绿。
+- [x] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写计数）；AC-245 与 AC-258..267 的判据文件不改一字仍逐字通过。
+- [x] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件 ASCII `(new)`）；列出实际改动文件清单。
 
 ## DoD
 
@@ -94,6 +94,8 @@ for f in server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts; do
 
 - server/index.ts
 - server/modules/oauth/index.ts
+- server/modules/auth/auth.module.ts（导出 credentialVerifier：授权页 POST 经它走同一 authService.login 路径）
+- server/modules/auth/index.ts（barrel 再导出 credentialVerifier）
 - server/modules/oauth/oauth-server.mount.ts (new)（`/oauth/authorize`、`/oauth/token`、`/oauth/revoke` 的生产挂载工厂；若兄弟已交等价挂载则改为其实文件）
 - server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts (new)（判据）
 - tasks/gap-ac268-oauth-e2e-flow.md
@@ -105,4 +107,5 @@ for f in server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts; do
 - 原始 HTTP 用 `node:http`，不用 `fetch`（内存 `undici-bad-port-lottery-in-listen0-route-tests`）。
 - 若需为挂载新增 barrel 导出并使某整体 `vi.mock('@/modules/database/index.js')` 的兄弟测试变红（内存 `adding-an-export-reds-sibling-wholesale-vimocks`），按同款修法把新导出补进该 mock 工厂并把该测试文件加进 `## Touches`。
 - 新测试文件可能被边界 lint 拦截（内存 `quay-boundaries-lint-blocks-new-test-files`）；判据文件已列入 `## Touches`。
-- Touches 中 `oauth-server.mount.ts` 为预期落点；若兄弟已交等价工厂，按实际写点用 `task_write` 收敛 Touches（内存 `quay-touches-must-match-actual-write-sites`）。
+- Touches 中 `oauth-server.mount.ts` 为预期落点；若兄弟已交等价工厂，按实际写点用 `task_write` 收敛 Touches（内存 `quay-touches-must-match-actual-write-sites`）。实际写点另含 `server/modules/auth/auth.module.ts` 与 `server/modules/auth/index.ts`（授权页需要生产装配的 credentialVerifier，经 auth barrel 导出），已据实加入 Touches。
+- 判据实测读数（2026-10-05，worktree gap-ac268）：`# tests 1 / # pass 1 / # fail 0`；工具清单 `["projects_list","sessions_list","session_get","session_read","overview","quay_snapshot","run_get"]`；overview `{"running":[],"awaitingPermission":[],"aborted":[],"hosts":[],"quay":[]}`；吊销正例对照 `before revoke 200` → `DELETE .../oauth-grants/1 -> 200 {"revoked":true,"tokensRevoked":2}` → `after revoke 401`；假形态三条失败行：`a wrong password must be refused`（AC7）、`the revoked token must be refused on the next /mcp call`（AC6）、`the rotated-out refresh token must be refused`（AC5）。

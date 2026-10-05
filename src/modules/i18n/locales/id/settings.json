@@ -872,5 +872,47 @@
     "copied": "Disalin",
     "connectLabel": "Perintah koneksi",
     "enableHint": "Gateway MCP tidak aktif. Setel MCP_ENABLED=true di lingkungan server dan mulai ulang CloudCLI untuk mengaktifkannya."
+  },
+  "connectedApps": {
+    "title": "Aplikasi Terhubung",
+    "description": "Aplikasi yang Anda izinkan untuk bertindak atas nama Anda melalui gateway MCP CloudCLI. Mencabut otorisasi langsung menolak setiap token yang diterbitkan di bawahnya.",
+    "list": {
+      "empty": "Belum ada aplikasi terhubung.",
+      "redirectHost": "Host callback:",
+      "scopes": "Cakupan:",
+      "createdAt": "Diotorisasi:",
+      "lastUsed": "Terakhir digunakan:",
+      "never": "Tidak pernah",
+      "revokeButton": "Cabut",
+      "revokeConfirm": "Yakin ingin mencabut otorisasi ini? Token-nya langsung berhenti berfungsi. Tindakan ini tidak dapat dibatalkan."
+    }
+  },
+  "oauthClients": {
+    "title": "Klien OAuth (Lanjutan)",
+    "description": "Aplikasi yang terdaftar untuk memperoleh token dari server CloudCLI ini. Klien yang dinonaktifkan di sini akan langsung ditolak semua otorisasi dan tokennya.",
+    "newButton": "Klien Baru",
+    "form": {
+      "namePlaceholder": "Nama klien (mis. Integrasi saya)",
+      "redirectUrisPlaceholder": "URI pengalihan (mis. http://127.0.0.1:5173/callback)",
+      "createButton": "Buat klien",
+      "cancelButton": "Batal"
+    },
+    "newClient": {
+      "alertTitle": "⚠️ Simpan Rahasia Klien Anda",
+      "alertMessage": "Ini satu-satunya kesempatan Anda melihat rahasia ini. Simpan dengan aman.",
+      "copy": "Salin",
+      "iveSavedIt": "Sudah saya simpan"
+    },
+    "list": {
+      "empty": "Belum ada klien OAuth terdaftar.",
+      "redirectHost": "Host callback:",
+      "createdVia": "Terdaftar melalui:",
+      "dcr": "Pendaftaran dinamis",
+      "manual": "Manual",
+      "active": "Aktif",
+      "disabled": "Dinonaktifkan",
+      "disableButton": "Nonaktifkan",
+      "disableConfirm": "Yakin ingin menonaktifkan klien ini? Semua otorisasi dan tokennya langsung ditolak. Tindakan ini tidak dapat dibatalkan."
+    }
   }
 }

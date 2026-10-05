@@ -222,3 +222,13 @@ AC10 判别力复核（改动后抽查取假形态 (ii)，证断言未被夹具�
 `AssertionError [ERR_ASSERTION]: the run source must read mcp` / `actual: 'scheduled',` / `expected: 'mcp',`；本轮另读到 (g) 也红：`actual: [ 'websocket', 'scheduled' ], expected: [ 'websocket', 'mcp' ]`。恢复命令 `git checkout -- server/modules/mcp-gateway/mcp-session-send.ts`，恢复后 7/7 回绿。
 
 `## Touches` 不变：本轮只改 `server/modules/mcp-gateway/tests/mcp-session-send.test.ts`（已在 Touches 中），无新增文件。
+## Needs-Human
+
+**执行 2026-10-05T09:16:04.532Z — 停派终止（失败无法归因，⛔ 不再重派）**
+
+- 阻碍原因：exited-not-landed 失败无法归因（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (parser extracted 0 of 6 failing lines and attributed none to a file); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=15425 server/modules/providers/tests/claude-peer-name-follows-ai-title.test.ts passed=false end_ms=1791191445534
+- run_id：wk-prod-anchor
+- session_id：94bedafa-d63f-4629-88cd-c8fcfb69d360
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-ac249-session-send-immediate-runid~wk-prod-anchor~1791191319693-1cb4ec.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-ac249-session-send-immediate-runid-wk-prod-anchor.log

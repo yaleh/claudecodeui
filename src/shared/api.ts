@@ -613,6 +613,16 @@ export const api = {
     revokeAccessToken: (tokenId: number) => del(`/api/settings/access-tokens/${tokenId}`),
     mcpGatewayStatus: () => get('/api/settings/mcp-gateway'),
 
+    // The OAuth surface the "connected apps" and "OAuth clients (advanced)" sections manage:
+    // the signed-in user's own consent grants (list/revoke) and the registered clients
+    // (list/disable), plus the manual-client creation whose secret is returned exactly once.
+    oauthGrants: () => get('/api/settings/oauth-grants'),
+    revokeOAuthGrant: (grantId: number) => del(`/api/settings/oauth-grants/${grantId}`),
+    oauthClients: () => get('/api/settings/oauth-clients'),
+    disableOAuthClient: (clientId: string) => patch(`/api/settings/oauth-clients/${clientId}/disable`),
+    createOAuthClient: (payload: { clientName: string; redirectUris: string[] }) =>
+      post('/api/oauth/clients', { client_name: payload.clientName, redirect_uris: payload.redirectUris }),
+
     credentials: (type: string) => get(`/api/settings/credentials${query({ type })}`),
     createCredential: (payload: {
       credentialName: string;

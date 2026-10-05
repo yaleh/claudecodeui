@@ -6,10 +6,13 @@
  * the `/mcp` authentication path (AC-263): it only answers "what has this user
  * authorized, and may I take it away".
  *
- *  - {@link OAuthSettingsService.listGrants} projects the caller's own consent
- *    grants to a display allowlist — client name, redirect host, scopes and the
- *    two timestamps. A client secret hash, the RFC 7591 metadata blob and every
- *    token are never copied, so the response cannot leak a credential.
+ *  - {@link OAuthSettingsService.listGrants} projects the caller's own LIVE
+ *    consent grants to a display allowlist — client name, redirect host, scopes
+ *    and the two timestamps. A revoked grant is not a connected app any more, so
+ *    it is dropped here rather than rendered (the row itself stays, with its
+ *    `revoked_at` stamp, as the cascade's audit trail). A client secret hash, the
+ *    RFC 7591 metadata blob and every token are never copied, so the response
+ *    cannot leak a credential.
  *  - {@link OAuthSettingsService.revokeGrant} refuses a grant that is missing OR
  *    owned by another user with the SAME `not_found` outcome: a foreign id answers
  *    404, never 403, so the endpoint is not an ownership oracle (SPEC §421).
@@ -153,7 +156,13 @@ export function createOAuthSettingsService(
 
   return {
     listGrants(userId: number): OAuthGrantSummary[] {
-      return grantsDb.listByUser(userId).map((row) => {
+      // Only LIVE grants: this list is the settings page's "connected apps", and a
+      // grant whose `revoked_at` is stamped is no longer connected — its tokens are
+      // rejected on the next `/mcp` call (AC-265 leg (b)). The summary carries no
+      // revocation field, so a caller could not filter one out itself; the store's
+      // row stays (its stamp is what makes the cascade auditable) while this
+      // projection drops it.
+      return grantsDb.listByUser(userId).filter((row) => row.revoked_at === null).map((row) => {
         const client = clientsDb.findById(row.client_id);
         return {
           id: row.id,
