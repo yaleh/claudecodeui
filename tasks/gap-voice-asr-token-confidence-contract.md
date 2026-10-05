@@ -1,7 +1,7 @@
 ---
 id: gap-voice-asr-token-confidence-contract
 title: ASR 契约增加词级置信度与时间、运行位置与构建标识：能力声明、成功结果的 tokens 字段、不变量与传输解析（不接入任何新识别器）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
