@@ -201,6 +201,7 @@ test('(f) 八节齐全（撤回节 pid 相等）exit 0', () => {
 
 test('(f) parseResidentSection 三种读法：整段/读数/结论', () => {
   const parsed = parseResidentSection(completeRecord(), '忙时发送');
+  assert.ok(parsed !== null, '八节齐全时「忙时发送」必须解析得到（否则下面的读数无从谈起）');
   assert.equal(parsed.reading, 'raw');
   assert.equal(parsed.conclusion, 'ok');
   assert.equal(parseResidentSection(completeRecord(), '不存在的小节'), null);

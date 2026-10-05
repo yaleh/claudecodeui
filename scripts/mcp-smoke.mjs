@@ -1913,7 +1913,10 @@ function driveResidentTool(smoke, { label, prompt, toolSuffix }) {
   return call;
 }
 
-/** 纯机械读一次性待审批集合（`approvals_list` 的 SDK 面，用来在取假前有界地等它出现）。 */
+/**
+ * 纯机械读一次性待审批集合（`approvals_list` 的 SDK 面，用来在取假前有界地等它出现）。
+ * @param {Smoke} smoke
+ */
 async function residentPendingApprovals(smoke) {
   const client = await mcpConnect(smoke.server.port, smoke.pat);
   try {
@@ -1924,7 +1927,10 @@ async function residentPendingApprovals(smoke) {
   }
 }
 
-/** 一段真跑：拿 `smoke.hostPidBefore/After` 两个读数并断言 pid 未换（撤回节的机械臂）。 */
+/**
+ * 一段真跑：拿 `smoke.hostPidBefore/After` 两个读数并断言 pid 未换（撤回节的机械臂）。
+ * @param {Smoke} smoke
+ */
 async function residentHostPid(smoke) {
   const host = residentHostOf(await readHosts(smoke.server.port, smoke.appToken), smoke.sessionId);
   return typeof host?.pid === 'number' ? host.pid : null;
@@ -2386,7 +2392,12 @@ export async function runResidentSmoke(smoke) {
     ?? 'v4.1flash';
   fs.mkdirSync(smoke.projectDir, { recursive: true });
 
-  /** 执行序与记录序不同：记录序见 `residentFlush`（按 RESIDENT_SECTION_TITLES）。 */
+  /**
+   * 执行序与记录序不同：记录序见 `residentFlush`（按 RESIDENT_SECTION_TITLES）。
+   * 标注成元组数组，否则 TS 把元素推成 `(string | 函数)[]`，`leg(smoke)` 与 `residentPut(title, …)`
+   * 两侧都会因为「string 不可调用 / 函数不是 string」而红。
+   * @type {Array<[string, (smoke: Smoke) => unknown]>}
+   */
   const legs = [
     ['环境与版本', residentLegEnv],
     ['常驻会话启动与 pid', residentLegStart],
@@ -2564,7 +2575,7 @@ export async function waitForNoResidue(tempRoot, budgetMs = 20_000) {
 /**
  * `--run-resident`：常驻专有能力冒烟主流程（八段真跑 → 收尾残留 → 按 AC 顺序落盘 → 校验自身）。
  * 与 `main()` 的非检查路径同构，只是记录文件与末节标题换成常驻的那一套。
- * @param {Record<string, string>} flags
+ * @param {Record<string, string | undefined>} flags
  */
 export async function runResidentMain(flags) {
   const tempRoot = path.resolve(flags['temp-root'] ?? fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-smoke-resident-')));
