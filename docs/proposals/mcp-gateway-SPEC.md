@@ -267,7 +267,7 @@ Touches 纪律：给被整体 `vi.mock` 的模块加导出，会让兄弟测试�
 
 | 工具 | Scope | 输入 | 输出 / 行为 | 背后的服务 | 阶段 |
 |---|---|---|---|---|---|
-| `overview` | `read` | `{}` | 运行中会话（项目、标题、阶段、时长）；`awaitingPermission` 的会话；最近 1 小时异常结束的运行；常驻宿主一览（state、leases）；有 quay 的项目的任务计数、driver 与 suite 状态（**只读 `getQuaySnapshot` 的缓存，不传 `refresh`；缓存未命中的项目标记为「未知」，不触发 quay CLI**，避免对 N 个项目冷启动扇出） | `chatRunRegistry`、`activityStore`、`SessionHostManager` 快照、`quayService.getQuaySnapshot` | 3 |
+| `overview` | `read` | `{}` | 运行中会话（项目、标题、阶段、时长）；`awaitingPermission` 的会话；保留期内（默认 5 分钟）被中止的运行（注册表只保留完成的运行 5 分钟，摘要里没有退出码，只有 `aborted`）；常驻宿主一览（state、leases）；有 quay 的项目的任务计数、driver 与 suite 状态（**只读 `getQuaySnapshot` 的缓存，不传 `refresh`；缓存未命中的项目标记为「未知」，不触发 quay CLI**，避免对 N 个项目冷启动扇出） | `chatRunRegistry`、`activityStore`、`SessionHostManager` 快照、`quayService.getQuaySnapshot` | 3 |
 | `projects_list` | `read` | `{ includeArchived? }` | 项目名、id、路径、会话数、最近活动 | `getProjectsWithSessions` | 3 |
 | `sessions_list` | `read` | `{ project?, provider?, state?: 'running' \| 'idle' \| 'resident' \| 'any', limit? = 10, cursor? }` | 标题、id、provider、生命周期模式、宿主 state、是否运行中、最近活动 | `getProjectSessionsPage` / `listRecentSessions` + 宿主快照 | 3 |
 | `session_get` | `read` | `{ session }` | 会话元数据 + `host`（state、pid、startedAt、idleFor、peerName、leases）+ 当前运行摘要 + 待审批数 | 宿主快照、运行摘要 | 3 |
@@ -413,7 +413,7 @@ CREATE TABLE IF NOT EXISTS mcp_audit_log (
 ### 加固
 
 - **默认关闭**：`MCP_ENABLED=true` 才挂载 `/mcp`；`MCP_OAUTH_ENABLED=true` 且 `PUBLIC_BASE_URL` 为 `https://` 才挂载 `/oauth/*` 与 `/.well-known/*`。阶段 3–4 只开前者，`/mcp` 只接受 PAT。
-- **开发期只听本机**：`MCP_OAUTH_ENABLED` 未开启时，`/mcp` 拒绝来自非回环地址的请求（以 socket 远端地址判断，不信任转发头），防止经 cloudflared 意外暴露。
+- **开发期只听本机**：`MCP_OAUTH_ENABLED` 未开启时，`/mcp` 拒绝来自非回环地址的请求（以 socket 远端地址判断，不信任转发头），**并且只要出现任一转发头（`X-Forwarded-For`、`Forwarded`、`CF-Connecting-IP`、`X-Real-IP`）就拒绝**：本机反代或 tailscale serve 经回环转进来时 socket 仍是回环，只有转发头能区分；防止经 cloudflared 或本机反代意外暴露。
 - **DCR 限制**：`MCP_DCR=off|allowlist|open`，默认 `off`；`allowlist` 下回调主机须在 `MCP_ALLOWED_REDIRECT_HOSTS` 中。
 - **受众绑定**：OAuth 令牌带 `resource`，`/mcp` 只接受匹配的令牌；客户端未发送 `resource` 时以默认受众签发。
 - **限速**：授权页密码提交每来源每 15 分钟 10 次；token 端点沿用 SDK 内置限速。
@@ -568,6 +568,7 @@ claude mcp add --transport http cloudcli http://localhost:3001/mcp \
   - 新增：运行按 id 寻址（`runId` 已存在，缺的是按 id 查询被 supersede / 已完成的运行）；常驻宿主状态作为一等信息；`session_start` / `close` / `cancel_queued` / `reconfigure`；provider 中立命名（D6）；更细的 scope；自指保护；本机 Claude Code 作为开发期客户端（D7）。
   - 未采纳：读操作只做 Resources（客户端支持不明，读仍为 Tools）；新建独立 `chat` 模块（先在 websocket 模块内抽取）；模块名 `mcp`（与 providers 的 MCP 配置概念冲突）；OAuth 排在写工具之后对外暴露（改为 OAuth 前只听回环）。
   - 合并：`session_send_and_wait` 合并为 `session_send` 的 `waitSeconds` 参数。
+- **v3.2（2026-10-05）**：落成 quay goal：阶段 0 对应 GOAL-018，阶段 1 与 2 对应 GOAL-019（均已达成），阶段 3 与 4 对应 GOAL-020，阶段 5 对应 GOAL-021，阶段 6 对应 GOAL-022。回填两处与初稿的偏离：回环守卫收紧为「转发头存在即拒」；overview 的「异常结束的运行」取保留期内被中止的运行。
 - **v3.1（2026-10-05）**：GOAL-018、GOAL-019 达成后回填。保留计划外的 `GET /api/oauth/token-info`（见「令牌自检接口」）；记录 PAT 签发尚无 scope 词汇校验，归 GOAL-020。
 - **v3（2026-10-05）**：对照 CloudCLI 的实际接入点审计后补齐（9 处缺口）。落成 quay goal 时再作两处修正：SDK 与 `zod` 的依赖声明、跨模块 barrel 导出都改为随各自的第一个消费者进入，而不是在阶段 0 / 1 提前声明（见 GOAL-018、GOAL-019 的非目标）。
   - 决策：D9 `ChatRunSource` 新增 `'mcp'`；D10 嵌套冒烟与生产分离。
