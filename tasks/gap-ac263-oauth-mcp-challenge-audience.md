@@ -80,6 +80,7 @@ AC-263（GOAL-021 退出条件 4；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 - `server/modules/mcp-gateway/mcp-gateway.transport.ts`
 - `server/modules/mcp-gateway/index.ts`
 - `server/index.ts`
+- `server/modules/oauth/oauth-provider.service.ts`（AC-259 provider：为 `verifyAccessToken` 成功分支补 `tokenId`/`clientId`，使 `/mcp` 认证机构能区分令牌来源；Proposal §1/§5）
 - `server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts` (new)（判据）
 - `server/modules/mcp-gateway/mcp-gateway.loopback.ts`（取假形态 (iii) 变异目标，恢复后最终 delta 不含此文件）
 - tasks/gap-ac263-oauth-mcp-challenge-audience.md
