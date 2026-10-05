@@ -2,7 +2,7 @@
 id: gap-ac171-criterion-red-is-mid-run-hmr-load-stabilize
 title: AC-171 判据在负载与运行中 HMR 下假红：让 e2e/resident-enable-consent.spec.ts
   在门限内稳定跑绿（启动等就绪预算 + 开关状态对重挂载鲁棒两处加固），载重读数一条不动
-status: todo
+status: ready
 labels:
   - gap
   - defect
