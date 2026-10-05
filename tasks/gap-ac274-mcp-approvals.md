@@ -5,7 +5,7 @@ title: AC-274 审批：approvals_list 列出待审批并展开 AskUserQuestion �
   作为 updatedInput；过期/不存在明确「已过期或不存在」且不调解析；需 cloudcli:approve，无 scope 被拒并写 denied
   审计；overview 的 awaitingPermission 与待审批一致；判据
   server/modules/mcp-gateway/tests/mcp-approvals.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
