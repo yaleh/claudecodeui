@@ -2,7 +2,7 @@
 id: gap-ac257-mcp-nested-smoke-human-gate
 title: AC-257 人工关卡：嵌套冒烟记录送人 yale 验收——复核 AC-256 八节齐全与反自点亮，worker 只写读数与结论，停在
   needs-human 等人写入「嵌套冒烟验收：通过」
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -84,3 +84,12 @@ goal_ac: AC-257
 **承重读数摘录（均引自记录 `docs/proposals/cloudcli-mcp-smoke.md`，逐字）。** 独立实例端口 ≠ 3001：`port=5683`（由 `listen(0)` 探得，全程不碰 3001）；发消息的 run 来源逐字 `mcp`：`session_send` 返回 `{"runId":"ce4eff52-fafc-4918-a93e-9ba850e95272","queued":false,"queuedMessageUuid":null,"source":"mcp"}`，且同一读里非 MCP run（WS `chat.send` 发起的 `runId=a7064737-65f2-42f3-82ae-e0d45565ac41`）经 `run_get` 读到 `"source":"user"`（≠ mcp，字段有分辨力）；`run_get` 按 runId 命中：`run_get(runId=ce4eff52-…, waitSeconds=1)` 返回同一 run，`"source":"mcp","status":"running","phase":"tool"`；`session_interrupt` 返回 `{"aborted":true}` 且常驻进程 pid 中止前=1175777、中止后=1175777（相同即未换进程）；收尾残留全 0：临时根 `/tmp/ac256-run4` 的 `pgrep-命中=0`、`/proc environ-命中=0`、`systemctl --user scope-命中=0`；`:3001` 起终点监听 pid 逐字相同：起点 `listener-pid=537272 systemd-main-pid=537272`、终点 `listener-pid=537272 systemd-main-pid=537272`（全程未连接 / 未启用 / 未重启 3001）。
 
 **请求人 yale 做的唯一动作。** 在 `/data/home/yale/work/claudecodeui/docs/proposals/cloudcli-mcp-smoke.md` 写入一行、以「嵌套冒烟验收：通过」开头（行首起、无前导空白）。写入后重跑 AC5 判据 `grep -q '^嵌套冒烟验收：通过' docs/proposals/cloudcli-mcp-smoke.md` 即退出 0，届时勾选 AC5、任务方可推进，GOAL-020 方可判 achieved。
+
+## Needs-Human
+
+**执行 2026-10-05T22:15:55.329Z — 连续修满重试上限仍不合格（标 needs-human）**
+
+- 阻碍原因：worker-driver 连续 3 次 exited-not-landed 未落地（重试上限）
+- 失败步/判词：AC 未全勾（checked 5/6，剩余未勾 1）——续做只需验证并勾选 AC
+- run_id：wk-prod-anchor
+- session_id：2601cf76-e260-4e6c-a16a-1091b7990e3b
