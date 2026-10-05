@@ -303,7 +303,7 @@ type SpyCounts = {
 type Harness = {
   sessionId: string;
   call: (name: string, args?: AnyRecord, which?: 'main' | 'readonly') => Promise<ToolCall>;
-  wsSend: (args: AnyRecord) => Promise<void>;
+  wsSend: (args: AnyRecord) => Promise<AnyRecord | null>;
   chatControl: ChatControlService;
   runtime: RuntimeService;
   manager: SessionHostManager;
@@ -385,12 +385,13 @@ async function withHarness(options: HarnessOptions, run: (harness: Harness) => P
   };
 
   const realControl = createChatControlService({ runtime: runtimeSpy as RuntimeService });
-  const controlSeen: AnyRecord[] = [];
+  const controlSeen: Array<{ input: AnyRecord; result: AnyRecord }> = [];
   const controlSpy = {
     ...realControl,
-    send: (...args: Parameters<ChatControlService['send']>) => {
-      controlSeen.push(args[1] as unknown as AnyRecord);
-      return realControl.send(...args);
+    send: async (...args: Parameters<ChatControlService['send']>) => {
+      const result = await realControl.send(...args);
+      controlSeen.push({ input: args[1] as unknown as AnyRecord, result: result as unknown as AnyRecord });
+      return result;
     },
   };
 
@@ -511,6 +512,7 @@ async function withHarness(options: HarnessOptions, run: (harness: Harness) => P
         const handler = wsSocket.listeners('message')[0] as unknown as (raw: unknown) => Promise<void>;
         void handler(JSON.stringify({ type: 'chat.send', ...args }));
         await waitFor(() => controlSeen.length > before, 5_000, 'the WebSocket chat.send to reach the control service');
+        return controlSeen.at(-1)?.result ?? null;
       },
       chatControl: controlSpy as ChatControlService,
       runtime,
@@ -625,15 +627,17 @@ test('(b) a live change moves the running process with the same host id and pid'
     say(`(b) effortOnly=${JSON.stringify(effortOnly.payload)}`);
 
     assert.equal(cfg.payload?.applied, 'live', 'a live-capable change must report applied live');
+    // The "no restart" reading is checked FIRST: a mutant that fakes `live` by
+    // reopening the process must red here, before any live-verb assertion.
+    assert.equal(after?.hostId, before?.hostId, 'the host is the same host');
+    assert.equal(after?.pid, before?.pid, 'the pid is the same pid — the process was not restarted');
+    assert.equal(harness.process.spawns, spawnsBefore, 'no new process was spawned by the reconfigure');
     assert.deepEqual(harness.process.setModels, ['opus'], 'setModel must reach the running query with the new model');
     assert.deepEqual(
       harness.process.setPermissionModes,
       ['acceptEdits'],
       'setPermissionMode must reach the running query with the new mode',
     );
-    assert.equal(after?.hostId, before?.hostId, 'the host is the same host');
-    assert.equal(after?.pid, before?.pid, 'the pid is the same pid — the process was not restarted');
-    assert.equal(harness.process.spawns, spawnsBefore, 'no new process was spawned by the reconfigure');
 
     // Effort is a launch argument, not a live verb: it must answer next-turn and
     // touch neither live spy (counts stay at one each from the live change above).
@@ -654,13 +658,14 @@ test('(c) a matrix-external permission mode is refused, while the WebSocket path
     const mcpWrites = harness.counts.permissionMode.length;
 
     const beforeWs = sessionsDb.getSessionById(sessionId)?.permission_mode ?? null;
-    await harness.wsSend({ sessionId, content: 'ws yolo', options: { permissionMode: 'yolo' } });
+    const wsResult = await harness.wsSend({ sessionId, content: 'ws yolo', options: { permissionMode: 'yolo' } });
     const afterWsRow = sessionsDb.getSessionById(sessionId);
+    const errorFrames = harness.wsSocket.frames.filter((frame) => frame.type === 'error' || frame.kind === 'error');
 
     say(`(c) mcp isError=${bad.isError} payload=${JSON.stringify(bad.payload)}`);
     say(`(c) mcp row.permission_mode=${JSON.stringify(afterMcpRow?.permission_mode)} writes=${mcpWrites}`);
     say(
-      `(c) ws before=${JSON.stringify(beforeWs)} after=${JSON.stringify(afterWsRow?.permission_mode)} frames=${harness.wsSocket.frames.length}`,
+      `(c) ws result=${JSON.stringify(wsResult)} before=${JSON.stringify(beforeWs)} after=${JSON.stringify(afterWsRow?.permission_mode)} errorFrames=${errorFrames.length}`,
     );
 
     assert.equal(bad.isError, true, 'an unsupported permission mode must be refused');
@@ -680,6 +685,8 @@ test('(c) a matrix-external permission mode is refused, while the WebSocket path
       beforeWs,
       'the WebSocket path silently ignores the same value — the row is unchanged',
     );
+    assert.equal(wsResult?.ok, true, 'the WebSocket path accepts the send (no error) while ignoring the mode');
+    assert.equal(errorFrames.length, 0, 'the WebSocket path raises no error frame for the ignored mode');
   });
 });
 
