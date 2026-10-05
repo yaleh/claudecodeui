@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_GATEWAY_PATH, readMcpGatewayGate } from './mcp-gateway.gate.js';
+import { createMcpLoopbackGuard } from './mcp-gateway.loopback.js';
 
 /**
  * The MCP gateway's production assembly (AC-240). The consumer is
@@ -46,9 +47,19 @@ function createMcpServer(): McpServer {
   return server;
 }
 
-/** Attaches the three `/mcp` methods onto `app`, in front of `authorize`. */
-function attachTransport(app: Express, authorize: RequestHandler): void {
-  app.post(MCP_GATEWAY_PATH, authorize, async (req, res) => {
+/**
+ * Attaches the three `/mcp` methods onto `app`.
+ *
+ * Middleware order is load-bearing and written down in exactly one place: body
+ * parsing (the caller's) -> the loopback guard -> the injected `authorize` -> the
+ * transport handler. The guard sits BEFORE authentication so a request it rejects
+ * cannot even reach the token check (AC-242 leg (d) reads this off the spy count);
+ * a request it admits still has to pass `authorize`.
+ */
+function attachTransport(app: Express, authorize: RequestHandler, env: NodeJS.ProcessEnv | undefined): void {
+  const loopbackGuard = createMcpLoopbackGuard(env);
+
+  app.post(MCP_GATEWAY_PATH, loopbackGuard, authorize, async (req, res) => {
     const server = createMcpServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
@@ -70,8 +81,8 @@ function attachTransport(app: Express, authorize: RequestHandler): void {
   const methodNotAllowed: RequestHandler = (_req, res) => {
     res.status(405).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null });
   };
-  app.get(MCP_GATEWAY_PATH, authorize, methodNotAllowed);
-  app.delete(MCP_GATEWAY_PATH, authorize, methodNotAllowed);
+  app.get(MCP_GATEWAY_PATH, loopbackGuard, authorize, methodNotAllowed);
+  app.delete(MCP_GATEWAY_PATH, loopbackGuard, authorize, methodNotAllowed);
 }
 
 /**
@@ -89,7 +100,12 @@ const refuseUnauthorized: RequestHandler = (_req, res) => {
  * without depending on the token/loopback tasks that land later.
  */
 export type McpGatewayDeps = {
-  /** Environment to read the gate from. Defaults to `process.env`. */
+  /**
+   * Environment read by the mount-time gate (`MCP_ENABLED`) AND, per request, by
+   * the loopback guard (the MCP OAuth switch). Defaults to `process.env`; the
+   * criterion passes two differently-valued objects to read both switch states in
+   * one process.
+   */
   env?: NodeJS.ProcessEnv;
   /** Auth middleware in front of the transport. Defaults to a fail-closed 401. */
   authorize?: RequestHandler;
@@ -115,6 +131,6 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     return { mounted: false, reason: gate.reason };
   }
 
-  attachTransport(app, deps.authorize ?? refuseUnauthorized);
+  attachTransport(app, deps.authorize ?? refuseUnauthorized, deps.env);
   return { mounted: true, reason: gate.reason };
 }
