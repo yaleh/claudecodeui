@@ -1,7 +1,7 @@
 ---
 id: AC-243
 title: 令牌签发只接受 scope 词汇表里的值：拼错的、预留的 cloudcli:admin、空列表都被拒，设置接口给出稳定错误码
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in server/modules/oauth/tests/access-token-scopes.test.ts; do [
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T03:46:18.760Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
