@@ -1,7 +1,7 @@
 ---
 id: gap-voice-trim-node-alias-unresolved
 title: 恢复 AC-117 省时长判据：纯 node 下解析不到 voiceTrim 的 @/shared 别名
-status: ready
+status: done
 labels:
   - gap
   - defect
