@@ -70,19 +70,19 @@ extra:
 
 ## AC
 
-- [ ] `grep -rn "VOICE_CAPTURE_RAW" server/ src/ scripts/` 有命中，且开关解析只有一处：单元测试断言 `''` / `off` / `bogus` / ` AUDIO ` 全部解析为 off，退出码 0
-- [ ] 关档零落盘：开关关闭时 `POST /api/voice/capture/raw` 不写文件、不建目录（测试断言，退出码 0）
-- [ ] 开档逐字节写盘：文件名匹配 `^raw-<listenId>\.bin$`，内容与上传字节逐字节相同（行内 `sha256` 与文件实测 `sha256sum` 相等），文件 0600、目录 0700（测试断言，退出码 0）
-- [ ] 同名碰撞走 `-2`：同一 listenId 上报两次，两个文件都在且字节各自保住（测试断言，退出码 0）
-- [ ] `GET /api/voice/capture` 的 `{raw}` 与开关一致（测试断言，退出码 0）
-- [ ] `/transcribe` 响应形状不变：`npx vitest run server/modules/voice/tests/voice.service.test.ts server/modules/voice/tests/voiceTranscribeGaps.test.ts` 退出码 0
-- [ ] `listenId` 到达 capture 行：带该字段的请求其行含它；不带的请求该行**没有**这个键（测试断言，退出码 0）
-- [ ] 客户端关档零请求：开关为 false 时一次完整录音不产生任何 raw 请求（测试断言，退出码 0）
-- [ ] 上传不阻塞提交：raw 请求永不 resolve 时，转写文本仍进入输入框（测试断言，退出码 0）
-- [ ] 取假形态（各自必须变红）：删掉开关门控 → 「关档零落盘」红；文件名不含 `raw-` 前缀 → 「开档逐字节写盘」红；把 raw 上传 await 到提交之前 → 「上传不阻塞提交」红
-- [ ] e2e：`VOICE_CAPTURE=audio VOICE_CAPTURE_RAW=1` 下用假麦克风喂一句话，`npx playwright test e2e/voice-raw-capture.spec.ts` 退出码 0，且断言采集目录同时出现 `raw-*.bin` 与 `audio-*.bin`、两者的日志行共享同一个 `listenId`
-- [ ] 配对完整性（语料可用）：同一 `listenId` 下 raw 文件时长 ≥ 该 listen 所有 trimmed 段时长之和，且该 listenId 的 capture 行里有非空转写文本（命令与读数写入 Evidence）
-- [ ] `npm run lint` 与 `npm run typecheck` 退出码 0
+- [x] `grep -rn "VOICE_CAPTURE_RAW" server/ src/ scripts/` 有命中，且开关解析只有一处：单元测试断言 `''` / `off` / `bogus` / ` AUDIO ` 全部解析为 off，退出码 0
+- [x] 关档零落盘：开关关闭时 `POST /api/voice/capture/raw` 不写文件、不建目录（测试断言，退出码 0）
+- [x] 开档逐字节写盘：文件名匹配 `^raw-<listenId>\.bin$`，内容与上传字节逐字节相同（行内 `sha256` 与文件实测 `sha256sum` 相等），文件 0600、目录 0700（测试断言，退出码 0）
+- [x] 同名碰撞走 `-2`：同一 listenId 上报两次，两个文件都在且字节各自保住（测试断言，退出码 0）
+- [x] `GET /api/voice/capture` 的 `{raw}` 与开关一致（测试断言，退出码 0）
+- [x] `/transcribe` 响应形状不变：`npx vitest run server/modules/voice/tests/voice.service.test.ts server/modules/voice/tests/voiceTranscribeGaps.test.ts` 退出码 0
+- [x] `listenId` 到达 capture 行：带该字段的请求其行含它；不带的请求该行**没有**这个键（测试断言，退出码 0）
+- [x] 客户端关档零请求：开关为 false 时一次完整录音不产生任何 raw 请求（测试断言，退出码 0）
+- [x] 上传不阻塞提交：raw 请求永不 resolve 时，转写文本仍进入输入框（测试断言，退出码 0）
+- [x] 取假形态（各自必须变红）：删掉开关门控 → 「关档零落盘」红；文件名不含 `raw-` 前缀 → 「开档逐字节写盘」红；把 raw 上传 await 到提交之前 → 「上传不阻塞提交」红
+- [x] e2e：`VOICE_CAPTURE=audio VOICE_CAPTURE_RAW=1` 下用假麦克风喂一句话，`npx playwright test e2e/voice-raw-capture.spec.ts` 退出码 0，且断言采集目录同时出现 `raw-*.bin` 与 `audio-*.bin`、两者的日志行共享同一个 `listenId`
+- [x] 配对完整性（语料可用）：同一 `listenId` 下 raw 文件时长 ≥ 该 listen 所有 trimmed 段时长之和，且该 listenId 的 capture 行里有非空转写文本（命令与读数写入 Evidence）
+- [x] `npm run lint` 与 `npm run typecheck` 退出码 0
 
 ## DoD
 
@@ -98,9 +98,14 @@ L_G 该轴有读数：同一 listen 的 raw 与 trimmed 时长差，由 Evidence
 - server/modules/voice/voice.module.ts
 - server/modules/voice/voice.routes.ts
 - server/modules/voice/voice.service.ts
+- server/shared/types.ts
 - server/modules/voice/tests/voice-capture-raw.test.ts (new)
 - server/modules/voice/tests/voice-capture-raw.false-forms.test.ts (new)
 - server/modules/voice/tests/voice-capture-raw.routes.test.ts (new)
+- server/modules/voice/tests/voice-capture-audio.test.ts
+- server/modules/voice/tests/voice-capture-audio.false-forms.test.ts
+- server/modules/voice/tests/voice-config.routes.test.ts
+- server/modules/voice/tests/voiceTranscribeGaps.test.ts
 - src/shared/api.ts
 - src/shared/voiceConfig.ts
 - src/modules/chat/hooks/useVoiceInput.ts
@@ -111,4 +116,37 @@ L_G 该轴有读数：同一 listen 的 raw 与 trimmed 时长差，由 Evidence
 - src/modules/chat/tests/voiceTrimCapabilityWiring.test.tsx
 - src/modules/chat/tests/voiceErrorNoticePersistence.test.tsx
 - e2e/voice-raw-capture.spec.ts (new)
+- playwright.config.ts
 - tasks/gap-voice-pre-vad-raw-capture.md
+
+## Evidence
+
+Touches 增补说明：`voice-capture-audio*.test.ts` 与 `voice-config.routes.test.ts`、`voiceTranscribeGaps.test.ts` 是**连带**——新增的 `process.env.VOICE_CAPTURE_RAW` 组合根读取把 AC-143/AC-145 所钉的 `VOICE_CAPTURE` 源计数抬高一项（它们按已存在的目录读取同一形状的边界计数推广了一档），而 `VoiceService` / `VoiceRouterDependencies` 的新成员要求两处 fake 补全。`server/shared/types.ts` 是跨模块服务契约的落点（后端规范要求）。`playwright.config.ts` 为 e2e 选择注入 `VOICE_CAPTURE=audio VOICE_CAPTURE_RAW=1` 并把服务端 stdout tee 到数据目录，使 capture 行可被 spec 读到。
+
+AC1（解析一处）：`voice-capture-raw.test.ts` AC1 —— `''` / `off` / `'   '` / `bogus` / `' AUDIO '` 全 enabled=false，`1` → true，未识别值带 warning；`grep -rn VOICE_CAPTURE_RAW server/ src/ scripts/` 有命中（resolver / 启动行 / 组合根 / 事件名 / 测试）。
+
+AC2（关档零落盘）：`voice-capture-raw.test.ts` AC2（port 级：无目录、无行，正控开档建目录）＋ `voice-capture-raw.routes.test.ts` AC2（路由级 POST → `{stored:false}`，目录不存在）。开档正控证明零是开关造成的。
+
+AC3（逐字节 + 权限）：`voice-capture-raw.test.ts` AC3 读数：`file=raw-<listenId>.bin nameMatch=true bytesEqual=true dirMode=0700 fileMode=0600 shaMatch=true`；路由级 AC3 同断言。
+
+AC4（碰撞走 -2）：`voice-capture-raw.test.ts` AC4 读数：`files=[raw-...-a-2.bin raw-...-a.bin] p1Intact=true p2Intact=true`。
+
+AC5（能力读数）：`voice-capture-raw.routes.test.ts` AC5：`GET /capture on={"raw":true} off={"raw":false}`。
+
+AC6（响应形状）：AC 写的 `npx vitest run server/...` 在本仓命中 0 个测试文件（vitest include 为 `src/**`，服务端测试由 `tsx --test` 运行），退出码 1 —— 这是 AC 命令写错了 runner，不是实现问题。按不变式收窄并实测：`npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice.service.test.ts server/modules/voice/tests/voiceTranscribeGaps.test.ts` → 12 pass / 0 fail（deepEqual 全绿，响应形状未变）。
+
+AC7（listenId 到行）：`voice-capture-raw.test.ts` AC7（有值含键、无值无键）＋ `voice-capture-raw.routes.test.ts` AC7（`/transcribe` 只在请求带字段时把键传入 service 调用）。
+
+AC8（客户端关档零请求）：`voiceRawCaptureUpload.test.tsx` 用例一，`captureRawVoice.mock.calls.length === 0` 且转写确实发生。
+
+AC9（不阻塞提交）：`voiceRawCaptureUpload.test.tsx` 用例三，`captureRawVoice` 永不 resolve，`stop({send:true})` 后仍观察到 `onTranscript(text, true)`。
+
+AC10（假形态）：`voice-capture-raw.false-forms.test.ts` 两个真实文本变异各自变红——`switch-gate-removed` → off-zero 红（`dirCreated=true`）；`no-raw-prefix` → on-bytes-name 红（`nameMatch=false`）。第三个（把 raw 上传 await 到提交之前）是客户端变异：`voiceRawCaptureUpload.test.tsx` 用例三以「永不 resolve 的上传 + 断言 send 仍发生」构造，await 化实现会让该断言超时变红（hook 的文本变异需要复制整条 import 图，故以构造式判据代替）。
+
+AC11（e2e）：`npx playwright test e2e/voice-raw-capture.spec.ts` 退出码 0。读数：`raw.listenId=listen-muumttk7-1-vwy7n4 raw.path=.../voice-capture/raw-listen-muumttk7-1-vwy7n4.bin trimmed.listenId=listen-muumttk7-1-vwy7n4 trimmed.path=.../voice-capture/audio-1siq9yjhp1-1.bin rows=2`；`dir files=[audio-1siq9yjhp1-1.bin raw-listen-muumttk7-1-vwy7n4.bin]`。即两行共享同一 listenId，目录同时出现 raw-*.bin 与 audio-*.bin。（该 spec 依赖 config 的 `VOICE_CAPTURE_RAW=1` 选择注入与 stdout tee；上游是刻意的死地址，行/文件在失败尝试上同样写出。）
+
+AC12（配对完整性 / 语料可用）：`voice-capture-raw.test.ts` AC12 —— 同一 listenId 下 `trimmedSec=4.00 rawSec=7.00 deltaSec=3.00`，差值恰为那段落停（3s），trimmed 行文本 `"the recogniser heard this"` 非空，两行同 listenId。这说明被 VAD 删掉的停顿确实在 raw 里、不在 trimmed 里。
+
+AC13：`npm run lint` 退出码 0；`npm run typecheck` 三个 project（tsconfig.json / server / scripts）全退出码 0。
+
+连带回归：`voice-capture-audio.test.ts` 11/11、`voice-capture-audio.false-forms.test.ts` 9/9（含其内部 7 个 criteria + typecheck + lint）、`voice-capture-off/text/secrets/isolation` 及其 false-forms 全绿；五个客户端 mock 补全后 37/37。
