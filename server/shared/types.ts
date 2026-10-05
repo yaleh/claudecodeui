@@ -1624,11 +1624,48 @@ export type VoiceService = {
      * configuration, and an absent document and an all-empty one are the same reading.
      */
     settings?: VoiceSettings;
+    /**
+     * The pairing id this listen's recording client minted, when it sent one.
+     *
+     * WHEN PRESENT IT BECOMES A FIELD ON THIS ATTEMPT'S CAPTURE ROW, so the row can be joined with
+     * the raw-corpus row (`voice.capture.raw`) of the same listen — see `VoiceCaptureRawInput`. WHEN
+     * ABSENT THE ROW HAS NO `listenId` KEY AT ALL, this module's absence-not-placeholder convention,
+     * so "not paired" and "paired with nothing" stay distinguishable.
+     *
+     * It is TRANSPORT TEXT the client chose, so it never reaches a file name: the raw sink builds the
+     * file name from it through its own path-safe substitution, and this path only carries it into a
+     * log row.
+     */
+    listenId?: string;
   }): Promise<VoiceServiceResult<{ text: string }>>;
   synthesizeSpeech(input: {
     text: string;
     overrides: VoiceRequestOverrides;
   }): Promise<VoiceServiceResult<VoiceSpeechPayload>>;
+  /**
+   * Records one listen's raw (pre-VAD) upload, when this deployment collects raw audio.
+   *
+   * WHY IT IS ON THIS SERVICE AND NOT A ROUTE'S OWN LOGIC. The recording seam is the capture port the
+   * transcription path already holds, and "does this deployment collect raw audio" is that port's own
+   * switch (`VoiceCapturePort.raw`). So the route parses the upload and calls here, and the decision
+   * to write — and the no-op when the switch is off — lives where the port is. `listenId` is required
+   * by the caller: a raw row exists to be paired, so a request without one is refused at the route.
+   *
+   * `stored` is `false` when the deployment does not collect raw — a truthful "nothing was written"
+   * rather than an error, because the route reaching here with the switch off is a client that asked
+   * about a capability this deployment does not have, not a malformed request.
+   */
+  captureRaw(input: {
+    listenId: string;
+    audio: VoiceAudioUpload;
+  }): VoiceServiceResult<{ stored: boolean }>;
+  /**
+   * Whether this deployment collects raw (pre-VAD) audio, for `GET /api/voice/capture`.
+   *
+   * A capability reading, not a per-user one: the switch is the deployment's own environment, so a
+   * client asks once whether uploading raw audio is meaningful at all before it sends any.
+   */
+  captureState(): { raw: boolean };
 };
 
 /**

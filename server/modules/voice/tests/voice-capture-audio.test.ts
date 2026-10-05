@@ -335,6 +335,8 @@ type Measurement = {
    */
   root: {
     envDirReads: number;
+    /** Reads of `process.env.VOICE_CAPTURE_RAW` — the raw switch, whose own read this task added. */
+    envRawReads: number;
     resolverCalled: boolean;
     envCaptureSubstring: number;
     envCaptureToken: number;
@@ -929,6 +931,11 @@ async function measure(modules: CriterionModules): Promise<Measurement> {
       resolve: resolveProbe,
       root: {
         envDirReads: countToken(root, 'process.env.VOICE_CAPTURE_DIR'),
+        // The raw switch's own read, token-bounded so `VOICE_CAPTURE_DIR` and `VOICE_CAPTURE_RAW`
+        // are not mistaken for it. It is a SECOND read of a `VOICE_CAPTURE`-prefixed variable, so the
+        // unbounded substring count is raised by it exactly as it is by the directory read — see the
+        // AC2 wiring reading, whose equation now names both.
+        envRawReads: countToken(root, 'process.env.VOICE_CAPTURE_RAW'),
         resolverCalled: root.includes('resolveVoiceCaptureDir('),
         envCaptureSubstring: root.split('process.env.VOICE_CAPTURE').length - 1,
         envCaptureToken: countToken(root, 'process.env.VOICE_CAPTURE'),
@@ -985,6 +992,7 @@ const READINGS: readonly Reading[] = [
     run: (measurement) => ({
       value:
         `envDirReads=${measurement.root.envDirReads} ` +
+        `envRawReads=${measurement.root.envRawReads} ` +
         `resolverCalled=${String(measurement.root.resolverCalled)} ` +
         `envCaptureSubstring=${measurement.root.envCaptureSubstring} ` +
         `envCaptureToken=${measurement.root.envCaptureToken} ` +
@@ -995,12 +1003,12 @@ const READINGS: readonly Reading[] = [
         measurement.root.envDirReads === 1 &&
         measurement.root.resolverCalled &&
         // The boundary count is the one that reads the MODE variable, and it must stay put as the
-        // directory variable is added: the substring count is raised by exactly the directory reads,
-        // and the two being different is the measurement, not a defect. See the registration in the
-        // falsifying file for why the boundary form is the one a criterion has to count with.
+        // directory AND raw variables are added: the substring count is raised by each of them, and
+        // the two being different is the measurement, not a defect. The equation names every
+        // `VOICE_CAPTURE`-prefixed read so a FOURTH one added without accounting for it is a red.
         measurement.root.envCaptureToken >= 1 &&
         measurement.root.envCaptureSubstring ===
-          measurement.root.envCaptureToken + measurement.root.envDirReads,
+          measurement.root.envCaptureToken + measurement.root.envDirReads + measurement.root.envRawReads,
     }),
   },
   // ── AC2: `off` resolves nothing ───────────────────────────────────────────────────────────────

@@ -1883,6 +1883,35 @@ const debugAgentFixtureHome = selectedSpecFiles().some((file) => DEBUG_AGENT_SPE
 // inside one gate. Only this selection shortens them, and only on the *server*: the client reads the
 // numbers the server announces in its hello, so the spec itself carries no threshold literal.
 const shortenActivityHeartbeat = selectedSpecFiles().includes('activity-dock-truthful.spec.ts');
+
+/**
+ * Whether this run is the raw-corpus criterion, which needs the capture seam turned on for its server.
+ *
+ * `VOICE_CAPTURE=audio` makes the SERVER write each attempt's trimmed upload and its row — the
+ * recogniser side of the corpus — and `VOICE_CAPTURE_RAW=1` makes it write the pre-VAD upload beside
+ * it. Both are the DEPLOYMENT's environment, read once at server start-up, so the spec cannot set
+ * them itself: they have to be in the server's own env, which is what this selection injects.
+ *
+ * `VOICE_API_BASE_URL` IS A DELIBERATELY DEAD ADDRESS. It exists only so the health payload reports a
+ * configured backend and the microphone is rendered; the capture row and file are written for a
+ * FAILED attempt too, so nothing downstream depends on the upstream answering. A live stand-in would
+ * add a socket nothing here reads.
+ */
+const voiceRawCaptureSelection = selectedSpecFiles().includes('voice-raw-capture.spec.ts');
+
+/**
+ * Where the raw-corpus criterion's server tees its own stdout.
+ *
+ * The rows that pair a listen live on the process's output, and Playwright forwards a webServer's
+ * stdout to the RUNNER, not to the spec — so a spec that had to read them would have nothing to read.
+ * Teeing the server's output to a file inside the data directory is what makes the pairing observable
+ * from the spec, and it is why this selection differs from every other one: no other criterion asserts
+ * on a line the server wrote.
+ */
+const VOICE_RAW_SERVER_LOG = path.join(dataDir, 'voice-raw-server.log');
+if (voiceRawCaptureSelection) {
+  process.env.QUAY_E2E_VOICE_RAW_SERVER_LOG = VOICE_RAW_SERVER_LOG;
+}
 // Published to the workers because the spec has to place its fixture project *inside* this directory:
 // the control plane refuses a `projectPath` outside the fixture home, and the spec process does not
 // inherit the server's own `DEBUG_AGENT_HOME`. Empty — not absent — for every other selection, which
@@ -1909,7 +1938,11 @@ export default defineConfig({
   // Boot costs ~8s on a loaded machine, so 30s is ~3x the observed worst case rather than a tight fit.
   webServer: [
     {
-      command: 'npx tsx --tsconfig server/tsconfig.json server/index.ts',
+      // The raw-corpus criterion tees its server's output to a file so the spec can read the capture
+      // rows; every other selection runs the server plain.
+      command: voiceRawCaptureSelection
+        ? `npx tsx --tsconfig server/tsconfig.json server/index.ts 2>&1 | tee ${JSON.stringify(VOICE_RAW_SERVER_LOG)}`
+        : 'npx tsx --tsconfig server/tsconfig.json server/index.ts',
       url: SERVER_HEALTH_URL,
       reuseExistingServer: false,
       timeout: 30_000,
@@ -1930,6 +1963,15 @@ export default defineConfig({
         // shipped defaults (5000/15000) are the product's and are untouched everywhere else.
         ...(shortenActivityHeartbeat
           ? { ACTIVITY_HEARTBEAT_INTERVAL_MS: '300', ACTIVITY_UNREACHABLE_AFTER_MS: '900' }
+          : {}),
+        // The capture seam, for the raw-corpus criterion's selection only: every other selection
+        // starts with both switches off, so nothing else writes recordings or a raw corpus.
+        ...(voiceRawCaptureSelection
+          ? {
+              VOICE_CAPTURE: 'audio',
+              VOICE_CAPTURE_RAW: '1',
+              VOICE_API_BASE_URL: 'http://127.0.0.1:9/v1',
+            }
           : {}),
       },
     },

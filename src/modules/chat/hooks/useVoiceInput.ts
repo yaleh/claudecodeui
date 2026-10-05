@@ -23,7 +23,8 @@ import {
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import { VOICE_FRAME_PROCESSOR_NAME, type VoiceFrameMessage } from '@/modules/chat/audio/voiceFrameProcessor';
 import { voiceFrameProcessorUrl } from '@/modules/chat/audio/voiceFrameProcessorUrl';
-import { effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
+import { captureRawVoice, effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
+import { hydrateVoiceRawCapture, isVoiceRawCaptureEnabled } from '@/shared/voiceConfig';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
 import { StreamingVad, type VadEvent } from '@/shared/voiceEndpoint';
@@ -104,6 +105,34 @@ const IDLE_POLL_MS = 250;
 
 /** The name the segments' uploads carry, so a log line names which piece of a sentence it was. */
 const SEGMENT_BASE_NAME = 'segment';
+
+/**
+ * The per-tab counter that keeps two listens in one page from sharing a minted pairing id.
+ *
+ * A module-level counter rather than anything on the session: the id has to be unique across the
+ * listens of this page, which is a property of the page rather than of one session's state.
+ */
+let listenSequence = 0;
+
+/**
+ * Mints the pairing id ONE listen carries, on every `/transcribe` upload and on its raw corpus row.
+ *
+ * WHY IT IS MINTED HERE RATHER THAN BY THE SERVER. The raw corpus row and the trimmed rows are
+ * written by two different requests — the raw upload happens after the listen ends, the trims during
+ * it — so the only side that can name the pair before either request exists is the client that is
+ * doing the recording. Both requests carry this one string, and a reader joins them on it.
+ *
+ * UNIQUENESS IS BY CONSTRUCTION, not by probability: the per-tab sequence alone distinguishes two
+ * listens in one page, and the wall clock plus a random suffix distinguish this page from another
+ * tab or a reloaded one. The characters are all file-name safe, so the server can build a raw file
+ * name from it without the substitution having to rewrite it.
+ */
+function mintListenId(): string {
+  listenSequence += 1;
+  return `listen-${Date.now().toString(36)}-${listenSequence.toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
 
 /** A 16-bit mono PCM WAV's header, matching `audioDecode`'s and the segmenter's encoders. */
 const WAV_HEADER_BYTES = 44;
@@ -428,6 +457,11 @@ function concatBytes(chunks: Uint8Array[]): Uint8Array {
 type CaptureSession = {
   /** Where the audio comes from; a file is a finite stream whose "stop" is its whole length. */
   source: VoiceSource;
+  /**
+   * The pairing id this listen carries, minted once at the start and reused by every one of its
+   * requests — every segment's `/transcribe` upload and, at the end, the raw corpus upload.
+   */
+  listenId: string;
   /** The engine that produced this session's frames, so it can be stopped with it. */
   engine: VoiceCaptureEngine;
   /** The segmenter turning PCM and VAD events into upload-sized segments; null until start resolves. */
@@ -666,6 +700,19 @@ export function useVoiceInput(
   const finalizeSession = (session: CaptureSession) => {
     if (sessionRef.current !== session) return;
     sessionRef.current = null;
+    // THE RAW CORPUS, sent AFTER this listen's text is already the caller's: every segment has
+    // settled by the time this runs, so the words have been committed and nothing below can delay
+    // them. Fire-and-forget on purpose — the corpus is passive, so it must neither delay nor fail the
+    // dictation. Skipped when the deployment does not collect raw audio, and when the original stream
+    // passed its retention cap: there is no original left to send then, and a truncated one would
+    // misrepresent the pause it dropped, so the client keeps none by design.
+    if (isVoiceRawCaptureEnabled() && !session.originalCapped && session.originalSamples > 0) {
+      const blob = wavFromPcm16(concatInt16(session.originalChunks), STORE_SAMPLE_RATE);
+      void captureRawVoice(session.listenId, blob, `${session.listenId}.wav`).catch(() => {
+        // A corpus upload that failed is not a dictation failure: the text arrived, and the only
+        // consequence is one missing raw file. Nothing here is shown to a user who never asked for it.
+      });
+    }
     if (session.source === 'mic') {
       const slot = buildClipSlot(session);
       if (slot) adoptClip(slot);
@@ -713,7 +760,11 @@ export function useVoiceInput(
       // is still reported once, but only one upload is ever made.
       const remembered = session.refusals.get(job.index);
       if (remembered) throw remembered;
-      const response = await transcribeVoice(job.blob, `${SEGMENT_BASE_NAME}-${job.index + 1}.wav`);
+      const response = await transcribeVoice(
+        job.blob,
+        `${SEGMENT_BASE_NAME}-${job.index + 1}.wav`,
+        session.listenId,
+      );
       if (!response.ok) {
         const refusal = await refusalDetail(response);
         session.refusals.set(job.index, refusal);
@@ -866,6 +917,11 @@ export function useVoiceInput(
     // A new listen is about to replace the slot; stop the old one from sounding.
     pauseClip();
     startingRef.current = true;
+    // Warm the deployment's raw-capture switch while the microphone is being opened. Fired, not
+    // awaited: the switch only decides whether the END-of-listen corpus upload happens, and waiting
+    // for it here would delay the microphone for a capability probe. The read is once per session
+    // token, so a later listen finds it already answered (see `hydrateVoiceRawCapture`).
+    void hydrateVoiceRawCapture();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },
@@ -880,6 +936,7 @@ export function useVoiceInput(
       const vadEnabled = isVoiceVadEnabled();
       const session: CaptureSession = {
         source: 'mic',
+        listenId: mintListenId(),
         engine,
         segmenter: null,
         nextCommit: 0,
@@ -1017,6 +1074,7 @@ export function useVoiceInput(
       }
       const session: CaptureSession = {
         source: 'file',
+        listenId: mintListenId(),
         engine: { start: async () => decoded.sampleRate, stop: () => undefined },
         segmenter: null,
         nextCommit: 0,

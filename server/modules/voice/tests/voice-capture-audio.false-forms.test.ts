@@ -699,12 +699,23 @@ function runCommand(command: string, args: readonly string[], tally: boolean): C
  * what this task does, so that assertion was narrowed to the invariant it owns (the wiring agrees
  * with the module shipping the factory) in the same edit.
  */
-function crossTaskFigures(): { substring: number; token: number; narrowed: boolean } {
+function crossTaskFigures(): {
+  substring: number;
+  token: number;
+  dirReads: number;
+  rawReads: number;
+  narrowed: boolean;
+} {
   const root = readFileSync(SHIPPING_MODULE_ROOT, 'utf8');
   const offSource = readFileSync(path.join(REPO_ROOT, OFF_CRITERION), 'utf8');
   return {
     substring: root.split('process.env.VOICE_CAPTURE').length - 1,
     token: (root.match(/process\.env\.VOICE_CAPTURE(?!_)/g) ?? []).length,
+    // The two `VOICE_CAPTURE`-prefixed readers that are NOT the mode variable. Counting them here —
+    // rather than assuming one — is what keeps this equation true as the composition root grows a
+    // third such read: the raw switch's read is the same shape of change the directory read was.
+    dirReads: (root.match(/process\.env\.VOICE_CAPTURE_DIR(?![\w$])/g) ?? []).length,
+    rawReads: (root.match(/process\.env\.VOICE_CAPTURE_RAW(?![\w$])/g) ?? []).length,
     narrowed: offSource.includes('VOICE_CAPTURE(?!_)'),
   };
 }
@@ -722,9 +733,10 @@ test('AC8 the seven criteria and the repository gates still exit 0', () => {
   const offEntry = outcomes[0];
   process.stdout.write(
     `AC8 cross-task: envCaptureSubstring=${figures.substring} envCaptureToken=${figures.token} ` +
+      `dirReads=${figures.dirReads} rawReads=${figures.rawReads} ` +
       `offCriterionExit=${offEntry.exitCode} narrowed=${String(figures.narrowed)} ` +
-      `note=[the dir read this task adds is a POSITIVE EXAMPLE for the boundary count: the substring ` +
-      'count is raised by it, the token count is not]\n',
+      `note=[the dir read and the raw switch's read are POSITIVE EXAMPLES for the boundary count: ` +
+      'the substring count is raised by each of them, the token count is not]\n',
   );
   for (const outcome of outcomes) {
     const tally =
@@ -744,13 +756,16 @@ test('AC8 the seven criteria and the repository gates still exit 0', () => {
     [],
     'a criterion that exits 0 having run no cases is a vacuous pass, not a green one',
   );
-  // The two figures are different, and the difference is exactly the directory reads: this is the
-  // measurement the boundary form exists for, and a run where they were equal would mean the
-  // composition root had stopped reading the directory variable at all.
+  // The two figures are different, and the difference is exactly the directory reads plus the raw
+  // switch's own read: this is the measurement the boundary form exists for, and a run where they
+  // were equal would mean the composition root had stopped reading the directory variable at all.
+  // Naming BOTH non-mode reads means a future `VOICE_CAPTURE_*` variable added without accounting for
+  // it here reddens this reading rather than silently inflating the substring count.
   assert.ok(
-    figures.token >= 1 && figures.substring === figures.token + 1,
-    `the composition root's VOICE_CAPTURE counts read substring=${figures.substring} token=${figures.token}, ` +
-      'which is not "one mode read plus one directory read"',
+    figures.token >= 1 && figures.substring === figures.token + figures.dirReads + figures.rawReads,
+    `the composition root's VOICE_CAPTURE counts read substring=${figures.substring} token=${figures.token} ` +
+      `dirReads=${figures.dirReads} rawReads=${figures.rawReads}, which is not "one mode read plus one ` +
+      'read per other VOICE_CAPTURE-prefixed variable"',
   );
   assert.equal(
     figures.narrowed,
