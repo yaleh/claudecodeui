@@ -1,3 +1,4 @@
+import type { McpGatewayGateReading } from '@/modules/mcp-gateway/index.js';
 import { normalizeAccessTokenScopes } from '@/modules/oauth/index.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -68,6 +69,22 @@ type SettingsDependencies = {
   };
   getVapidPublicKey(): string | null;
   accessTokens: AccessTokensPort;
+  /**
+   * The read-only seams the Settings → API page's CloudCLI MCP block needs.
+   *
+   * Optional so the existing service criteria keep constructing the dependency
+   * object they always have; the module always supplies it (see
+   * `settings.module.ts`). `readGate` is the mcp-gateway module's own gate
+   * reader — the single place `MCP_ENABLED` is parsed — so settings never
+   * re-derives the gate from the environment.
+   */
+  mcpGateway?: {
+    readGate(): McpGatewayGateReading;
+    /** The path the stateless MCP transport is mounted at. */
+    path: string;
+    /** The deployment's public base url, or null to fall back to the request's own origin. */
+    publicBaseUrl(): string | null;
+  };
 };
 
 /** The only lifetimes a personal access token may request, in days. */
@@ -228,6 +245,26 @@ export function createSettingsService(dependencies: SettingsDependencies) {
       assertFound(Boolean(token) && token?.user_id === userId, 'Access token', 'ACCESS_TOKEN_NOT_FOUND');
       assertFound(dependencies.accessTokens.revoke(tokenId), 'Access token', 'ACCESS_TOKEN_NOT_FOUND');
       return { success: true };
+    },
+    /**
+     * The Settings → API page's CloudCLI MCP block: whether the gateway is
+     * enabled, the path it answers on, and the base url an MCP client should
+     * dial. The gate is read through the mcp-gateway module (the single place
+     * `MCP_ENABLED` is parsed) rather than re-derived here.
+     */
+    getMcpGatewayStatus(origin: string) {
+      const gateway = dependencies.mcpGateway;
+      if (!gateway) {
+        throw new AppError('MCP gateway status is not configured', {
+          code: 'MCP_GATEWAY_STATUS_UNAVAILABLE',
+          statusCode: 500,
+        });
+      }
+      return {
+        enabled: gateway.readGate().enabled,
+        path: gateway.path,
+        baseUrl: gateway.publicBaseUrl() ?? origin,
+      };
     },
     getNotificationPreferences(userId: number) {
       return { success: true, preferences: dependencies.notifications.getPreferences(userId) };

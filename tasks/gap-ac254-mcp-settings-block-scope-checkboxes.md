@@ -3,7 +3,7 @@ id: gap-ac254-mcp-settings-block-scope-checkboxes
 title: AC-254 设置页 CloudCLI MCP 区块与令牌 scope 勾选：真实浏览器分别读 MCP_ENABLED 开/关，端点
   URL+复制+「已启用/未启用」、接入命令（含 Bearer 占位符、无真实令牌）、五个 scope 勾选（只读默认勾选、写 scope
   触发风险提示）、token-info scope 一致；判据 e2e/mcp-settings.spec.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null

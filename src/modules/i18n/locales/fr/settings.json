@@ -588,7 +588,9 @@
       "expiryLabel": "Expire dans",
       "expiryOption": "{{days}} jours",
       "createButton": "Créer le jeton",
-      "cancelButton": "Annuler"
+      "cancelButton": "Annuler",
+      "scopesLabel": "Portées",
+      "writeScopeRisk": "Ce jeton peut envoyer, créer et contrôler des sessions. Gardez-le secret."
     },
     "newToken": {
       "alertTitle": "⚠️ Enregistrez votre jeton d'accès",
@@ -606,6 +608,25 @@
       "revoked": "Révoqué",
       "revokeButton": "Révoquer",
       "revokeConfirm": "Voulez-vous vraiment révoquer ce jeton ? Cette action est irréversible."
+    },
+    "scopes": {
+      "read": "Lecture (cloudcli:read)",
+      "sessionSend": "Envoyer aux sessions (cloudcli:session:send)",
+      "sessionCreate": "Créer des sessions (cloudcli:session:create)",
+      "sessionControl": "Contrôler des sessions (cloudcli:session:control)",
+      "approve": "Approuver (cloudcli:approve)"
     }
+  },
+  "mcpGateway": {
+    "title": "CloudCLI MCP",
+    "description": "Connectez un client MCP local à ce serveur CloudCLI.",
+    "status": {
+      "enabled": "Activé",
+      "disabled": "Non activé"
+    },
+    "copy": "Copier",
+    "copied": "Copié",
+    "connectLabel": "Commande de connexion",
+    "enableHint": "La passerelle MCP n'est pas activée. Définissez MCP_ENABLED=true dans l'environnement du serveur et redémarrez CloudCLI pour l'activer."
   }
 }

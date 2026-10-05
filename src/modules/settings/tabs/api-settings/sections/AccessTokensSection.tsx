@@ -1,6 +1,7 @@
 import { KeyRound, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { ACCESS_TOKEN_SCOPE_OPTIONS } from '@/shared/constants';
 import { Button, Input } from '@/shared/ui';
 import type { AccessTokenItem } from '@/shared/types';
 
@@ -12,9 +13,11 @@ type AccessTokensSectionProps = {
   showNewTokenForm: boolean;
   newTokenName: string;
   newTokenExpiryDays: number;
+  newTokenScopes: string[];
   onShowNewTokenFormChange: (value: boolean) => void;
   onNewTokenNameChange: (value: string) => void;
   onNewTokenExpiryChange: (days: number) => void;
+  onToggleNewTokenScope: (scope: string, checked: boolean) => void;
   onCreateAccessToken: () => void;
   onCancelCreateAccessToken: () => void;
   onRevokeAccessToken: (tokenId: number) => void;
@@ -26,14 +29,21 @@ export default function AccessTokensSection({
   showNewTokenForm,
   newTokenName,
   newTokenExpiryDays,
+  newTokenScopes,
   onShowNewTokenFormChange,
   onNewTokenNameChange,
   onNewTokenExpiryChange,
+  onToggleNewTokenScope,
   onCreateAccessToken,
   onCancelCreateAccessToken,
   onRevokeAccessToken,
 }: AccessTokensSectionProps) {
   const { t } = useTranslation('settings');
+  // The risk note is derived from the same selection the form submits: shown
+  // exactly when at least one write scope is checked, absent otherwise.
+  const hasWriteScope = ACCESS_TOKEN_SCOPE_OPTIONS.some(
+    (option) => option.writable && newTokenScopes.includes(option.scope),
+  );
 
   return (
     <div>
@@ -73,6 +83,34 @@ export default function AccessTokensSection({
               ))}
             </select>
           </label>
+          <fieldset className="mb-3">
+            <legend className="mb-1 block text-sm text-muted-foreground">
+              {t('accessTokens.form.scopesLabel')}
+            </legend>
+            <div className="space-y-1">
+              {ACCESS_TOKEN_SCOPE_OPTIONS.map((option) => (
+                <label key={option.scope} className="flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    data-testid="access-token-scope"
+                    data-scope={option.scope}
+                    data-writable={option.writable}
+                    className="h-4 w-4 rounded border-input"
+                    checked={newTokenScopes.includes(option.scope)}
+                    // The read baseline is required: every token carries it, so it cannot be unchecked.
+                    disabled={!option.writable}
+                    onChange={(event) => onToggleNewTokenScope(option.scope, event.target.checked)}
+                  />
+                  <span>{t(`accessTokens.scopes.${option.labelKey}`)}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {hasWriteScope && (
+            <p data-testid="access-token-scope-risk" className="mb-3 text-sm text-amber-500">
+              {t('accessTokens.form.writeScopeRisk')}
+            </p>
+          )}
           <div className="flex gap-2">
             <Button onClick={onCreateAccessToken}>{t('accessTokens.form.createButton')}</Button>
             <Button variant="outline" onClick={onCancelCreateAccessToken}>

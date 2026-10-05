@@ -45,6 +45,13 @@ export type {
   RevokeGrantResult,
   VerifyOAuthTokenResult,
 } from '@/modules/oauth/oauth-store.service.js';
+// createOAuthConsentRouter: the server-rendered consent page (AC-260) — the
+// GET form and the POST that verifies the user's password and drives the
+// provider's authorize(). Consumers: the server entrypoint (mounted by AC-262)
+// and this module's oauth-consent-page criterion, which mounts this factory on a
+// real express server.
+export { createOAuthConsentRouter } from '@/modules/oauth/oauth-consent.routes.js';
+export type { CreateOAuthConsentRouterOptions } from '@/modules/oauth/oauth-consent.routes.js';
 // createOAuthProvider: the OAuth authorization-server SEMANTICS (PKCE S256,
 // single-use 60-second codes with replay revocation, refresh rotation/reuse
 // revocation, audience binding, exact redirect-uri matching, confidential-client
