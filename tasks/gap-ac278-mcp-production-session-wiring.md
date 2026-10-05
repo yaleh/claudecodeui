@@ -4,7 +4,7 @@ title: AC-278 生产装配接线：server/index.ts 的 createMcpGatewayModule �
   sessionInterrupt / sessionHostControl，四个会话写工具在真装配下不再回
   MCP_TOOL_NOT_IMPLEMENTED；判据
   server/modules/mcp-gateway/tests/mcp-production-session-wiring.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
