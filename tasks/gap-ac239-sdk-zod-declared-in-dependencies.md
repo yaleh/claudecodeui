@@ -41,14 +41,14 @@ AC-239（GOAL-020 退出条件 1；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-239 的命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/dependency-declaration.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/dependency-declaration.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/dependency-declaration.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) `dependencies` 同时含 `@modelcontextprotocol/sdk` 与 `zod`，且二者不只出现在 `devDependencies` / `peerDependencies`；判据读 package.json 的 JSON，写下两个 range。
-- [ ] AC4 (b) SDK 范围是波浪号且锁在 1.29 线（匹配 `^~1\.29\.\d+$`）；`zod` 范围接纳已安装版本且该版本在 4.x 线；写下两个 range 与判定结果。
-- [ ] AC5 (c) node_modules 实际安装版本满足各自范围：写下 `node_modules/@modelcontextprotocol/sdk/package.json`、`node_modules/zod/package.json` 的 version 与各自 range，逐条断言 satisfies。
-- [ ] AC6 (d) `package-lock.json` 根包条目的 `dependencies` 与 package.json 一致，二者在 lock 里没有被标成 dev：写下 lock 根两键值与 `dev: true` 检查结果。
-- [ ] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(i) SDK 挪到 devDependencies ⇒ AC3 红；(ii) 范围改成 `*` 或 `^2` ⇒ AC4 红；(iii) lock 未同步 ⇒ AC6 红。每条记录恢复命令并在恢复后重跑判据回绿。
-- [ ] AC8 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增判据文件用 ASCII ` (new)` 标注，新文件之外只改 `package.json` 与 `package-lock.json`）。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-239 的命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/dependency-declaration.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/dependency-declaration.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/dependency-declaration.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) `dependencies` 同时含 `@modelcontextprotocol/sdk` 与 `zod`，且二者不只出现在 `devDependencies` / `peerDependencies`；判据读 package.json 的 JSON，写下两个 range。
+- [x] AC4 (b) SDK 范围是波浪号且锁在 1.29 线（匹配 `^~1\.29\.\d+$`）；`zod` 范围接纳已安装版本且该版本在 4.x 线；写下两个 range 与判定结果。
+- [x] AC5 (c) node_modules 实际安装版本满足各自范围：写下 `node_modules/@modelcontextprotocol/sdk/package.json`、`node_modules/zod/package.json` 的 version 与各自 range，逐条断言 satisfies。
+- [x] AC6 (d) `package-lock.json` 根包条目的 `dependencies` 与 package.json 一致，二者在 lock 里没有被标成 dev：写下 lock 根两键值与 `dev: true` 检查结果。
+- [x] AC7 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(i) SDK 挪到 devDependencies ⇒ AC3 红；(ii) 范围改成 `*` 或 `^2` ⇒ AC4 红；(iii) lock 未同步 ⇒ AC6 红。每条记录恢复命令并在恢复后重跑判据回绿。
+- [x] AC8 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增判据文件用 ASCII ` (new)` 标注，新文件之外只改 `package.json` 与 `package-lock.json`）。
 
 ## DoD
 
@@ -68,3 +68,30 @@ AC-239（GOAL-020 退出条件 1；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 ## Notes
 
 目标版本读数（主检出 node_modules，worktree 为其符号链接）：`@modelcontextprotocol/sdk` 1.29.0、`zod` 4.3.6。当前二者在 lock 里的来源是 `node_modules/@anthropic-ai/claude-agent-sdk` 的 `peerDependencies`（lock 第 177-178 行），即传递安装的副本——本任务把直接声明补上。
+
+### 执行证据（worker gap-ac239-sdk-zod-declared-in-dependencies）
+
+**AC1 红态基线（改动前）**
+命令：`for f in server/modules/mcp-gateway/tests/dependency-declaration.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/dependency-declaration.test.ts`
+输出（exit 1）：`缺判据文件：server/modules/mcp-gateway/tests/dependency-declaration.test.ts`
+
+**AC2 判据绿**
+同一命令 exit 0；读数 `# tests 4` / `# pass 4` / `# fail 0`（四条读数各为独立 test）。
+
+**AC3 (a)** package.json `dependencies` = `{"@modelcontextprotocol/sdk":"~1.29.0","zod":"^4.3.6"}`；两包均不在 `devDependencies` / `peerDependencies`。
+
+**AC4 (b)** sdkRange=`~1.29.0`（匹配 `/^~1\.29\.\d+$/`）；zodRange=`^4.3.6`，installedZod=4.3.6，`satisfies("^4.3.6","4.3.6")=true` 且 4.3.6 落在 4.x。
+
+**AC5 (c)** installed `@modelcontextprotocol/sdk@1.29.0` satisfies `~1.29.0`；installed `zod@4.3.6` satisfies `^4.3.6`。
+
+**AC6 (d)** lock 根 `packages[""].dependencies` = `{"@modelcontextprotocol/sdk":"~1.29.0","zod":"^4.3.6"}`，与 package.json 逐键相等；lock 根 `devDependencies` 不含两包；`lock.packages["node_modules/@modelcontextprotocol/sdk"]` 与 `["node_modules/zod"]` 均无 `dev: true`（npm 同步后 SDK 子树的 `peer: true` 标记已随直接依赖移除，`zod` 本无 dev 标）。`npm install --package-lock-only --offline` 的 diff 仅：两键加入根 `dependencies` + SDK 子树 30 余处 `peer: true` 标记移除，无版本变更、无条目删除。
+
+**AC7 取假形态（先提交 `4a2d0ab4`，逐条变异→红→`git checkout -- <file>` 恢复→重跑 4/4 回绿）**
+(i) SDK 移入 `devDependencies` ⇒ AC-239(a) 红，逐字失败行 `AssertionError [ERR_ASSERTION]: @modelcontextprotocol/sdk must be a top-level dependency, got undefined`；恢复：`git checkout -- package.json`。
+(ii) SDK 范围改 `*` ⇒ AC-239(b) 红，逐字失败行 `AssertionError [ERR_ASSERTION]: The input did not match the regular expression /^~1\.29\.\d+$/. Input:`；恢复：`git checkout -- package.json`。
+(iii) lock 根 `packages[""].dependencies` 回退两键 ⇒ AC-239(d) 红，逐字失败行 `AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: + undefined - '~1.29.0'`；恢复：`git checkout -- package-lock.json`。
+
+**AC8 仓库门**
+`npm run typecheck` exit 0；`npm run lint` exit 0，`: error ` 计数 0（仅存量 warning）；`git diff --stat develop...HEAD` = `package.json | package-lock.json | server/modules/mcp-gateway/tests/dependency-declaration.test.ts (new)`，与 `## Touches` 逐条对齐，新文件外只改 package.json / package-lock.json。
+
+实现提交：`4a2d0ab4 feat(mcp-gateway): declare @modelcontextprotocol/sdk and zod as dependencies (AC-239)`。
