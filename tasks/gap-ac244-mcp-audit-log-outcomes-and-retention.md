@@ -11,6 +11,9 @@ children: []
 extra:
   schema: execution
 goal_ac: AC-244
+depends_on:
+  - gap-ac240-mcp-stateless-transport-mount-order
+  - gap-ac241-mcp-token-auth-shares-service
 ---
 ## Proposal
 
