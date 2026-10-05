@@ -84,6 +84,7 @@ import {
     mountMcpGateway,
     mountOAuthMetadata,
     readMcpDcrMode,
+    startMcpAuditRetention,
 } from './modules/mcp-gateway/index.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
@@ -613,6 +614,14 @@ async function startServer() {
     try {
         // Initialize authentication database
         await initializeDatabase();
+
+        // AC-244: the audit-log retention sweep, one pass at startup then daily.
+        // Started HERE — after the database is initialized — because the startup
+        // pass immediately deletes from `mcp_audit_log`, so running before
+        // `initializeDatabase()` would query a table the migration has not yet
+        // created and crash the whole boot. Mounting the gateway (above) still
+        // arms no timer and needs no database; only this startup point does.
+        startMcpAuditRetention();
 
         // Configure Web Push (VAPID keys)
         configureWebPush();

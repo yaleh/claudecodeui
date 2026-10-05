@@ -8,6 +8,10 @@ export { closeConnection, getConnection, getDatabasePath } from '@/modules/datab
 // (hash + prefix only) and their expiry/revocation state.
 export { accessTokensDb } from '@/modules/database/repositories/access-tokens.js';
 export type { AccessTokenRow, InsertAccessTokenInput } from '@/modules/database/repositories/access-tokens.js';
+// mcpAuditLogDb: used by the MCP gateway to persist one row per tool invocation
+// (outcome + argument digest) and to sweep rows past the retention window.
+export { mcpAuditLogDb } from '@/modules/database/repositories/mcp-audit-log.db.js';
+export type { InsertMcpAuditLogInput, McpAuditLogRow } from '@/modules/database/repositories/mcp-audit-log.db.js';
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';
 export { credentialsDb } from '@/modules/database/repositories/credentials.js';
 export { githubTokensDb } from '@/modules/database/repositories/github-tokens.js';

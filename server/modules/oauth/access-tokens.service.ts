@@ -80,10 +80,12 @@ export type IssueAccessTokenResult =
  *
  * `expiresAt` is the stored ISO instant, carried out of the same row the check
  * already read so a verifier can report the token's lifetime without a second
- * lookup — the token-info route is its consumer.
+ * lookup — the token-info route is its consumer. `tokenId` is that same row's
+ * id, so the MCP audit log can attribute a tool call to the token that made it
+ * (`/mcp`'s middleware is its consumer) without a second query.
  */
 export type VerifyAccessTokenResult =
-  | { ok: true; userId: number; scopes: string[]; expiresAt: string }
+  | { ok: true; userId: number; tokenId: number; scopes: string[]; expiresAt: string }
   | { ok: false; reason: AccessTokenRejectionReason };
 
 /** Caller-supplied fields for {@link AccessTokensService.issueToken}. */
@@ -216,7 +218,7 @@ export function createAccessTokensService({ now }: AccessTokensServiceOptions): 
       }
 
       accessTokensDb.updateLastUsed(row.id, now().toISOString());
-      return { ok: true, userId: row.user_id, scopes, expiresAt: row.expires_at };
+      return { ok: true, userId: row.user_id, tokenId: row.id, scopes, expiresAt: row.expires_at };
     },
 
     revokeToken(id: number): boolean {

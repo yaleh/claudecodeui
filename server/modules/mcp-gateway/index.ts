@@ -21,6 +21,22 @@ export type { McpGatewayDeps, McpGatewayReading } from './mcp-gateway.transport.
 export { createMcpAuthMiddleware, readMcpPrincipal } from './mcp-gateway.auth.js';
 export type { McpPrincipal } from './mcp-gateway.auth.js';
 
+// The audit surface (AC-244): `withMcpAudit` wraps a tool so every call writes
+// exactly one `mcp_audit_log` row; `summarizeToolArgs` reduces arguments to a
+// digest; `recordMcpToolCall` is the single writer those paths funnel through;
+// `startMcpAuditRetention` runs the 90-day sweep at startup and daily. The
+// transport registers AC-245+'s tools through `withMcpAudit`; this module's
+// criterion drives each export directly.
+export { recordMcpToolCall, startMcpAuditRetention, summarizeToolArgs, withMcpAudit } from './mcp-gateway.audit.js';
+export type {
+  McpAuditOutcome,
+  McpAuditRetentionOptions,
+  McpToolCallReading,
+  McpToolHandler,
+  McpToolRegistrar,
+  McpToolRegistration,
+} from './mcp-gateway.audit.js';
+
 export { createMcpLoopbackGuard, isLoopbackRemoteAddress, readMcpOauthEnabled } from './mcp-gateway.loopback.js';
 
 // The OAuth discovery documents (AC-262): `readOAuthMetadataGate` / `readMcpDcrMode`
