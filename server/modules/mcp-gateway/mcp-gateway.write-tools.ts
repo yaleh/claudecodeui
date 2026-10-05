@@ -11,11 +11,17 @@
  * contract the self-referential guard (AC-252) reads to know which tools to
  * protect.
  *
- * Only `session_send` is implemented here (its handler is
- * `mcp-session-send.js`'s `buildSessionSend`). The other four are registered with
- * a body that throws a NAMED `MCP_TOOL_NOT_IMPLEMENTED` refusal pointing at the
- * task that delivers them — registering all five keeps the set stable, so
- * AC-250/AC-251 replace a handler without touching the set.
+ * `session_send` (AC-249) and `session_create` / `session_interrupt` (AC-250)
+ * are implemented; `session_start` / `session_close` are still registered with a
+ * body that throws a NAMED `MCP_TOOL_NOT_IMPLEMENTED` refusal pointing at AC-251.
+ * Registering all five keeps the set stable, so a later task replaces a handler
+ * without touching the set.
+ *
+ * The AC-250 handlers are wired through optional deps ({@link McpWriteToolDeps.sessionCreate}
+ * / {@link McpWriteToolDeps.sessionInterrupt}): a mount that supplies them gets
+ * the real behaviour, while a mount that does not — AC-249's criterion, which
+ * exercises only `session_send` — keeps the placeholder and its exact old
+ * registration.
  *
  * The scope literals come from AC-243's single scope vocabulary
  * (`ACCESS_TOKEN_SCOPES`) rather than being re-typed here; the array's order is
@@ -29,6 +35,15 @@ import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
 
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import { MCP_TOOL_NOT_IMPLEMENTED_CODE } from './mcp-gateway.read-tools.js';
+import {
+  buildSessionCreate,
+  buildSessionInterrupt,
+  readSessionCreateInput,
+  readSessionInterruptInput,
+  SESSION_CREATE_INPUT_SCHEMA,
+  SESSION_INTERRUPT_INPUT_SCHEMA,
+} from './mcp-session-lifecycle.js';
+import type { McpSessionCreateDeps, McpSessionInterruptDeps } from './mcp-session-lifecycle.js';
 import {
   buildSessionSend,
   readSessionSendInput,
@@ -97,6 +112,19 @@ export type McpWriteToolDeps = {
   control: McpControlSeam;
   runs: McpRunReader;
   runGet: McpSessionRunGetSeam;
+  /**
+   * The services `session_create` answers from (AC-250). Optional so a mount
+   * that only exercises `session_send` — AC-240/244/245/249's criteria — stays a
+   * valid deps bag and keeps `session_create`'s placeholder. Supplying it swaps
+   * in `buildSessionCreate`.
+   */
+  sessionCreate?: McpSessionCreateDeps;
+  /**
+   * The abort seam `session_interrupt` answers from (AC-250). Optional for the
+   * same reason as {@link McpWriteToolDeps.sessionCreate}: absent keeps the
+   * placeholder, present swaps in `buildSessionInterrupt`.
+   */
+  sessionInterrupt?: McpSessionInterruptDeps;
 };
 
 // --------------------------- registration ---------------------------
@@ -130,7 +158,8 @@ export type McpWriteToolSeam = (registration: McpWriteToolRegistration) => void;
 
 /**
  * The refusal a registered-but-unowned write tool answers with. AC-250 delivers
- * `session_create`; AC-251 delivers the three control verbs.
+ * `session_create` and `session_interrupt`; AC-251 delivers `session_start` and
+ * `session_close`.
  */
 function notImplemented(name: McpStage4WriteToolName, owner: string): never {
   throw new Error(
@@ -143,10 +172,18 @@ function notImplemented(name: McpStage4WriteToolName, owner: string): never {
   );
 }
 
-/** Which later task owns each placeholder tool's behaviour. */
-const PLACEHOLDER_OWNER: Record<Exclude<McpStage4WriteToolName, 'session_send'>, string> = {
+/**
+ * Which later task owns each placeholder tool's behaviour.
+ *
+ * Only reached when the matching optional deps are absent — the real handlers
+ * (AC-249's `session_send`, AC-250's `session_create` / `session_interrupt`)
+ * register ahead of this map, so the owner named here is informational for the
+ * two that still lack behaviour.
+ */
+const PLACEHOLDER_OWNER: Record<McpStage4WriteToolName, string> = {
+  session_send: 'AC-249',
   session_create: 'AC-250',
-  session_interrupt: 'AC-251',
+  session_interrupt: 'AC-250',
   session_start: 'AC-251',
   session_close: 'AC-251',
 };
@@ -156,11 +193,14 @@ const PLACEHOLDER_OWNER: Record<Exclude<McpStage4WriteToolName, 'session_send'>,
  *
  * The scope comes from {@link MCP_STAGE4_WRITE_TOOLS} — the table is the one
  * place the pair (name, scope) is written down. `session_send`'s handler is
- * `buildSessionSend`; the other four throw a named `MCP_TOOL_NOT_IMPLEMENTED`
- * refusal owned by AC-250/AC-251, so the registered name set is stable across
- * those tasks.
+ * `buildSessionSend`; AC-250's two handlers are installed when their optional
+ * deps are present; the rest throw a named `MCP_TOOL_NOT_IMPLEMENTED` refusal
+ * owned by AC-250/AC-251, so the registered name set is stable across those
+ * tasks.
  */
 export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteToolDeps): void {
+  const sessionCreate = deps.sessionCreate;
+  const sessionInterrupt = deps.sessionInterrupt;
   for (const tool of MCP_STAGE4_WRITE_TOOLS) {
     if (tool.name === 'session_send') {
       seam({
@@ -176,6 +216,28 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
           run: z.unknown().optional(),
         },
         handler: (args, ctx) => buildSessionSend(readSessionSendInput(args), ctx, deps),
+      });
+      continue;
+    }
+    if (tool.name === 'session_create' && sessionCreate !== undefined) {
+      seam({
+        name: tool.name,
+        description: tool.description,
+        requiredScope: tool.requiredScope,
+        inputSchema: SESSION_CREATE_INPUT_SCHEMA,
+        outputSchema: { sessionId: z.string(), runId: z.string().optional() },
+        handler: (args, ctx) => buildSessionCreate(readSessionCreateInput(args), ctx, sessionCreate),
+      });
+      continue;
+    }
+    if (tool.name === 'session_interrupt' && sessionInterrupt !== undefined) {
+      seam({
+        name: tool.name,
+        description: tool.description,
+        requiredScope: tool.requiredScope,
+        inputSchema: SESSION_INTERRUPT_INPUT_SCHEMA,
+        outputSchema: { aborted: z.boolean(), message: z.string().optional() },
+        handler: (args, ctx) => buildSessionInterrupt(readSessionInterruptInput(args), ctx, sessionInterrupt),
       });
       continue;
     }

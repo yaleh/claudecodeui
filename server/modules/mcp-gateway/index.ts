@@ -181,6 +181,38 @@ export type {
   SessionSendPayload,
 } from './mcp-session-send.js';
 
+// The session lifecycle write tools (AC-250). `buildSessionCreate` creates a
+// session through the real `sessionsService.createAppSession` and, only for a
+// non-empty message, opens its first run through the same `ChatControlService`
+// a UI send uses — returning the run id alongside the session id, and starting
+// nothing when no message was given. `buildSessionInterrupt` stops the run a
+// session currently has through the control service's `abort` and leaves the
+// resident host untouched; an idle session is reported as `aborted: false` with
+// a message saying there was no run to abort. `registerMcpWriteTools` installs
+// both when `McpWriteToolDeps.sessionCreate` / `.sessionInterrupt` are supplied;
+// `server/index.ts` (via AC-253) supplies them, and this module's criterion
+// drives both through the real mount. The two input schemas / readers are the
+// one argument shape, shared by registration and validation.
+export {
+  buildSessionCreate,
+  buildSessionInterrupt,
+  readSessionCreateInput,
+  readSessionInterruptInput,
+  SESSION_CREATE_INPUT_SCHEMA,
+  SESSION_INTERRUPT_INPUT_SCHEMA,
+} from './mcp-session-lifecycle.js';
+export type {
+  McpControlAbortResult,
+  McpControlAbortSeam,
+  McpProjectEntry,
+  McpSessionCreateDeps,
+  McpSessionCreateInput,
+  McpSessionInterruptDeps,
+  McpSessionInterruptInput,
+  SessionCreatePayload,
+  SessionInterruptPayload,
+} from './mcp-session-lifecycle.js';
+
 // The target-resolution surface (AC-246). `resolveMcpTarget` turns a caller's
 // project/session reference into one id (or into an explicit refusal listing the
 // candidates), and `resolveInputTargets` is the gate that applies it to a tool's

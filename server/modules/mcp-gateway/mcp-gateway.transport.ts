@@ -71,11 +71,15 @@ const SERVER_INFO = { name: 'claudecodeui-mcp-gateway', version: '0.1.0' };
  * supplied — an unwired mount keeps AC-240/244/245's exact behaviour, and the
  * write tools AC-249 registers compose the same `resolveInputTargets` wrapper.
  *
- * Stage-4 write tools (AC-249) register through the same seam when
- * {@link McpGatewayDeps.writeTools} is present, so their audit row, scope
- * refusal and target gate are the identical machinery — only the name set and
- * the handlers differ. An unwired mount registers neither read nor write tools
- * and keeps answering an empty `tools/list`.
+ * Stage-4 write tools (AC-249, extended by AC-250) register through the same
+ * seam when {@link McpGatewayDeps.writeTools} is present, so their audit row,
+ * scope refusal and target gate are the identical machinery — only the name set
+ * and the handlers differ. The write-tools bag flows through unchanged, so
+ * AC-250's `sessionCreate` / `sessionInterrupt` members reach
+ * `registerMcpWriteTools` and swap in the real `session_create` /
+ * `session_interrupt` handlers; a bag without them keeps the placeholders. An
+ * unwired mount registers neither read nor write tools and keeps answering an
+ * empty `tools/list`.
  */
 function createMcpServer(
   registerTools: McpToolRegistrar | undefined,
@@ -262,11 +266,16 @@ export type McpGatewayDeps = {
    * The services AC-249's stage-4 write tools answer from, assembled by the
    * composition root (`server/index.ts`) over the process singletons: the single
    * chat control service the WebSocket gateway and the scheduled timer share
-   * (AC-233), the run registry, and AC-248's `run_get` builder over its deps.
+   * (AC-233), the run registry, AC-248's `run_get` builder over its deps, and —
+   * AC-250's optional half — the project/session seams `session_create` reads
+   * plus the abort seam `session_interrupt` reads.
    *
    * Supplying it registers the five write tools through the SAME audited seam
-   * the read tools use. Absent keeps the read-only mount AC-245's criterion
-   * reads: no write tool appears in `tools/list`.
+   * the read tools use, and threads the whole bag (including AC-250's
+   * `sessionCreate` / `sessionInterrupt`) to `registerMcpWriteTools`, which
+   * installs the real handlers for exactly the tools whose deps are present.
+   * Absent keeps the read-only mount AC-245's criterion reads, and a bag without
+   * AC-250's optional members keeps AC-249's placeholder registration.
    */
   writeTools?: McpWriteToolDeps;
   /**
