@@ -52,7 +52,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json",
     "test": "npm run test:server && npm run test:scripts",
-    "test:server": "tsx --tsconfig server/tsconfig.json --test \"server/**/*.test.ts\" \"server/**/*.test.js\"",
+    "test:server": "tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test \"server/**/*.test.ts\" \"server/**/*.test.js\"",
     "test:scripts": "node scripts/list-script-tests.mjs && node --test \"scripts/**/*.test.mjs\"",
     "test:client": "bash scripts/with-memory-cap.sh vitest run",
     "test:e2e": "playwright test",
@@ -160,6 +160,7 @@
     "@codemirror/merge": "^6.11.1",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@iarna/toml": "^2.2.5",
+    "@modelcontextprotocol/sdk": "~1.29.0",
     "@octokit/rest": "^22.0.0",
     "@openai/codex": "0.153.4",
     "@openai/codex-sdk": "^0.153.0",
@@ -212,7 +213,8 @@
     "remark-math": "^6.0.0",
     "tailwind-merge": "^3.3.1",
     "web-push": "^3.6.7",
-    "ws": "^8.14.2"
+    "ws": "^8.14.2",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",

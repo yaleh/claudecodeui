@@ -145,6 +145,10 @@ function postThroughRouter(uploadError: unknown): RouteOutcome {
       getHealth: () => ({ ok: false, status: 500, error: 'unused' }),
       transcribe: async () => ({ ok: true, value: { text: '' } }),
       synthesizeSpeech: async () => ({ ok: false, status: 500, error: 'unused' }),
+      // This file drives the upload parser's refusals, which are decided before the raw-corpus
+      // surface is reached; the two members exist so the fake is a complete `VoiceService`.
+      captureRaw: () => ({ ok: true, value: { stored: false } }),
+      captureState: () => ({ raw: false }),
     },
     voiceSettingsService: {
       getSettings: () => NO_USER_SETTINGS,
@@ -155,6 +159,9 @@ function postThroughRouter(uploadError: unknown): RouteOutcome {
       maskForReadback: (settings) => settings,
     },
     parseAudioUpload: (_request, _response, callback) => callback(uploadError),
+    // The raw endpoint's parser is never reached here — this file drives `/transcribe` — so it is a
+    // pass-through that answers "no error" without touching the request.
+    parseRawAudioUpload: (_request, _response, callback) => callback(undefined),
   });
 
   let status = 0;

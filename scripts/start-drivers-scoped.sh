@@ -45,6 +45,25 @@ fi
 [ -f "$QUAY_PLUGIN_DIR/scripts/dist/start-drivers.js" ] \
   || { echo "start-drivers-scoped: missing $QUAY_PLUGIN_DIR/scripts/dist/start-drivers.js" >&2; exit 1; }
 
+# QUAY_PLUGIN_DIR above picks the ORCHESTRATOR only. `start-drivers.js` does not use its own plugin
+# root for the two things that actually stay resident — it shells out to the BARE `quay` on PATH for
+# both `driver start --kind <k>` and `serve` (it prints `start-drivers: quay CLI = quay`). So with an
+# older release's bin dir earlier on PATH, this script starts the newest orchestrator and the OLDEST
+# kernel + web server, while its own output looks like a normal start.
+#
+# Measured 2026-10-05 (claudecodeui, PATH held .../quay/quay/0.11.0/bin before .../0.14.0/bin even
+# though 0.14.0 is the installed release): the restart came up 0.11.0 end-to-end — `quay driver
+# status` reported `loaded-version-behind: loaded=0.11.0 installed=0.14.0` and the anchor's own
+# `source_watch_dir` named .../0.11.0/scripts/dist — with 0.14.0's start-drivers.js as the parent.
+# A restart that silently loads the version you were replacing is worse than one that fails.
+#
+# Pin PATH to this plugin dir so the CLI that starts everything is the same release as the
+# orchestrator. Fail closed rather than fall back: a silent fallback to whatever `quay` PATH happens
+# to hold is the exact defect above.
+[ -x "$QUAY_PLUGIN_DIR/bin/quay" ] \
+  || { echo "start-drivers-scoped: missing $QUAY_PLUGIN_DIR/bin/quay — refusing to fall back to whatever 'quay' PATH holds" >&2; exit 1; }
+export PATH="$QUAY_PLUGIN_DIR/bin:$PATH"
+
 # The slice must exist AND carry a MemoryMax, or "scoped" would be a lie.
 max="$(systemctl --user show "$SLICE" -p MemoryMax --value 2>/dev/null || true)"
 case "$max" in

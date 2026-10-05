@@ -3,6 +3,13 @@
 // module's own criteria, the settings module's /access-tokens routes, and the
 // server entrypoint, which builds one instance to back the token-info route.
 export { createAccessTokensService } from '@/modules/oauth/access-tokens.service.js';
+// ACCESS_TOKEN_SCOPES / normalizeAccessTokenScopes: the single scope vocabulary
+// and its deduplicating validator. Consumers: the settings module's
+// createAccessToken and this module's scope criterion, both through this barrel.
+export {
+  ACCESS_TOKEN_SCOPES,
+  normalizeAccessTokenScopes,
+} from '@/modules/oauth/access-tokens.service.js';
 export type {
   AccessTokenRejectionReason,
   AccessTokensService,

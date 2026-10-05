@@ -1,3 +1,4 @@
+import { normalizeAccessTokenScopes } from '@/modules/oauth/index.js';
 import { AppError } from '@/shared/utils.js';
 
 type NotificationPreferences = Record<string, unknown> & {
@@ -182,11 +183,22 @@ export function createSettingsService(dependencies: SettingsDependencies) {
           statusCode: 400,
         });
       }
-      const scopes = Array.isArray(input.scopes)
-        && input.scopes.length > 0
-        && input.scopes.every((scope) => typeof scope === 'string' && scope.trim())
-        ? (input.scopes as string[])
-        : [...DEFAULT_TOKEN_SCOPES];
+      // An omitted scope list keeps the read baseline; anything explicit must
+      // be a non-empty subset of the known vocabulary, deduplicated. An
+      // explicit `[]` is rejected rather than defaulted.
+      let scopes: string[];
+      if (input.scopes === undefined) {
+        scopes = [...DEFAULT_TOKEN_SCOPES];
+      } else {
+        const normalized = normalizeAccessTokenScopes(input.scopes);
+        if (!normalized.ok) {
+          throw new AppError('scopes must be a non-empty subset of known scopes', {
+            code: 'INVALID_SCOPE',
+            statusCode: 400,
+          });
+        }
+        scopes = normalized.scopes;
+      }
 
       const issued = dependencies.accessTokens.issue({ userId, name, scopes, expiresInDays: requestedDays });
       if (!issued.ok) {

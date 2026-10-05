@@ -34,6 +34,9 @@ vi.mock('@/shared/api', async (importOriginal) => {
   const actual = await importOriginal<typeof SharedApi>();
   return {
     transcribeVoice,
+    // The raw-corpus upload the hook fires after a listen; doubled so this whole-module mock stays
+    // complete. It is never awaited, so it cannot perturb the trim readings this file is about.
+    captureRawVoice: vi.fn(),
     // The recogniser that will transcribe the audio, as the one read point asks for it. Doubled so a
     // case can declare `destructive` or `neutral` and nothing else changes between the two runs.
     effectivePauseCuesDeclaration,

@@ -9,10 +9,12 @@ import { listProviders } from '../../../shared/asr/asrRegistry.js';
 
 import {
   announceVoiceCapture,
+  announceVoiceCaptureRaw,
   createVoiceCapture,
   createVoiceCaptureAudioSink,
   resolveInstanceSalt,
   resolveVoiceCaptureDir,
+  voiceCaptureDirStartupLine,
 } from './voice-capture.js';
 import { createVoiceRouter } from './voice.routes.js';
 import { createVoiceService, createVoiceSettingsService } from './voice.service.js';
@@ -43,6 +45,18 @@ const voiceLog: VoiceLogPort = console;
 const voiceCapture = announceVoiceCapture(process.env.VOICE_CAPTURE, voiceLog);
 
 /**
+ * THE ONE READ of `VOICE_CAPTURE_RAW` in this process, and the one place it is announced.
+ *
+ * An INDEPENDENT switch, read once here for the same reason the mode is: it is a property of the
+ * deployment, not of a request, and a value re-read per recording could change what is collected
+ * halfway through a listen. It is announced BESIDE the mode line rather than folded into it, so the
+ * mode announcement's own output is unchanged and a deployment that never sets this variable gains
+ * exactly one line saying `enabled=0`. An unrecognised value fails closed with a warning, exactly as
+ * the mode's does — see `resolveVoiceCaptureRaw`.
+ */
+const voiceCaptureRaw = announceVoiceCaptureRaw(process.env.VOICE_CAPTURE_RAW, voiceLog);
+
+/**
  * THE ONE READ of `VOICE_CAPTURE_DIR` in this process, and the directory every recording goes into.
  *
  * Read here and not inside the sink for the same reason the mode is read here: the environment
@@ -63,6 +77,12 @@ const voiceCaptureDirectory = resolveVoiceCaptureDir(
   process.env.VOICE_CAPTURE_DIR,
   process.env.DATABASE_PATH,
 );
+
+// THE DIRECTORY IS ANNOUNCED, not just resolved, because nothing here deletes or rotates these files
+// by design: the only thing that makes the growth visible is the line naming where it lands. It
+// carries no file and no bytes — only the path a deployment already configured — so it discloses
+// nothing a reader of the process's own configuration could not already see.
+voiceLog.info(voiceCaptureDirStartupLine(voiceCaptureDirectory));
 
 /**
  * The instant this process came up, for the one figure the attempt ids rest on.
@@ -117,6 +137,10 @@ const voiceService = createVoiceService({
     // is what keeps one run's recordings from colliding with a previous run's. See `voice-capture.ts`.
     instanceSalt: resolveInstanceSalt(process.pid, voiceStartedAtMs),
     audio: createVoiceCaptureAudioSink({ directory: voiceCaptureDirectory }),
+    // The raw switch, read once above and handed to the port that acts on it. It is INDEPENDENT of
+    // the mode, so `VOICE_CAPTURE_RAW=1` with no mode still collects the raw corpus — the switch
+    // decides only whether the pre-VAD bytes are kept, never where the trimmed rows go.
+    raw: voiceCaptureRaw.enabled,
   }),
   logger: voiceLog,
   fetchBackend: async (url, options) => {
@@ -166,6 +190,23 @@ const audioUpload = multer({
   limits: { fileSize: transportCeilingBytes() },
 });
 
+/**
+ * The raw-corpus endpoint's own upload ceiling, in bytes.
+ *
+ * A LITERAL RATHER THAN THE REGISTRY'S MAXIMUM, and the difference is the subject rather than a
+ * shortcut: the trimmed upload's ceiling is the largest a RECOGNISER declares it can take, because
+ * those bytes are sent on to one. Raw audio is sent nowhere — it is kept — so its bound is a property
+ * of the corpus, not of any provider. 16 kHz mono 16-bit PCM is about 32 KB/s, so 32 MiB is roughly
+ * seventeen minutes of one listen, comfortably past the client's own 600-second original cap and far
+ * below the point where buffering one request would be a denial-of-service of its own.
+ */
+const RAW_UPLOAD_CEILING_BYTES = 32 * 1024 * 1024;
+
+const rawAudioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: RAW_UPLOAD_CEILING_BYTES },
+});
+
 // The settings the user saved, read and written through the Voice settings
 // routes. Stored per user so a key no longer lives only in one browser profile.
 const voiceSettingsService = createVoiceSettingsService(voiceSettingsDb);
@@ -175,4 +216,8 @@ export const voiceRoutes = createVoiceRouter({
   voiceService,
   voiceSettingsService,
   parseAudioUpload: audioUpload.single('audio'),
+  // The raw endpoint's own parser, built above from its own ceiling. The router owns both routes and
+  // never learns a size; which figure bounds which endpoint is decided here, at the one place that
+  // knows the deployment.
+  parseRawAudioUpload: rawAudioUpload.single('audio'),
 });

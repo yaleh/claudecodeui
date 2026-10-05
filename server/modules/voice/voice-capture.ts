@@ -222,6 +222,15 @@ export type VoiceCaptureAttempt = {
   status: number;
   audio: VoiceCaptureAudio;
   /**
+   * The pairing id this attempt's request carried, when it carried one.
+   *
+   * ABSENT MEANS THE REQUEST NAMED NONE, and the row then has no `listenId` key at all — this
+   * module's "absence rather than a placeholder" convention. It is present only when `/transcribe`
+   * was handed the text field, which is only when a recording client paired this upload with its raw
+   * corpus row for the same listen.
+   */
+  listenId?: string;
+  /**
    * The payload refinement, when this deployment records one.
    *
    * ABSENT MEANS THE ATTEMPT IS RECORDED WITHOUT IT — the row this module has always written. The
@@ -264,6 +273,19 @@ export type VoiceCaptureAudioSink = {
    * re-encodes, truncates or wraps them writes a file the row does not describe.
    */
   writeAudio(directory: string, captureId: string, audio: VoiceCaptureAudio): string;
+  /**
+   * Writes one listen's RAW upload into `directory` and says WHERE it landed.
+   *
+   * OPTIONAL, and its absence is a deployment shape rather than a fault: the raw half is a SECOND
+   * delivery of this sink and a sink that supplies only `writeAudio` (a criterion's counter, a
+   * deployment assembled before raw capture existed) still records attempt rows — a port handed such a
+   * sink writes the raw ROW without a file rather than failing. THE SHIPPING SINK DOES SUPPLY IT.
+   *
+   * The `listenId` is the pairing key, not a file name: the sink builds the name from it (see
+   * `writeRaw` on the shipping sink), so a caller-chosen string is never joined into a path directly.
+   * `bytes` are the raw upload's bytes THEMSELVES — the same buffer the row's `sha256` is taken over.
+   */
+  writeRaw?(directory: string, listenId: string, bytes: Uint8Array): string;
 };
 
 /**
@@ -286,10 +308,56 @@ export type VoiceCapturePort = {
   newAttemptId(): string;
   /** Writes one attempt's row. THE single record construction point. */
   recordAttempt(captureId: string, attempt: VoiceCaptureAttempt): void;
+  /**
+   * Whether this port collects raw (pre-VAD) audio at all. Absent reads as off.
+   *
+   * THE SWITCH LIVES ON THE PORT RATHER THAN ON THE SERVICE for the reason `mode` does: it is a
+   * property of the DEPLOYMENT's configuration, decided once at the composition root, and a port
+   * built for a deployment that did not ask for raw capture is a port that writes raw rows nowhere.
+   */
+  raw?: boolean;
+  /**
+   * Writes one listen's raw-audio row, and its file when this deployment has a sink and the switch is
+   * on. THE single place a raw row is ever built.
+   *
+   * OPTIONAL, and its absence is a port shape rather than a fault — a port a criterion wraps to count
+   * calls, or one a deployment assembled without the raw half, has no raw write and the service reads
+   * that as "raw capture is not available here". THE SHIPPING PORT DOES SUPPLY IT.
+   *
+   * Off is a NO-OP that resolves no directory and touches no file: the switch is read INSIDE this
+   * method as well as by the service, so a caller that reached it past the service's own gate still
+   * writes nothing.
+   */
+  recordRaw?(input: VoiceCaptureRawInput): void;
 };
 
 /** The marker every capture row carries as its `event`. */
 export const VOICE_CAPTURE_EVENT = 'voice.capture';
+
+/**
+ * The marker every RAW-capture row carries as its `event`.
+ *
+ * A SECOND EVENT NAME rather than the same one with a flag, because the two rows answer different
+ * questions and a reader selects on which: `voice.capture` describes one transcription attempt (its
+ * model, host, answer, branch, trimmed bytes), while `voice.capture.raw` describes one listen's
+ * pre-VAD audio, which no attempt consumed. A reader counting attempts and a reader counting
+ * recorded listens are two readers, so the two lines have two names.
+ */
+export const VOICE_CAPTURE_RAW_EVENT = 'voice.capture.raw';
+
+/**
+ * One listen's RAW upload: the pairing id and the pre-VAD bytes themselves.
+ *
+ * `listenId` IS THE PAIRING KEY and is required — the raw row exists to be joined with the trimmed
+ * rows and the transcribed text of the SAME listen, so a row without one would be a file nothing
+ * could be matched to. `bytes` are the upload's bytes THEMSELVES, for the reason `VoiceCaptureAudio`'s
+ * are: a recording written to disk has to be the recording that was uploaded, or a digest beside it
+ * is a digest of something else.
+ */
+export type VoiceCaptureRawInput = {
+  listenId: string;
+  bytes: Uint8Array;
+};
 
 /** The directory name a recording goes into when `VOICE_CAPTURE_DIR` names none. */
 const CAPTURE_DIRECTORY_NAME = 'voice-capture';
@@ -384,6 +452,99 @@ export function announceVoiceCapture(raw: string | undefined, log: VoiceLogPort)
 }
 
 /**
+ * What one raw `VOICE_CAPTURE_RAW` value resolves to.
+ *
+ * THE SHAPE MATCHES `VoiceCaptureResolution`'s on purpose and not by accident: raw capture is a
+ * SECOND, INDEPENDENT switch whose value a deployment reads once at start-up, and a reader comparing
+ * the two resolution functions should find the same three readings in both — off, on, and
+ * not-recognised-earns-a-warning.
+ */
+export type VoiceCaptureRawResolution = {
+  enabled: boolean;
+  warning: string | null;
+};
+
+/**
+ * The raw capture switch, resolved from its own variable with the mode resolver's fail-closed rule.
+ *
+ * WHY THIS IS A SECOND FUNCTION RATHER THAN `resolveVoiceCaptureMode`. The two switches answer
+ * different questions — the mode picks WHERE an attempt goes (`off`/`text`/`audio`), and this one
+ * says WHETHER the pre-VAD bytes the recogniser never saw are collected at all — so they have
+ * different value sets and one is a boolean. What they SHARE is the discipline, and it is copied
+ * deliberately: blank and `off` mean off, an unrecognised value means off AND earns a warning naming
+ * it, and `THE ARGUMENT IS THE RAW VALUE, NOT process.env` so the composition root stays the one
+ * reader of the environment. `1` is the one value that turns raw capture on.
+ */
+export function resolveVoiceCaptureRaw(raw: string | undefined): VoiceCaptureRawResolution {
+  const value = raw === undefined ? '' : raw.trim();
+
+  if (value === '' || value === 'off') {
+    return { enabled: false, warning: null };
+  }
+  if (value === '1') {
+    return { enabled: true, warning: null };
+  }
+
+  return { enabled: false, warning: voiceCaptureRawWarningLine(value) };
+}
+
+/**
+ * The start-up line that says whether this process collects raw audio, and nothing else.
+ *
+ * A LINE OF ITS OWN rather than a clause on the mode line: the two switches are independent, and a
+ * reader asking "did this deployment keep the pre-VAD audio" would otherwise have to parse a second
+ * field out of a line whose subject is a different variable.
+ */
+export function voiceCaptureRawStartupLine(enabled: boolean): string {
+  return `voice.capture.raw enabled=${enabled ? '1' : '0'}`;
+}
+
+/**
+ * The warning an unrecognised `VOICE_CAPTURE_RAW` value earns, naming the value.
+ *
+ * The value is quoted through `JSON.stringify` for the same reason `voiceCaptureWarningLine`'s is: it
+ * is what keeps the line exactly one line, so a variable pasted with a trailing newline cannot split
+ * the reading in two.
+ */
+export function voiceCaptureRawWarningLine(value: string): string {
+  return `voice.capture.raw invalid value ${JSON.stringify(value)}; raw capture is off`;
+}
+
+/**
+ * The start-up line that names the directory recordings go into.
+ *
+ * WHY THE DIRECTORY IS ANNOUNCED AT ALL. Nothing deletes or rotates these files by design, so the
+ * only thing that makes the growth VISIBLE is the line that says where it accumulates — without it
+ * an operator wanting to know where the disk went would have to read this module's source to find
+ * the default. The mode and the raw switch say WHAT is recorded; this says WHERE.
+ */
+export function voiceCaptureDirStartupLine(directory: string): string {
+  return `voice.capture dir=${directory}`;
+}
+
+/**
+ * Announces the raw switch: resolve it, say it (and warn), hand it back — `announceVoiceCapture`'s
+ * exact shape for the second variable.
+ *
+ * Called from the composition root BESIDE `announceVoiceCapture` rather than folded into it, so the
+ * mode announcement's output is unchanged byte for byte and a deployment that never sets
+ * `VOICE_CAPTURE_RAW` gains exactly one line that reads `enabled=0`.
+ */
+export function announceVoiceCaptureRaw(
+  raw: string | undefined,
+  log: VoiceLogPort,
+): VoiceCaptureRawResolution {
+  const resolution = resolveVoiceCaptureRaw(raw);
+
+  log.info(voiceCaptureRawStartupLine(resolution.enabled));
+  if (resolution.warning !== null) {
+    log.info(resolution.warning);
+  }
+
+  return resolution;
+}
+
+/**
  * The directory a recording goes into: the explicit setting when there is one, otherwise a directory
  * beside the database.
  *
@@ -459,7 +620,46 @@ export function resolveInstanceSalt(pid: number, startedAtMs: number): string {
  * a container the bytes are not in. The container is in the row, where a reader can see it.
  */
 function captureFileName(captureId: string): string {
-  return `${captureId.replace(/[^A-Za-z0-9._-]/g, '_')}.bin`;
+  return `${pathSafeStem(captureId)}.bin`;
+}
+
+/**
+ * The characters a recording's file name may keep.
+ *
+ * THE ONE SUBSTITUTION both naming schemes share, extracted so the two cannot drift: the attempt
+ * name and the raw name are held to the same path-safe alphabet, and a criterion reading one of them
+ * reads the same rule the other is built with.
+ */
+function pathSafeStem(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, '_');
+}
+
+/**
+ * The stem (the name WITHOUT its `.bin` suffix) one listen's RAW upload goes into.
+ *
+ * `raw-` PREFIXES THE STEM so a raw file is distinguishable from a trimmed attempt file by name
+ * alone, in the same directory and without opening either: an operator looking at the capture
+ * directory can see the corpus footage and the recogniser's own input as two families. THE PREFIX
+ * LIVES HERE AND NOWHERE ELSE — the sink's `writeRaw` builds its file name from this stem, and
+ * `rawCaptureFileName` is this stem plus the fixed suffix — so a rename moves both at once and a
+ * copy of the rule cannot drift from it.
+ */
+export function rawCaptureStem(listenId: string): string {
+  return `raw-${pathSafeStem(listenId)}`;
+}
+
+/**
+ * The file name one listen's RAW upload goes into, built from its `listenId` and NOTHING ELSE.
+ *
+ * The id is carried through the SAME path-safe substitution `captureFileName` uses — a second
+ * alphabet here would be a second rule about what a file name may contain, and the two would drift
+ * the first time one was tightened. The suffix is fixed for the reason `captureFileName`'s is: the
+ * container is in the row, where a reader can see it, not in the name.
+ *
+ * Exported for the criteria that read a raw file back by the name the row carries.
+ */
+export function rawCaptureFileName(listenId: string): string {
+  return `${rawCaptureStem(listenId)}.bin`;
 }
 
 /**
@@ -558,6 +758,21 @@ export function createVoiceCaptureAudioSink(
       chmodSync(target, CAPTURE_FILE_MODE);
 
       return target;
+    },
+
+    // RAW RECORDINGS GO THROUGH THE SAME WRITE, which is why this is a delegation and not a second
+    // copy of the block above. `writeAudio` names a file `<stem>.bin`, so a raw upload is that same
+    // write with `rawCaptureStem(listenId)` carried as the stem: the directory's creation, the
+    // exclusive create, the `-2/-3` give-way naming and the 0700/0600 are ONE implementation, and a
+    // change to any of them lands on both kinds at once. The `mimeType`/`fileName` fields are unused
+    // by the write — the row, not the file name, is where a container is recorded — so empty strings
+    // say so.
+    writeRaw(directory: string, listenId: string, bytes: Uint8Array): string {
+      return this.writeAudio(directory, rawCaptureStem(listenId), {
+        bytes,
+        mimeType: '',
+        fileName: '',
+      });
     },
   };
 }
@@ -738,6 +953,14 @@ export type VoiceCaptureDependencies = {
    * somewhere nobody chose.
    */
   audio?: VoiceCaptureAudioSink;
+  /**
+   * Whether this deployment collects raw (pre-VAD) audio, from `VOICE_CAPTURE_RAW`.
+   *
+   * ABSENT READS AS OFF, so every existing caller — the criteria that build a port to record attempt
+   * rows, a deployment assembled before the raw switch existed — keeps writing no raw audio. The
+   * composition root supplies it from `resolveVoiceCaptureRaw`'s own answer.
+   */
+  raw?: boolean;
 };
 
 /**
@@ -762,9 +985,13 @@ export type VoiceCaptureDependencies = {
  */
 export function createVoiceCapture(dependencies: VoiceCaptureDependencies): VoiceCapturePort {
   let sequence = 0;
+  // Read once, at construction: the switch is a property of the deployment, so a value re-read per
+  // call could change what is recorded halfway through a listen. See `recordRaw`.
+  const rawEnabled = dependencies.raw === true;
 
   return {
     mode: dependencies.mode,
+    raw: rawEnabled,
     newAttemptId(): string {
       sequence += 1;
       return `${dependencies.mode}-${dependencies.instanceSalt}-${sequence.toString(36)}`;
@@ -785,6 +1012,13 @@ export function createVoiceCapture(dependencies: VoiceCaptureDependencies): Voic
       };
       if (attempt.payload !== undefined) {
         Object.assign(row, buildVoiceCapturePayload(attempt.payload));
+      }
+      // The pairing id, and ONLY when the request carried one: a row from a request that named none
+      // has no `listenId` key at all rather than an empty one, so a reader can tell "not paired" from
+      // "paired with an empty id" — which is the same absence-not-placeholder rule `truncated` and
+      // `path` follow.
+      if (attempt.listenId !== undefined) {
+        row.listenId = attempt.listenId;
       }
 
       // The audio write, and only in the mode that asked for it. The directory is resolved HERE
@@ -811,6 +1045,41 @@ export function createVoiceCapture(dependencies: VoiceCaptureDependencies): Voic
 
       // One line, serialised once. `JSON.stringify` at the construction point rather than at the log
       // port is what keeps the row single-line and parseable no matter which port a deployment wired.
+      dependencies.log.info(JSON.stringify(row));
+    },
+
+    recordRaw(input: VoiceCaptureRawInput): void {
+      // THE SWITCH IS READ HERE, not only by the service above: an off deployment resolves no
+      // directory and touches no file even if a caller reached this method past the service's own
+      // gate. This is the second lock on the same door and the one the "no directory is created"
+      // promise actually rests on, because it is the side that would have to resolve the path.
+      if (!rawEnabled) {
+        return;
+      }
+
+      // The row: the pairing id, the upload's length, its digest, and — when a sink is wired — where
+      // the bytes landed. `sha256` is a digest of the upload and never the upload, exactly as the
+      // trimmed row's is: a raw recording is strictly MORE sensitive than a trimmed one (it is the
+      // audio a VAD deliberately removed), so the same rule that keeps bytes out of the log applies
+      // here without exception.
+      const row: Record<string, unknown> = {
+        event: VOICE_CAPTURE_RAW_EVENT,
+        listenId: input.listenId,
+        bytes: input.bytes.length,
+        sha256: voiceCaptureSha256(input.bytes),
+      };
+
+      // The file, and only when this port has a sink that can write one. The directory is resolved
+      // HERE rather than at construction, so a deployment that never records raw creates none — the
+      // same structural property `recordAttempt` has for the trimmed write.
+      if (dependencies.audio?.writeRaw !== undefined) {
+        row.path = dependencies.audio.writeRaw(
+          dependencies.audio.resolveDirectory(),
+          input.listenId,
+          input.bytes,
+        );
+      }
+
       dependencies.log.info(JSON.stringify(row));
     },
   };
