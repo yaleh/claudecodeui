@@ -2,7 +2,7 @@
 id: gap-ac275-claude-resident-control-queue
 title: AC-275 真实 claude 二进制的常驻驱动经控制服务撤回排队消息：uuid 来自真实驱动、撤回后那条消息不成为一轮、进程 pid
   不变；判据 server/modules/providers/tests/claude-resident-control-queue.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
