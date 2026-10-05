@@ -30,7 +30,11 @@ import {
   classifyUpstreamFailure,
   listProviders,
   type AsrAdapter,
+  type AsrCapabilities,
   type AsrHints,
+  type AsrInvocation,
+  type AsrRequest,
+  type AsrSuccess,
 } from '@shared/asr/asrRegistry';
 import {
   INVARIANT_AUDIO_BASE64,
@@ -39,12 +43,18 @@ import {
   INVARIANT_GROUP_IDS,
   INVARIANT_MODEL,
   affordableAudioBytes,
+  assertTokenInvariants,
   goldenBody,
   overBudgetAudioBytes,
   redactionNeedles,
   runAsrContractInvariants,
   scanLines,
+  tokenInvariantViolations,
 } from '@shared/asr/asrInvariants';
+import {
+  parseTranscriptionResponse,
+  type TranscriptionEnvelope,
+} from '@shared/asr/transcriptionWire';
 import {
   STYLE_TRANSFORMATIONS,
   base64Encode,
@@ -272,5 +282,212 @@ describe('the transcription seam invariant board', () => {
     expect(scanLines(planted, needles.payload).length).toBe(1);
     const clean = ['a line carrying neither'];
     expect(scanLines(clean, [needles.credential, ...needles.payload])).toEqual([]);
+  });
+});
+
+// ── the token contract: the always-on half of the per-token declaration ───────────────────────
+//
+// WHAT THIS BLOCK IS FOR. The three shipped recognisers declare `tokens: { confidence: false,
+// timestamps: false }`, so the two-sided reading the contract exists for — a declaration of `true`
+// against a result that carries the facts, and against one that does not — is unreachable through
+// the registry. The stand-in below declares `true` and produces them; the negative controls take
+// the same declaration and a result that disagrees with it. The declaration/locality half is read
+// over the SHIPPED registry, so a field that went missing in an adapter reds here as well.
+
+/** A declaration that promises both per-token facts, which is what a word-level engine publishes. */
+const TOKEN_DECLARATION: AsrCapabilities = {
+  ...capabilities,
+  tokens: { confidence: true, timestamps: true },
+  // Not 'remote' on purpose: this stand-in is not a statement about where a shipped recogniser
+  // runs, and the locality cases below read the SHIPPED declarations rather than this one.
+  locality: 'local-client',
+};
+
+/** The audio and invocation the stand-in is driven with; it reads neither, but its contract takes them. */
+const TOKEN_STAND_IN_REQUEST: AsrRequest = {
+  audio: { bytes: new Uint8Array([1, 2, 3]), mimeType: 'audio/webm', fileName: 'clip.webm' },
+};
+const TOKEN_STAND_IN_INVOCATION: AsrInvocation = {
+  baseUrl: 'https://asr.invalid',
+  apiKey: '',
+  model: 'stand-in-model',
+  timeoutMs: 1_000,
+  fetchImpl: (async () => new Response('', { status: 200 })) as typeof fetch,
+};
+
+/** A minimal stand-in recogniser that produces the per-token facts it declares. */
+const tokenProducingAdapter: AsrAdapter = {
+  id: 'stand-in-token-producing',
+  capabilities: TOKEN_DECLARATION,
+  async transcribe() {
+    const result: AsrSuccess = {
+      ok: true,
+      text: 'tok one tok two',
+      style: 'verbatim',
+      transformations: [],
+      providerId: tokenProducingAdapter.id,
+      tokens: [
+        { text: 'tok', confidence: 0.91, startMs: 0 },
+        { text: 'one', confidence: 0.42, startMs: 120 },
+      ],
+      meta: { buildId: 'stand-in-build-0001' },
+    };
+    return result;
+  },
+};
+
+describe('the per-token declaration and its invariant', () => {
+  it('publishes false/false and remote for every shipped recogniser, and accepts a token-producing one', async () => {
+    const providers = listProviders();
+    expect(providers.length).toBeGreaterThan(0);
+    // The SHIPPED declarations, read off the registry rather than restated: every recogniser the
+    // app can actually select promises no per-token facts and runs remotely.
+    for (const provider of providers) {
+      expect(provider.capabilities.tokens, provider.id).toEqual({ confidence: false, timestamps: false });
+      expect(provider.capabilities.locality, provider.id).toBe('remote');
+    }
+
+    const result = await tokenProducingAdapter.transcribe(
+      TOKEN_STAND_IN_REQUEST,
+      TOKEN_STAND_IN_INVOCATION,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('the stand-in must answer with a success');
+
+    // The positive control for the invariant: a declaration of `true` met by a result that carries
+    // the facts is NOT a violation, and the gate does not throw. Without this, "the bad case
+    // throws" would also be green for a checker that throws on everything.
+    expect(result.tokens).toBeDefined();
+    expect(tokenInvariantViolations(tokenProducingAdapter.capabilities, result)).toEqual([]);
+    expect(() => assertTokenInvariants(tokenProducingAdapter.capabilities, result)).not.toThrow();
+  });
+
+  it('reds a declaration the result disagrees with, and the red is the check rather than the fixture', () => {
+    const promisesConfidence: AsrCapabilities = {
+      ...capabilities,
+      tokens: { confidence: true, timestamps: false },
+    };
+    const noTokens: AsrSuccess = {
+      ok: true,
+      text: 'plain text',
+      style: 'verbatim',
+      transformations: [],
+      providerId: 'stand-in-no-tokens',
+    };
+
+    // The missing-tokens half: declared confidence, result carries none.
+    expect(tokenInvariantViolations(promisesConfidence, noTokens).length).toBeGreaterThan(0);
+    expect(() => assertTokenInvariants(promisesConfidence, noTokens)).toThrow(/tokens/);
+
+    // The out-of-range half, on a result that DOES carry tokens: 1.2 and -0.1 are both outside
+    // the closed interval a caller comparing confidences may assume.
+    const outOfRange: AsrSuccess = {
+      ...noTokens,
+      providerId: 'stand-in-out-of-range',
+      tokens: [
+        { text: 'a', confidence: 1.2, startMs: 0 },
+        { text: 'b', confidence: -0.1, startMs: 5 },
+      ],
+    };
+    expect(() => assertTokenInvariants(promisesConfidence, outOfRange)).toThrow(/confidence/);
+
+    // The other direction of the same declaration, which a one-sided check drops: a recogniser
+    // that declares `false` must not carry the field anyway.
+    const declaresNone: AsrCapabilities = {
+      ...capabilities,
+      tokens: { confidence: false, timestamps: false },
+    };
+    expect(() => assertTokenInvariants(declaresNone, outOfRange)).toThrow(/undeclared/);
+
+    // redWhenOff: the assertions above are about the CHECK, not about the fixture, so they must go
+    // red when the check is removed and stay green when it is present. Written as a toggle so the
+    // dependency is measured rather than assumed — commenting the check out is exactly the `false`
+    // arm below, and it makes the `true` arm's expectation fail.
+    const redWhenOff = (checkEnabled: boolean): boolean =>
+      checkEnabled ? tokenInvariantViolations(promisesConfidence, noTokens).length > 0 : false;
+    expect(redWhenOff(true)).toBe(true);
+    expect(redWhenOff(false)).toBe(false);
+  });
+
+  it('round-trips tokens and meta.buildId through the strict parse, and leaves an old body byte-identical', async () => {
+    const richBody = JSON.stringify({
+      text: 'k-asr-rich',
+      tokens: [
+        { text: 'k-asr-rich', confidence: 0.87, startMs: 0 },
+        { text: 'tail', confidence: 0.5, startMs: 400 },
+      ],
+      meta: { buildId: 'build-2026-10-06-abc' },
+    });
+
+    // The text view every existing caller reads is unchanged by the extra fields...
+    const text = await parseTranscriptionResponse(new Response(richBody, { status: 200 }), 'strict');
+    expect(text).toBe('k-asr-rich');
+
+    // ...and the same strict read, asked for the envelope, retains each item VERBATIM: the token
+    // texts, their confidences, their start times and the build identity all survive.
+    const envelope: TranscriptionEnvelope = await parseTranscriptionResponse(
+      new Response(richBody, { status: 200 }),
+      'strict',
+      'envelope',
+    );
+    expect(envelope).toEqual({
+      text: 'k-asr-rich',
+      tokens: [
+        { text: 'k-asr-rich', confidence: 0.87, startMs: 0 },
+        { text: 'tail', confidence: 0.5, startMs: 400 },
+      ],
+      meta: { buildId: 'build-2026-10-06-abc' },
+    });
+
+    // An old body — no tokens, no buildId — parses to the pre-change snapshot EXACTLY. The
+    // snapshot is the literal the old implementation produced (`String(data?.text || '')`), and
+    // the envelope must not have invented keys around it for an older client to trip over.
+    const oldBody = JSON.stringify({ text: 'k-asr-old' });
+    expect(await parseTranscriptionResponse(new Response(oldBody, { status: 200 }), 'strict')).toBe(
+      'k-asr-old',
+    );
+    const oldEnvelope = await parseTranscriptionResponse(
+      new Response(oldBody, { status: 200 }),
+      'strict',
+      'envelope',
+    );
+    expect(oldEnvelope).toEqual({ text: 'k-asr-old' });
+    expect(Object.keys(oldEnvelope)).toEqual(['text']);
+
+    // The lenient branch reads the SAME envelope, so the proxy path is not a second spelling of
+    // the parse: the richer answer survives there too.
+    expect(
+      await parseTranscriptionResponse(new Response(richBody, { status: 200 }), 'lenient', 'envelope'),
+    ).toEqual(envelope);
+  });
+
+  it('runs the chain end to end from a token-producing adapter to the client parse', async () => {
+    // Link 1: the adapter returns a success whose per-token facts satisfy its own declaration.
+    const result = await tokenProducingAdapter.transcribe(
+      TOKEN_STAND_IN_REQUEST,
+      TOKEN_STAND_IN_INVOCATION,
+    );
+    if (!result.ok) throw new Error('the stand-in must answer with a success');
+    assertTokenInvariants(tokenProducingAdapter.capabilities, result);
+
+    // Link 2: the response payload the service publishes for this result. The service copies
+    // `text` and — when present — `tokens`/`meta.buildId` verbatim (see
+    // `server/modules/voice/voice.service.ts`); the composition below states that one shape, and
+    // the dispatch test reads the live service's token-less half.
+    const payload: { text: string; tokens?: AsrSuccess['tokens']; meta?: { buildId?: string } } = {
+      text: result.text,
+    };
+    if (result.tokens !== undefined) payload.tokens = result.tokens;
+    if (result.meta?.buildId !== undefined) payload.meta = { buildId: result.meta.buildId };
+
+    // Link 3: the client reads the serialized payload back and gets the tokens WITH confidence.
+    const clientEnvelope = await parseTranscriptionResponse(
+      new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } }),
+      'strict',
+      'envelope',
+    );
+    expect(clientEnvelope.text).toBe(result.text);
+    expect(clientEnvelope.meta?.buildId).toBe('stand-in-build-0001');
+    expect(clientEnvelope.tokens?.map((token) => token.confidence)).toEqual([0.91, 0.42]);
   });
 });

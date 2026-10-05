@@ -50,6 +50,8 @@ import type {
   AsrInvocation,
   AsrRequest,
   AsrResult,
+  AsrSuccess,
+  AsrToken,
   AsrWire,
 } from './asrRegistry.js';
 
@@ -59,6 +61,7 @@ export const INVARIANT_GROUP_IDS = [
   'size-layering',
   'redaction',
   'mime-gate',
+  'token-contract',
 ] as const;
 
 export type InvariantGroupId = (typeof INVARIANT_GROUP_IDS)[number];
@@ -1316,6 +1319,150 @@ export async function probeMimeGate(provider: AsrAdapter): Promise<InvariantRead
   return readings;
 }
 
+// ── the token contract ───────────────────────────────────────────────────────────────────────
+
+/**
+ * One disagreement between a recogniser's per-token declaration and a result it produced.
+ *
+ * `probe` is stable across runs (the field and, where it is per-item, the token index); `detail` is
+ * the sentence a reader gets when it disagrees.
+ */
+export type TokenInvariantViolation = { probe: string; detail: string };
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/**
+ * The per-token declaration, checked against one success result.
+ *
+ * The pair is the contract: a declaration is a PROMISE about every result the recogniser produces,
+ * so it is asked of each result rather than of the declaration alone. Returned as a list rather
+ * than thrown, so a caller can report every disagreement instead of the first one;
+ * `assertTokenInvariants` is the throwing face for a caller that wants the check as a gate.
+ *
+ * The readings, and what each one is the negation of:
+ *   · declared confidence ⇒ the result carries tokens, else a caller that ranks by confidence has
+ *     nothing to rank;
+ *   · declared confidence ⇒ every token's `confidence` is a finite number in `[0, 1]`, else a
+ *     caller comparing two confidences could be comparing a number against `NaN`;
+ *   · declared timestamps ⇒ every token's `startMs` is a finite, non-negative number;
+ *   · declared `false` ⇒ NO token carries that field, which is the half a permissive check drops:
+ *     an adapter that declares `false` and emits a confidence anyway has told a caller to ignore a
+ *     field that is really there.
+ */
+export function tokenInvariantViolations(
+  capabilities: AsrCapabilities,
+  result: AsrSuccess,
+): TokenInvariantViolation[] {
+  const violations: TokenInvariantViolation[] = [];
+  const declared = capabilities.tokens;
+  const tokens: AsrToken[] | undefined = result.tokens;
+
+  if (declared.confidence && !Array.isArray(tokens)) {
+    violations.push({
+      probe: 'tokens-present-when-confidence-declared',
+      detail: 'the declaration promises a confidence per token but the success result carries no tokens',
+    });
+  }
+  if (declared.timestamps && !Array.isArray(tokens)) {
+    violations.push({
+      probe: 'tokens-present-when-timestamps-declared',
+      detail: 'the declaration promises a start time per token but the success result carries no tokens',
+    });
+  }
+  if (!Array.isArray(tokens)) return violations;
+
+  tokens.forEach((token, index) => {
+    if (declared.confidence) {
+      if (!isFiniteNumber(token.confidence) || token.confidence < 0 || token.confidence > 1) {
+        violations.push({
+          probe: `confidence-in-range[${index}]`,
+          detail: `token ${index} confidence is ${String(token.confidence)}, not a finite number in [0, 1]`,
+        });
+      }
+    } else if (token.confidence !== undefined) {
+      violations.push({
+        probe: `confidence-undeclared[${index}]`,
+        detail: `token ${index} carries a confidence while the declaration says this recogniser produces none`,
+      });
+    }
+
+    if (declared.timestamps) {
+      if (!isFiniteNumber(token.startMs) || token.startMs < 0) {
+        violations.push({
+          probe: `start-ms-non-negative[${index}]`,
+          detail: `token ${index} startMs is ${String(token.startMs)}, not a finite non-negative number`,
+        });
+      }
+    } else if (token.startMs !== undefined) {
+      violations.push({
+        probe: `start-ms-undeclared[${index}]`,
+        detail: `token ${index} carries a startMs while the declaration says this recogniser produces none`,
+      });
+    }
+  });
+
+  return violations;
+}
+
+/** The throwing face: a gate for a caller that wants the check to stop it rather than inform it. */
+export function assertTokenInvariants(capabilities: AsrCapabilities, result: AsrSuccess): void {
+  const violations = tokenInvariantViolations(capabilities, result);
+  if (violations.length === 0) return;
+  const detail = violations.map((entry) => `${entry.probe} (${entry.detail})`).join('; ');
+  throw new Error(`token invariants violated for '${result.providerId}': ${detail}`);
+}
+
+/**
+ * The board's reading for the token contract.
+ *
+ * WHAT IT CAN AND CANNOT SEE FROM THE REGISTRY. The three shipped recognisers declare `false/false`,
+ * so the two-sided half of the axis — "declared true and the result carries a confidence in range"
+ * against "declared true and the result carries none, which is the red" — is unreachable through
+ * the registry and is measured in the unit suite with a stand-in that declares it
+ * (`src/shared/asr/tests/asrContractInvariants.test.ts`). What this probe reads from the registry is
+ * that each declaration is present and of the declared kind, names a locality the vocabulary knows,
+ * and agrees with the (token-less) success a recogniser that declares no per-token facts would
+ * produce — so an adapter whose new fields went missing or malformed reds here.
+ */
+export async function probeTokenContract(provider: AsrAdapter): Promise<InvariantReading[]> {
+  const group: InvariantGroupId = 'token-contract';
+  const declared = provider.capabilities.tokens;
+  const shape =
+    declared !== undefined &&
+    typeof declared.confidence === 'boolean' &&
+    typeof declared.timestamps === 'boolean'
+      ? 'booleans'
+      : 'malformed';
+  const locality = provider.capabilities.locality;
+  const knownLocality =
+    locality === 'remote' || locality === 'local-server' || locality === 'local-client'
+      ? locality
+      : 'unknown';
+
+  // The success a recogniser that produces no per-token facts would return. The invariant must
+  // accept it under a `false/false` declaration and red a declaration that promised more.
+  const tokenless: AsrSuccess = {
+    ok: true,
+    text: INVARIANT_TRANSCRIPT,
+    style: provider.capabilities.style,
+    transformations: [],
+    providerId: provider.id,
+  };
+  const agreement =
+    tokenInvariantViolations(provider.capabilities, tokenless).length === 0 ? 'consistent' : 'inconsistent';
+
+  return [
+    reading(group, `token-contract.declaration[${provider.id}]`, provider.id, shape, 'booleans',
+      'the declaration names both per-token facts as booleans'),
+    reading(group, `token-contract.locality[${provider.id}]`, provider.id, knownLocality, locality,
+      'the declaration names a locality from the vocabulary'),
+    reading(group, `token-contract.result-agrees[${provider.id}]`, provider.id, agreement, 'consistent',
+      'a success result without per-token facts satisfies the declaration that promises none'),
+  ];
+}
+
 // ── the board ────────────────────────────────────────────────────────────────────────────────
 
 export type InvariantRunOptions = {
@@ -1428,4 +1575,5 @@ const PROBES: Record<Exclude<InvariantGroupId, 'redaction'>, (provider: AsrAdapt
   'error-mapping': probeErrorMapping,
   'size-layering': probeSizeLayering,
   'mime-gate': probeMimeGate,
+  'token-contract': probeTokenContract,
 };

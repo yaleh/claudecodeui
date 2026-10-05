@@ -83,6 +83,13 @@ export const capabilities: AsrCapabilities = {
   // user-supplied address (`validateBackendBaseUrl`) is the only one that applies here — http and
   // private backends are deliberately legal — so no `allowedBaseUrl` is declared.
   transport: 'direct',
+  // The sentence-level reading, declared rather than assumed: this wire returns one transcript for
+  // the request and no per-word facts, so a token-aware caller is told not to look for any. The
+  // invariant board reds this declaration if a success result ever carries one anyway.
+  tokens: { confidence: false, timestamps: false },
+  // 'remote': the audio leaves the device for this service's own endpoint. Transport answers which
+  // network path reaches it; this answers whether it leaves at all.
+  locality: 'remote',
 };
 
 // ── the hints ────────────────────────────────────────────────────────────────────────────────

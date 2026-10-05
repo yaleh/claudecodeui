@@ -24,7 +24,7 @@ import {
   listProviders,
   tryResolve,
 } from '../../../shared/asr/asrRegistry.js';
-import type { AsrAdapter, AsrCapabilities, AsrErrorCode, AsrFailure } from '../../../shared/asr/asrRegistry.js';
+import type { AsrAdapter, AsrCapabilities, AsrErrorCode, AsrFailure, AsrSuccess } from '../../../shared/asr/asrRegistry.js';
 // The wire's own vocabulary for how much of an upstream answer is allowed to be malformed, which
 // this path names below. A TYPE import deliberately: what the wire implements — the request it
 // builds, the answer it parses — is reached through the adapter now, so the only thing left for
@@ -1231,10 +1231,21 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           text: result.text,
         });
 
-        // The payload stays `{ text }`. The seam's richer envelope (`style`, `transformations`,
-        // the provider's own `meta`) belongs to the surfaces that consume it — the settings entry
-        // point and the trim declarations of later tasks — not to this route's two fields.
-        return { ok: true, value: { text: result.text } };
+        // THE SEAM'S RICHER ENVELOPE RIDES ALONG ONLY WHEN THE RECOGNISER PRODUCED IT. `text`
+        // stays the field every caller has always read; `tokens` and `meta.buildId` are added
+        // only when the selected adapter actually put them on its result, so a recogniser that
+        // declares it produces no per-token facts — all three shipped ones do — yields exactly
+        // `{ text }`, byte-identical to what this route answered before these fields existed.
+        // They are omitted rather than sent as `null` for the same reason: an absent field is
+        // what an older client already ignores, while `null` is a value those clients could act
+        // on. The fields themselves are the adapter's to fill; this module only passes them on.
+        const speech: { text: string; tokens?: AsrSuccess['tokens']; meta?: { buildId?: string } } = {
+          text: result.text,
+        };
+        if (result.tokens !== undefined) speech.tokens = result.tokens;
+        if (result.meta?.buildId !== undefined) speech.meta = { buildId: result.meta.buildId };
+
+        return { ok: true, value: speech };
       } catch (error) {
         // Reachable only if an adapter throws where its contract says it answers: every documented
         // failure is a returned `AsrFailure`, and each adapter catches its own transport errors,
