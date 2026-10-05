@@ -1,7 +1,7 @@
 ---
 id: AC-260
 title: 授权页由服务端渲染并抗攻击：回显字段全部转义，必须输入密码，scope 逐项勾选且只读必选，带防跨站与防嵌套的头
-status: draft
+status: active
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-consent-page.test.ts; do [
@@ -20,4 +20,15 @@ expect: "读数：(a) `GET /oauth/authorize` 返回 HTML，显示客户端名称
   必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。"
 origin: docs/proposals/mcp-gateway-SPEC.md（v3.1）。人 yale 2026-10-05 指令：创建并激活
   GOAL-020 至 GOAL-022 及其 AC。
+activatedAt: 2026-10-05T02:19:42.616Z
+statusLog:
+  - at: 2026-10-05T02:19:42.616Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-05T02:19:42.616Z
 ---
