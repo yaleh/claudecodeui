@@ -1,7 +1,7 @@
 ---
 id: AC-255
 title: CloudCLI MCP 区块与令牌 scope 说明的文案在全部 12 种语言里齐全，不能缺键，也不能显示成原始键名
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in
@@ -22,6 +22,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T05:23:38.469Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
