@@ -56,16 +56,16 @@ AC-263（GOAL-021 退出条件 4；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-263 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) OAuth 开启、无令牌 ⇒ 401 且 `WWW-Authenticate` 逐字含 `Bearer resource_metadata="<publicBaseUrl>/.well-known/oauth-protected-resource/mcp"`；正例对照 OAuth 关闭 ⇒ 401 且无该头；逐字写下两条头值与状态码。
-- [ ] AC4 (b) 有效 PAT 与有效 OAuth access token 都 200；`mcp_audit_log` 两行 `client_id`：OAuth = 客户端 id、PAT = 空；逐字写下两行与两次状态码。
-- [ ] AC5 (c) `resource` 非本服务 `/mcp` 的 OAuth 令牌被拒 401；受众正确同形令牌 200（正例对照）；逐字写下令牌 `resource` 与两次状态码。
-- [ ] AC6 (d) OAuth 开启、非回环 socket + 无令牌 ⇒ 401（非守卫的 403）；OAuth 关闭同形 ⇒ 403（正例对照）；逐字写下两次状态码。
-- [ ] AC7 (e) 缺所需 scope 的 OAuth 令牌调探针工具 ⇒ `isError` 且恰一行 `denied`（`client_id`/`token_id` 正确）；带所需 scope ⇒ `ok`（正例对照）；逐字写下结果与两行审计。
-- [ ] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 去 `resource_metadata` ⇒ AC3 红；(ii) 不校验受众 ⇒ AC5 红；(iii) 保留回环守卫 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：AC-240 `mcp-transport.test.ts`、AC-241 `mcp-auth.test.ts`、AC-242/AC-244 判据不改一字仍逐字通过；`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)` 标注；`mcp-gateway.loopback.ts` 仅作 (iii) 变异目标、最终 delta 不含，已标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-263 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) OAuth 开启、无令牌 ⇒ 401 且 `WWW-Authenticate` 逐字含 `Bearer resource_metadata="<publicBaseUrl>/.well-known/oauth-protected-resource/mcp"`；正例对照 OAuth 关闭 ⇒ 401 且无该头；逐字写下两条头值与状态码。
+- [x] AC4 (b) 有效 PAT 与有效 OAuth access token 都 200；`mcp_audit_log` 两行 `client_id`：OAuth = 客户端 id、PAT = 空；逐字写下两行与两次状态码。
+- [x] AC5 (c) `resource` 非本服务 `/mcp` 的 OAuth 令牌被拒 401；受众正确同形令牌 200（正例对照）；逐字写下令牌 `resource` 与两次状态码。
+- [x] AC6 (d) OAuth 开启、非回环 socket + 无令牌 ⇒ 401（非守卫的 403）；OAuth 关闭同形 ⇒ 403（正例对照）；逐字写下两次状态码。
+- [x] AC7 (e) 缺所需 scope 的 OAuth 令牌调探针工具 ⇒ `isError` 且恰一行 `denied`（`client_id`/`token_id` 正确）；带所需 scope ⇒ `ok`（正例对照）；逐字写下结果与两行审计。
+- [x] AC8 取假形态三条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 去 `resource_metadata` ⇒ AC3 红；(ii) 不校验受众 ⇒ AC5 红；(iii) 保留回环守卫 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：AC-240 `mcp-transport.test.ts`、AC-241 `mcp-auth.test.ts`、AC-242/AC-244 判据不改一字仍逐字通过；`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII `(new)` 标注；`mcp-gateway.loopback.ts` 仅作 (iii) 变异目标、最终 delta 不含，已标注）；列出实际改动文件清单。
 
 ## DoD
 
@@ -91,3 +91,14 @@ AC-263（GOAL-021 退出条件 4；SPEC `docs/proposals/mcp-gateway-SPEC.md` v3.
 - 判据的 HTTP 调用用 `node:http` 不用 `fetch`：`listen(0)` 在本机会抽到 undici 拒绝的端口（见 AC-240/AC-241 同款说明）。
 - 若 AC-258/AC-259/AC-244 实际落地的形状与本 Proposal 假设不同（例如 `verifyAccessToken` 返回不含 `clientId`、`McpPrincipal` 形状不同、注册缝名字不同），以实际落地为准；需要改其文件时先用 `task_write` 把该文件加进 `## Touches` 再改。
 - AC-263 是与 GOAL-021 人工关卡 AC-270 不同的机械判据：本任务不碰真实外部客户端，只证明 `/mcp` 在 OAuth 开启后的认证行为。
+
+<!-- execution-trace -->
+AC2 读数：`# tests 6 / # pass 6 / # fail 0`，退出 0（快照在实现提交 `30f45ad4`；merge develop 后重跑仍 6/6）。
+AC3 读数：OAuth on 无令牌 → `401`，`WWW-Authenticate: Bearer resource_metadata="https://cli.example/.well-known/oauth-protected-resource/mcp"`（逐字）；OAuth off 无令牌 → `401`，无 `WWW-Authenticate`（`null`）。
+AC4 读数：PAT → `200` row `{"token_id":1,"client_id":null,"tool":"probe_read","outcome":"ok"}`；OAuth → `200` row `{"token_id":2,"client_id":"<clientId>","tool":"probe_read","outcome":"ok"}`。
+AC5 读数：mis-bound token resource=`https://elsewhere.example/mcp` → `401`；bound token resource=`https://cli.example/mcp` → `200`。
+AC6 读数：OAuth on 非回环 socket(172.17.0.1)+无令牌 → `401`；OAuth off 同形 → `403`。
+AC7 读数：缺 scope → `isError=true` row `{"token_id":1,"client_id":"<clientId>","outcome":"denied"}`；带 scope → `isError=false` row `{"outcome":"ok"}`（每调用恰一行）。
+AC8 读数：实现提交 `30f45ad4` 后逐条变异——(i) 删 `WWW-Authenticate` ⇒ (a) 红 `AssertionError [ERR_ASSERTION]: the challenge must be the exact discovery pointer`，`git checkout -- server/modules/mcp-gateway/mcp-gateway.auth.ts` 恢复后 6/6；(ii) 跳受众检查（`if (false && row.resource !== expectedAudience)`）⇒ (c) 红 `AssertionError [ERR_ASSERTION]: a mis-bound OAuth token must be refused`，`git checkout -- server/modules/oauth/oauth-provider.service.ts` 恢复后 6/6；(iii) `readMcpOauthEnabled` 短路为 false ⇒ (d) 红 `AssertionError [ERR_ASSERTION]: with OAuth on the guard stands down and auth answers 401`，`git checkout -- server/modules/mcp-gateway/mcp-gateway.loopback.ts` 恢复后 6/6。恢复后 `git status` 干净。
+AC9 读数：`mcp-transport/mcp-auth/mcp-loopback-guard/mcp-audit/mcp-read-tools/oauth-provider` 六文件 32/32 pass（未改一字）；`npm run typecheck` 退出 0（三段 tsc 全过）；`npm run lint` 退出 0，`: error ` 计数 = 0，我改动的六个文件无任何 warning。
+AC10 读数：`git diff --name-status develop...HEAD` = M `server/index.ts`、M `server/modules/mcp-gateway/index.ts`、M `server/modules/mcp-gateway/mcp-gateway.auth.ts`、M `server/modules/mcp-gateway/mcp-gateway.transport.ts`、A `server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts` (new)、M `server/modules/oauth/oauth-provider.service.ts`；与 Touches 对齐（`mcp-gateway.loopback.ts` 仅 (iii) 变异目标、delta 不含；`tasks/…` 由 ABI `task_write` 落 develop，不在本分支 delta）。
