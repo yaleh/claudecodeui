@@ -3,7 +3,7 @@ id: gap-ac259-oauth-provider-semantics
 title: AC-259 OAuth 授权服务器语义：PKCE 强制 S256、授权码一次性且 60 秒过期、refresh
   轮换与复用吊销整条授权、受众匹配、redirect_uri 精确匹配与机密客户端密钥、有效期可配置；判据
   server/modules/oauth/tests/oauth-provider.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
@@ -50,18 +50,18 @@ GOAL-021 退出条件 2（AC-259）要求 OAuth 授权服务器**语义**就位�
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-259 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-provider.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-provider.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-provider.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) PKCE：缺 challenge → `invalid_request`、method `plain` → `invalid_request`、verifier 不匹配 → `invalid_grant`，正确 S256 → `ok:true` 换出令牌；逐字写出四组结果。
-- [ ] AC4 (b) 授权码：第二次使用 `invalid_grant` 且首发的 access 与 refresh 下一次校验均 `revoked`（读回 `revoked_at` 非空）；`now+60s` 被拒、`now+59s` 通过；逐字写出。
-- [ ] AC5 (c) refresh：用一次得新 access 与新 refresh、旧 refresh 立即失效；再次提交旧 refresh → `invalid_grant` 且该 grant 全部令牌被吊销（`oauth_grants.revoked_at` 非空）；另一 grant 不受影响；逐字写出。
-- [ ] AC6 (d) scope：refresh 缩小 `['cloudcli:read']` 允许且新 access scopes 恰为缩小集；放大到 grant 之外 → `invalid_scope`；逐字写出。
-- [ ] AC7 (e) 受众：authorize `resource` 不符 → `invalid_target`；缺省 → 签发 `resource` = `https://cli.example/mcp`；令牌 `resource` 不符时 `verifyAccessToken` → `invalid_target` 且注入该受众闸的 `mountMcpGateway` 对 `POST /mcp` 返回 401，相符令牌非 401；逐字写出。
-- [ ] AC8 (f) `redirect_uri` 前缀/后缀/大小写/多查询参数四种变体都 `invalid_request`、逐字原值通过；机密客户端错误 `client_secret` → `invalid_client`；逐字写出五组结果。
-- [ ] AC9 (g) 默认 access 3600 秒、refresh 30 天；配置 `accessTokenTtlSeconds:120` / `refreshTokenTtlDays:1` 后分别为 120 秒与 1 天，过期边界 `expired` 逐字写出。
-- [ ] AC10 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 接受 plain ⇒ AC3 红；(ii) 授权码可复用 ⇒ AC4 红；(iii) 旧 refresh 仍有效 ⇒ AC5 红；(iv) redirect_uri 只比前缀 ⇒ AC8 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`server/modules/oauth/tests/oauth-store.test.ts`（AC-258 判据）、`server/modules/oauth/tests/access-tokens.service.test.ts`、`server/modules/oauth/tests/token-info.routes.test.ts`、`server/modules/database/tests/api-keys-drop-migration.test.ts`、`server/modules/mcp-gateway/tests/mcp-transport.test.ts` 不改一字仍逐字通过。
-- [ ] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-259 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-provider.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-provider.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-provider.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) PKCE：缺 challenge → `invalid_request`、method `plain` → `invalid_request`、verifier 不匹配 → `invalid_grant`，正确 S256 → `ok:true` 换出令牌；逐字写出四组结果。
+- [x] AC4 (b) 授权码：第二次使用 `invalid_grant` 且首发的 access 与 refresh 下一次校验均 `revoked`（读回 `revoked_at` 非空）；`now+60s` 被拒、`now+59s` 通过；逐字写出。
+- [x] AC5 (c) refresh：用一次得新 access 与新 refresh、旧 refresh 立即失效；再次提交旧 refresh → `invalid_grant` 且该 grant 全部令牌被吊销（`oauth_grants.revoked_at` 非空）；另一 grant 不受影响；逐字写出。
+- [x] AC6 (d) scope：refresh 缩小 `['cloudcli:read']` 允许且新 access scopes 恰为缩小集；放大到 grant 之外 → `invalid_scope`；逐字写出。
+- [x] AC7 (e) 受众：authorize `resource` 不符 → `invalid_target`；缺省 → 签发 `resource` = `https://cli.example/mcp`；令牌 `resource` 不符时 `verifyAccessToken` → `invalid_target` 且注入该受众闸的 `mountMcpGateway` 对 `POST /mcp` 返回 401，相符令牌非 401；逐字写出。
+- [x] AC8 (f) `redirect_uri` 前缀/后缀/大小写/多查询参数四种变体都 `invalid_request`、逐字原值通过；机密客户端错误 `client_secret` → `invalid_client`；逐字写出五组结果。
+- [x] AC9 (g) 默认 access 3600 秒、refresh 30 天；配置 `accessTokenTtlSeconds:120` / `refreshTokenTtlDays:1` 后分别为 120 秒与 1 天，过期边界 `expired` 逐字写出。
+- [x] AC10 取假形态四条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 接受 plain ⇒ AC3 红；(ii) 授权码可复用 ⇒ AC4 红；(iii) 旧 refresh 仍有效 ⇒ AC5 红；(iv) redirect_uri 只比前缀 ⇒ AC8 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC11 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`server/modules/oauth/tests/oauth-store.test.ts`（AC-258 判据）、`server/modules/oauth/tests/access-tokens.service.test.ts`、`server/modules/oauth/tests/token-info.routes.test.ts`、`server/modules/database/tests/api-keys-drop-migration.test.ts`、`server/modules/mcp-gateway/tests/mcp-transport.test.ts` 不改一字仍逐字通过。
+- [x] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
