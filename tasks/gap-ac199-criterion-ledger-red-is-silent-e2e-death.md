@@ -2,7 +2,7 @@
 id: gap-ac199-criterion-ledger-red-is-silent-e2e-death
 title: AC-199 台账尾红是「e2e 运行无测试输出即死」：同树直跑 2×绿（24.3s/24.4s）、watchdog fired:false、同窗
   AC-120/AC-254 同形红 —— verification-only 归因入档，不重实现既有修复
-status: ready
+status: done
 labels:
   - gap
 parent: null
