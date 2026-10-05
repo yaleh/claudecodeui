@@ -7,7 +7,6 @@ type Dependencies = Parameters<typeof createSettingsService>[0];
 
 function dependencies(overrides: Partial<Dependencies> = {}): Dependencies {
   return {
-    apiKeys: { list: () => [], create: () => ({}), remove: () => false, toggle: () => false },
     credentials: { list: () => [], create: () => ({}), remove: () => false, toggle: () => false },
     notifications: {
       getPreferences: () => undefined,
@@ -17,19 +16,15 @@ function dependencies(overrides: Partial<Dependencies> = {}): Dependencies {
     },
     pushSubscriptions: { save: () => undefined, remove: () => undefined },
     getVapidPublicKey: () => null,
+    accessTokens: {
+      list: () => [],
+      findById: () => undefined,
+      issue: () => ({ ok: false, reason: 'invalid_expiry' }),
+      revoke: () => false,
+    },
     ...overrides,
   };
 }
-
-test('listApiKeys redacts secret values through the service boundary', () => {
-  const service = createSettingsService(dependencies({
-    apiKeys: {
-      list: () => [{ id: 1, api_key: '1234567890-secret' }],
-      create: () => ({}), remove: () => false, toggle: () => false,
-    },
-  }));
-  assert.equal(service.listApiKeys(1).apiKeys[0]?.api_key, '1234567890...');
-});
 
 test('subscribeToPush persists the subscription and enables Web Push', () => {
   const operations: string[] = [];
@@ -51,4 +46,67 @@ test('subscribeToPush persists the subscription and enables Web Push', () => {
     keys: { p256dh: 'key', auth: 'auth' },
   });
   assert.deepEqual(operations, ['save:https://push.example.test', 'preferences', 'notify']);
+});
+
+test('createAccessToken rejects a lifetime outside 7/30/90 without issuing', () => {
+  let issued = 0;
+  const service = createSettingsService(dependencies({
+    accessTokens: {
+      list: () => [],
+      findById: () => undefined,
+      issue: () => { issued += 1; return { ok: false, reason: 'invalid_expiry' }; },
+      revoke: () => false,
+    },
+  }));
+
+  for (const expiresInDays of [0, 1, 6, 10, 365, -1, '30', null]) {
+    assert.throws(
+      () => service.createAccessToken(1, { name: 'laptop', expiresInDays }),
+      (error: { code?: string; statusCode?: number }) =>
+        error.code === 'INVALID_EXPIRES_IN' && error.statusCode === 400,
+    );
+  }
+  // A missing lifetime defaults to 30 rather than being rejected.
+  assert.throws(
+    () => service.createAccessToken(1, { name: 'laptop' }),
+    (error: { code?: string }) => error.code === 'ACCESS_TOKEN_ISSUE_FAILED',
+  );
+  assert.equal(issued, 1);
+});
+
+test('listAccessTokens projects rows without the token hash', () => {
+  const service = createSettingsService(dependencies({
+    accessTokens: {
+      list: () => [{
+        id: 9,
+        user_id: 1,
+        token_hash: 'deadbeef'.repeat(8),
+        token_prefix: 'ccp_abc1',
+        name: 'laptop',
+        scopes: JSON.stringify(['cloudcli:read']),
+        expires_at: '2026-02-01T00:00:00.000Z',
+        created_at: '2026-01-01T00:00:00.000Z',
+        last_used: null,
+        revoked_at: null,
+      }],
+      findById: () => undefined,
+      issue: () => ({ ok: false, reason: 'invalid_expiry' }),
+      revoke: () => false,
+    },
+  }));
+
+  const listed = service.listAccessTokens(1);
+  assert.equal(listed.tokens.length, 1);
+  assert.deepEqual(listed.tokens[0], {
+    id: 9,
+    tokenPrefix: 'ccp_abc1',
+    name: 'laptop',
+    scopes: ['cloudcli:read'],
+    expiresAt: '2026-02-01T00:00:00.000Z',
+    lastUsed: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    revokedAt: null,
+  });
+  assert.equal(Object.keys(listed.tokens[0]).includes('token_hash'), false);
+  assert.equal(JSON.stringify(listed).includes('deadbeef'), false);
 });

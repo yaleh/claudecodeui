@@ -23,7 +23,7 @@ import {
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
-import { activityStore, chatRunRegistry, createActivityRouter, createWebSocketServer } from '@/modules/websocket/index.js';
+import { activityStore, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -39,8 +39,8 @@ import { taskmasterRoutes } from './modules/taskmaster/index.js';
 import { quayRoutes } from './modules/quay/index.js';
 import { commandsRoutes } from './modules/commands/index.js';
 import { settingsRoutes } from './modules/settings/index.js';
+import { createAccessTokensService, createTokenInfoRouter } from './modules/oauth/index.js';
 import { createSystemModule } from './modules/system/index.js';
-import { createAgentModule } from './modules/agent/index.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
 import { userRoutes } from './modules/user/index.js';
@@ -104,18 +104,17 @@ const app = express();
 const server = http.createServer(app);
 const queryClaude = providerRuntimeService.getRunner('claude');
 const queryCursor = providerRuntimeService.getRunner('cursor');
-const queryCodex = providerRuntimeService.getRunner('codex');
-const queryOpenCode = providerRuntimeService.getRunner('opencode');
 const gitRoutes = createGitModule({
     queryClaude,
     queryCursor,
 });
-const agentRoutes = createAgentModule({
-    queryClaude,
-    queryCursor,
-    queryCodex,
-    queryOpenCode,
-});
+
+// The single chat control service every front end shares. Built here — the one
+// composition root — before the WebSocket server exists, so the *same* instance
+// is handed to the gateway's chat verbs and to the scheduled-message timer.
+// Neither consumer constructs one of its own; a second instance would give each
+// a separate control plane behind one protocol.
+const chatControl = createChatControlService({ runtime: providerRuntimeService });
 
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 createWebSocketServer(server, {
@@ -125,6 +124,7 @@ createWebSocketServer(server, {
     },
     chat: {
         runtime: providerRuntimeService,
+        control: chatControl,
     },
     shell: {
         resolveProviderSessionId: (sessionId, provider) => {
@@ -249,6 +249,13 @@ app.use('/api/commands', authenticateToken, commandsRoutes);
 // Settings API Routes (protected)
 app.use('/api/settings', authenticateToken, settingsRoutes);
 
+// Personal-access-token self-check. The token itself is the credential — a
+// `ccp_` value presented as `Authorization: Bearer <token>` and verified per
+// request by the OAuth token service, so revocation and expiry take effect with
+// no cache. Mounted on its own router, which handles exactly one path, so no
+// other `/api` route gains a token-authenticated surface.
+app.use('/api/oauth', createTokenInfoRouter(createAccessTokensService({ now: () => new Date() })));
+
 app.use('/api/system', authenticateToken, systemRoutes);
 
 app.use('/api/notifications', authenticateToken, notificationRoutes);
@@ -321,9 +328,6 @@ app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({
 // frames; the snapshot shares its boot id and revision with the heartbeat frames
 // on the same session, because both read the one process-wide `activityStore`.
 app.use('/api/sessions', authenticateToken, createActivityRouter({ activityStore }));
-
-// Agent API Routes (uses API key authentication)
-app.use('/api/agent', agentRoutes);
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
 
@@ -589,8 +593,9 @@ async function startServer() {
             // Start watching the projects folder for changes
             await initializeSessionsWatcher();
             // Sends anything that came due while the server was not running,
-            // then keeps polling.
-            initializeScheduledMessageDispatcher(providerRuntimeService);
+            // then keeps polling. Handed the same control service the WebSocket
+            // gateway uses, so a scheduled turn is a run the UI can watch.
+            initializeScheduledMessageDispatcher(chatControl);
 
             // Start server-side plugin processes for enabled plugins
             startEnabledPluginServers().catch(err => {

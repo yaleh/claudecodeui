@@ -4,6 +4,7 @@ import { Database } from 'better-sqlite3';
 
 import { isSelfAssignedSessionName, stripSelfAssignedSuffix } from '@/modules/database/repositories/sessions.db.js';
 import {
+  ACCESS_TOKENS_TABLE_SCHEMA_SQL,
   APP_CONFIG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
@@ -826,6 +827,46 @@ const ensureProjectsForSessionPaths = (db: Database): void => {
   `);
 };
 
+/**
+ * The indexes the removed plaintext `api_keys` feature created, verbatim.
+ *
+ * `DROP TABLE` removes a table's indexes with it, so these are only a fallback
+ * for a database whose table is already gone while an index lingers.
+ */
+const LEGACY_API_KEYS_INDEX_STATEMENTS = [
+  'DROP INDEX IF EXISTS idx_api_keys_key',
+  'DROP INDEX IF EXISTS idx_api_keys_user_id',
+  'DROP INDEX IF EXISTS idx_api_keys_active',
+];
+
+/**
+ * Drops the plaintext `api_keys` table its indexes, left behind by the
+ * retired API-key feature (superseded by hashed `access_tokens`, AC-224).
+ *
+ * A database created while the feature existed keeps the table forever unless
+ * it is dropped here, and an upgraded install has to end up with the structure
+ * a freshly created one has — `schema.ts` no longer declares either. The old
+ * keys are deliberately NOT migrated into fresh tokens: they are plaintext
+ * credentials with no hash on disk, and inventing tokens for them would hand
+ * out access nobody asked for. Only the count of discarded rows is reported.
+ *
+ * Idempotent and fresh-database safe: when the table is absent nothing is
+ * logged and nothing throws, so a second startup is a no-op.
+ */
+const dropLegacyApiKeysStructures = (db: Database): void => {
+  if (tableExists(db, 'api_keys')) {
+    const { count } = db.prepare('SELECT COUNT(*) AS count FROM api_keys').get() as {
+      count: number;
+    };
+    console.log(`Running migration: Dropping the legacy api_keys table (${count} rows removed)`);
+    db.exec('DROP TABLE api_keys');
+  }
+
+  for (const statement of LEGACY_API_KEYS_INDEX_STATEMENTS) {
+    db.exec(statement);
+  }
+};
+
 export const runMigrations = (db: Database) => {
   try {
     const usersTableInfo = db.prepare('PRAGMA table_info(users)').all() as { name: string }[];
@@ -890,6 +931,9 @@ export const runMigrations = (db: Database) => {
     addSessionLifecycleModeColumn(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
+    // PAT storage for the OAuth module (mcp-gateway-SPEC stage 0). Only the
+    // table: its repository and service live in database/repositories and oauth.
+    db.exec(ACCESS_TOKENS_TABLE_SCHEMA_SQL);
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');
@@ -911,6 +955,10 @@ export const runMigrations = (db: Database) => {
       console.log('Running migration: Dropping legacy workspace_original_paths table');
       db.exec('DROP TABLE workspace_original_paths');
     }
+
+    // Alongside the other legacy-structure drops: it touches only `api_keys`,
+    // so it is independent of the sessions rebuilds above.
+    dropLegacyApiKeysStructures(db);
 
     db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');

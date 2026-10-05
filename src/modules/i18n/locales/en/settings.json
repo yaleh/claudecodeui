@@ -838,5 +838,34 @@
       "unsavedRow": "Not saved — the value is empty.",
       "unsavedSummary": "These rows will not be saved because their value is empty:"
     }
+  },
+  "accessTokens": {
+    "title": "Personal Access Tokens",
+    "description": "Create personal access tokens to authenticate MCP clients and other applications against the CloudCLI API.",
+    "newButton": "New Token",
+    "form": {
+      "namePlaceholder": "Token name (e.g., My MCP client)",
+      "expiryLabel": "Expires in",
+      "expiryOption": "{{days}} days",
+      "createButton": "Create token",
+      "cancelButton": "Cancel"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ Save Your Access Token",
+      "alertMessage": "This is the only time you'll see this token. Store it securely.",
+      "copy": "Copy",
+      "iveSavedIt": "I've saved it"
+    },
+    "list": {
+      "empty": "No access tokens created yet.",
+      "unnamed": "Unnamed token",
+      "expires": "Expires:",
+      "lastUsed": "Last used:",
+      "never": "Never",
+      "active": "Active",
+      "revoked": "Revoked",
+      "revokeButton": "Revoke",
+      "revokeConfirm": "Are you sure you want to revoke this token? This cannot be undone."
+    }
   }
 }

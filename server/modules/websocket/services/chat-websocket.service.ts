@@ -22,6 +22,7 @@ import {
   attachActivityHeartbeat,
 } from '@/modules/websocket/services/activity-heartbeat.service.js';
 import { activityStore } from '@/modules/websocket/services/activity-protocol.service.js';
+import { createChatControlService } from '@/modules/websocket/services/chat-control.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
@@ -34,10 +35,12 @@ import { CHAT_TURN_OPTION } from '@/shared/types.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
+  ChatRunSource,
   HostQueuedInputCancelResult,
   LLMProvider,
   ProviderPermissionDecision,
   ProviderRuntimeWriter,
+  RealtimeClientConnection,
 } from '@/shared/types.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 
@@ -140,6 +143,25 @@ export type ProviderRuntimeGateway = {
     messageUuid: string,
   ): Promise<HostQueuedInputCancelResult>;
   /**
+   * The uuid of the message the session's provider most recently took into its
+   * own queue — the same uuid `cancelQueuedInput` would withdraw.
+   *
+   * This is how the uuid the provider stamped a queued turn with reaches the
+   * caller that asked for it. The provider's queue is the only thing that knows
+   * the uuid (a busy send is written into the running process; the process
+   * names the message), so a control caller cannot mint one and expect a later
+   * withdrawal to match. The promise resolves once the message has been written
+   * — never with a placeholder — and resolves `null` when the gateway has no
+   * live process to read a queue from.
+   *
+   * Optional, and read as `null` when absent, because the conservative
+   * degradation is "queued, but no uuid to withdraw". A missing seam must never
+   * be read as a queued message with an empty uuid: the caller would then hold
+   * an id that no withdrawal can match. Only the resident drivers can answer
+   * this — a process-per-turn provider has no queue to name a message in.
+   */
+  queuedInputUuid?(provider: LLMProvider, sessionId: string): Promise<string | null>;
+  /**
    * Stops one named background task through the provider's own process.
    *
    * Returns `requested` when the driver was called and its call settled, and a
@@ -179,9 +201,40 @@ export type ProviderRuntimeGateway = {
   getPendingApprovalsForSession(sessionId: string): unknown[];
 };
 
+/**
+ * The slice of the shared chat control service the WebSocket gateway uses.
+ *
+ * The gateway only ever `send`s, `abort`s and `cancelQueued`s; taking just those
+ * three from the service's own return type keeps the seam honest (the handler
+ * cannot reach a verb it does not advertise) and lets the wiring criterion stand
+ * in a counting spy with exactly those three members.
+ */
+type ChatControlSeam = Pick<
+  ReturnType<typeof createChatControlService>,
+  'send' | 'abort' | 'cancelQueued'
+>;
+
 type ChatWebSocketDependencies = {
   /** Central dispatcher for every provider SDK/CLI runtime. */
   runtime: ProviderRuntimeGateway;
+  /**
+   * The single chat control service the three transport verbs
+   * (`chat.send`/`chat.abort`/`chat.cancel-queued`) delegate to.
+   *
+   * Production supplies the one process-wide instance the composition root
+   * builds (`server/index.ts`), so a WebSocket turn and a scheduled send reach
+   * the *same* object. This seam is how the wiring criterion
+   * (`server/modules/websocket/tests/chat-control-wiring.test.ts`) injects a
+   * counting spy and reads "the handler called the control service once" without
+   * a second instance anywhere.
+   *
+   * Optional only for the many existing harnesses that drive the gateway with a
+   * bare `{ runtime }`; when it is absent the connection resolves exactly one
+   * control service over the same `runtime` (see {@link resolveChatControl}), so
+   * those callers keep the behaviour they had. The production path never relies
+   * on that default — it passes the instance explicitly.
+   */
+  control?: ChatControlSeam;
   /**
    * The single access entry every control verb shares (AC-196's
    * `chat.stop-task`, AC-197's `chat.background-task`, and AC-198's reworked
@@ -254,6 +307,13 @@ type ChatWebSocketDependencies = {
   stopTaskConfirmTimeoutMs?: number;
   stopTaskConfirmPollMs?: number;
 };
+
+/**
+ * The dependencies with the control service resolved, as the three transport
+ * verbs see them. `handleChatConnection` resolves the seam once and passes this
+ * down, so a handler never has to re-derive (or re-construct) a control.
+ */
+type ResolvedChatWebSocketDependencies = ChatWebSocketDependencies & { control: ChatControlSeam };
 
 const DEFAULT_STOP_TASK_CONFIRM_TIMEOUT_MS = 5_000;
 const DEFAULT_STOP_TASK_CONFIRM_POLL_MS = 25;
@@ -394,6 +454,27 @@ function residentControlVerbEntry(
   return dependencies.residentControlVerbSupported ?? defaultResidentControlVerbSupported;
 }
 
+/**
+ * The chat control service one connection's three transport verbs delegate to.
+ *
+ * The injected instance wins — production's single process-wide object, or a
+ * criterion's counting spy. Only when a harness supplied none (the many existing
+ * gateway harnesses that pass a bare `{ runtime }`) is one built here, over that
+ * same runtime, so those callers keep working unchanged. `assertSessionAccess`
+ * rides along so a harness that injected its own access entry keeps observing
+ * `chat.cancel-queued` through it — the one control verb whose ownership check
+ * now lives behind the service.
+ */
+function resolveChatControl(dependencies: ChatWebSocketDependencies): ChatControlSeam {
+  return (
+    dependencies.control ??
+    createChatControlService({
+      runtime: dependencies.runtime,
+      assertSessionAccess: dependencies.assertSessionAccess,
+    })
+  );
+}
+
 
 /** The wire protocol carries the model selection; a client-supplied `options.env` is discarded. */
 function withoutClientEnv(options: AnyRecord): AnyRecord {
@@ -458,22 +539,61 @@ function readRequiredSessionId(data: AnyRecord): string | null {
 }
 
 /**
- * Handles `chat.send`: resolves the session row (provider, project path, and
- * provider-native id all come from the database — never from the client),
- * registers the run, and dispatches to the provider runtime.
+ * Handles `chat.send`: parses the frame, hands the turn to the shared control
+ * service and translates the result to the one frame a refusal produces.
+ *
+ * The session row, provider availability and run registration all live behind
+ * `control.send`; this handler neither reads them nor touches the provider
+ * runtime. The requesting socket rides along as the run's connection so the
+ * stream reaches the same client it always did.
  */
 async function handleChatSend(
   ws: WebSocket,
   userId: string | number | null,
   data: AnyRecord,
-  dependencies: ChatWebSocketDependencies
+  dependencies: ResolvedChatWebSocketDependencies
 ): Promise<void> {
-  const resolved = resolveSendTarget(ws, data, dependencies, 'chat.send');
-  if (!resolved) {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.send requires a sessionId.');
     return;
   }
 
-  await dispatchRun(ws, userId, resolved.sessionId, resolved.session, data, dependencies);
+  // `onRefuse` is called on this very tick — every `send` refusal is decided
+  // before `control.send` yields — so a refusal lands on the socket the instant
+  // the frame was handled, exactly as the old inline handler's synchronous
+  // `dispatchRun` did. A transport that reads the refusal synchronously (the
+  // resident busy-input criterion) depends on that tick. `refusedSync` stops the
+  // async tail below from writing the same frame a second time.
+  let refusedSync = false;
+  const result = await dependencies.control.send(
+    { userId, via: 'websocket' },
+    {
+      sessionId,
+      content: typeof data.content === 'string' ? data.content : '',
+      options: (data.options ?? {}) as AnyRecord,
+      connection: ws,
+      onRefuse: (refusal) => {
+        refusedSync = true;
+        sendProtocolError(ws, refusal.code, refusal.message, sessionId);
+      },
+    },
+  );
+
+  if (!result.ok) {
+    if (!refusedSync) {
+      sendProtocolError(ws, result.code, result.message, sessionId);
+    }
+    return;
+  }
+
+  // The handler's own promise is the frame barrier the per-run parity harness
+  // awaits: `send` deliberately resolves at registration — the run keeps going
+  // after it — so without this the harness would read the socket's frames before
+  // the terminal `complete` arrived. This mirrors the old inline `chat.send`,
+  // which awaited the whole `dispatchRun`. No frame is written here; the run's
+  // own stream is.
+  await result.completion;
 }
 
 type ResolvedSendTarget = {
@@ -523,8 +643,40 @@ function resolveSendTarget(
  *
  * `extraRuntimeOptions` is how an edited message asks the provider to resume
  * partway instead of continuing from the tip; a normal send passes nothing.
+ *
+ * Exported for this module's transport-agnostic control service
+ * (`chat-control.service.ts`): its `send` calls this with `ws = null` and a
+ * `beforeRun` hook, so a run opened by MCP or a timer is registered and
+ * dispatched through the exact same path `chat.send` uses rather than a second
+ * copy of the registry logic.
+ *
+ * `beforeRun`'s second argument states whether this dispatch took the
+ * resident-session busy path — the registry refused the first `startRun`,
+ * `acceptsBusyInput` answered yes, and the turn was admitted as a superseding
+ * run. It is reported here, through the same hook that reports the run, because
+ * the fact belongs to this function's own control flow: a caller that wants to
+ * know "was this turn queued into a running process" must not re-derive it by
+ * probing the registry, and existing callers (a plain `chat.send`, an edit)
+ * simply ignore the extra argument.
+ *
+ * `connectionOverride` separates "who this run streams to" from "who a refusal
+ * is written to". The transport-agnostic control service dispatches with
+ * `ws = null` (it reports refusals as its own result, so `dispatchRun` must not
+ * also write a `RUN_IN_PROGRESS` frame) but still binds the requesting socket as
+ * the run's connection, so a `chat.send` driven through the control service
+ * reaches the same audience as before. Left `undefined` by callers that only
+ * ever have one socket, in which case `ws` is used.
+ *
+ * `source` is the run's recorded origin, when the caller knows one the
+ * connection cannot state. The control service passes it explicitly because it
+ * always dispatches with `ws = null` (and, for a WebSocket send, with a
+ * connection override that is also null): without it, `startRun`'s
+ * connection-derived default would file every run the service opens as
+ * `scheduled`, including a `chat.send` that arrived over a socket and an MCP
+ * tool call. Left `undefined` by callers that want `startRun`'s existing
+ * default (a run with a connection is `user`, one without is `scheduled`).
  */
-async function dispatchRun(
+export async function dispatchRun(
   ws: WebSocket | null,
   userId: string | number | null,
   sessionId: string,
@@ -532,7 +684,24 @@ async function dispatchRun(
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies,
   extraRuntimeOptions: AnyRecord = {},
-  beforeRun?: (run: NonNullable<ReturnType<typeof chatRunRegistry.startRun>>) => void | Promise<void>,
+  beforeRun?: (
+    run: NonNullable<ReturnType<typeof chatRunRegistry.startRun>>,
+    info: { busyAccepted: boolean },
+  ) => void | Promise<void>,
+  connectionOverride?: RealtimeClientConnection | null,
+  /**
+   * A synchronous notification that this dispatch was refused because the
+   * session already has a run in progress.
+   *
+   * The refusal is decided before this function's first `await` (`startRun`
+   * returning null and the provider not accepting busy input are both
+   * synchronous), so a caller that never passes a socket — the shared control
+   * service passes `ws = null` and translates the verdict itself — can still
+   * report the refusal on the same tick `chat.send` arrived. Passed by the
+   * control service alone; every other caller leaves it undefined.
+   */
+  onRefuse?: (refusal: { code: string; message: string }) => void,
+  source?: ChatRunSource,
 ): Promise<{ started: boolean; error: string | null }> {
   const provider = session.provider as LLMProvider;
 
@@ -540,8 +709,9 @@ async function dispatchRun(
     appSessionId: sessionId,
     provider,
     providerSessionId: session.provider_session_id,
-    connection: ws,
+    connection: connectionOverride ?? ws,
     userId,
+    source,
   };
 
   let run = chatRunRegistry.startRun(startInput);
@@ -555,19 +725,22 @@ async function dispatchRun(
   // the newer turn becomes the session's current one instead of being refused.
   // Note that the first call is a pure probe: it returns null precisely when it
   // has changed nothing, which is what makes the retry safe.
+  let busyAccepted = false;
   if (!run && dependencies.runtime.acceptsBusyInput?.(provider, sessionId)) {
     run = chatRunRegistry.startRun({ ...startInput, supersedeRunning: true });
+    busyAccepted = run !== null;
   }
 
   if (!run) {
+    const message = `Session "${sessionId}" already has a run in progress.`;
     if (ws) {
-      sendProtocolError(
-        ws,
-        'RUN_IN_PROGRESS',
-        `Session "${sessionId}" already has a run in progress.`,
-        sessionId
-      );
+      sendProtocolError(ws, 'RUN_IN_PROGRESS', message, sessionId);
     }
+    // Reported synchronously, before this function's first `await` below, so a
+    // socket front end that translated the verdict itself (the control
+    // service's `chat.send` adapter) lands the frame on the same tick the old
+    // inline handler did.
+    onRefuse?.({ code: 'RUN_IN_PROGRESS', message });
     return { started: false, error: 'A run is already in progress for this session.' };
   }
 
@@ -636,7 +809,7 @@ async function dispatchRun(
     // conversation here and a rewind for a run that was never admitted cannot
     // be taken back. Inside the try so a rewind that throws still releases the
     // run instead of leaving the session processing forever.
-    await beforeRun?.(run);
+    await beforeRun?.(run, { busyAccepted });
     await dependencies.runtime.run(provider, command, runtimeOptions, run.writer);
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
@@ -759,14 +932,22 @@ async function handleChatEditSend(
 }
 
 /**
- * Handles `chat.abort`: cancels the run for one app session and emits the
- * terminal `complete` on its behalf (runtimes skip their own complete for
- * aborted runs, and the registry drops any duplicate).
+ * Handles `chat.abort`: cancels the run for one app session through the shared
+ * control service and emits the terminal `complete` on its behalf (runtimes skip
+ * their own complete for aborted runs, and the registry drops any duplicate).
+ *
+ * The "is a run live" verdict stays here, as it always has, and is taken before
+ * the control service is asked to stop anything — a session with no running run
+ * answers `NO_ACTIVE_RUN` without a driver call. When a run *is* live the stop
+ * itself (access, provider resolution, the provider's own abort, and the
+ * terminal `complete` on the run's behalf) is the control service's; this
+ * handler only parses the frame and translates a refusal.
  */
 async function handleChatAbort(
   ws: WebSocket,
+  userId: string | number | null,
   data: AnyRecord,
-  dependencies: ChatWebSocketDependencies
+  dependencies: ResolvedChatWebSocketDependencies
 ): Promise<void> {
   const sessionId = readRequiredSessionId(data);
   if (!sessionId) {
@@ -780,12 +961,10 @@ async function handleChatAbort(
     return;
   }
 
-  const success = await dependencies.runtime.abort(run.provider, sessionId);
-
-  chatRunRegistry.completeRun(sessionId, {
-    exitCode: success ? 0 : 1,
-    aborted: true,
-  });
+  const result = await dependencies.control.abort({ userId, via: 'websocket' }, { sessionId });
+  if (!result.ok) {
+    sendProtocolError(ws, result.code, result.message, sessionId);
+  }
 }
 
 /**
@@ -806,20 +985,21 @@ async function handleChatAbort(
  * deliberately not the same answer as "it was already running".
  *
  * The shape matches its two control siblings (`chat.stop-task`,
- * `chat.background-task`): the three fields are required, the session must
- * exist, the request must belong to it through the shared {@link accessEntry},
- * and only then is the driver reached. A forbidden request answers with the
- * same receipt kind (the frontend drops this kind as a control frame; changing
- * it would make the client append it as an ordinary message) carrying
- * `result: 'forbidden'` and places no withdrawal. `requestId` was added here so
- * a caller can correlate the receipt with the request it sent, which is what
- * lets the ownership refusal be told apart from an unrelated frame.
+ * `chat.background-task`): the three fields are required and the request must
+ * belong to the session — but the session lookup, provider resolution and the
+ * shared access entry now all live behind `control.cancelQueued`, so this
+ * handler only parses the frame and formats the receipt. A forbidden request
+ * answers with the same receipt kind (the frontend drops this kind as a control
+ * frame; changing it would make the client append it as an ordinary message)
+ * carrying `result: 'forbidden'` and places no withdrawal. `requestId` was added
+ * here so a caller can correlate the receipt with the request it sent, which is
+ * what lets the ownership refusal be told apart from an unrelated frame.
  */
 async function handleChatCancelQueued(
   ws: WebSocket,
   userId: string | number | null,
   data: AnyRecord,
-  dependencies: ChatWebSocketDependencies
+  dependencies: ResolvedChatWebSocketDependencies
 ): Promise<void> {
   const sessionId = readRequiredSessionId(data);
   if (!sessionId) {
@@ -844,45 +1024,19 @@ async function handleChatCancelQueued(
     return;
   }
 
-  // The session row is read for its provider and for the access check. No run
-  // is consulted: the message being withdrawn is by definition not the session's
-  // current run, and a withdrawal that arrived just as the run turned over is
-  // answered by the provider's queue, which is the only thing that knows what it
-  // still holds.
-  const session = sessionsDb.getSessionById(sessionId);
-  if (!session) {
-    sendProtocolError(ws, 'SESSION_NOT_FOUND', `Session "${sessionId}" was not found.`, sessionId);
-    return;
-  }
+  const result = await dependencies.control.cancelQueued(
+    { userId, via: 'websocket' },
+    { sessionId, messageUuid },
+  );
 
-  const reply = (result: HostQueuedInputCancelResult | 'forbidden'): void => {
-    sendJson(ws, {
-      kind: 'queued_input_cancel_result',
-      sessionId,
-      messageUuid,
-      requestId,
-      result,
-      timestamp: new Date().toISOString(),
-    });
-  };
-
-  // Ownership is checked through the same entry the stop-task and
-  // background-task verbs use, and before any driver call, so a forbidden
-  // request can neither withdraw a queued message nor reach the provider's
-  // queue at all.
-  if (!accessEntry(dependencies)(userId, session)) {
-    reply('forbidden');
-    return;
-  }
-
-  const result =
-    (await dependencies.runtime.cancelQueuedInput?.(
-      session.provider as LLMProvider,
-      sessionId,
-      messageUuid
-    )) ?? 'unknown';
-
-  reply(result);
+  sendJson(ws, {
+    kind: 'queued_input_cancel_result',
+    sessionId,
+    messageUuid,
+    requestId,
+    result,
+    timestamp: new Date().toISOString(),
+  });
 }
 
 /** Waits `ms`, never longer than the caller still has left. */
@@ -1377,71 +1531,6 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * `loading_progress`, `queued_input_cancel_result`, `control_result`,
  * `protocol_error`).
  */
-/**
- * Runs a turn for a session with no client attached.
- *
- * Used by scheduled messages, which fire from a timer: there is no socket to
- * report errors to and no audience to stream to. The run is registered exactly
- * like an interactive one, so anyone who opens the session while it is going
- * subscribes and replays it from the start, and the session shows as busy
- * everywhere in the meantime.
- *
- * Resolves when the provider run settles. Returns false when the session has
- * gone away or is busy without `interruptActiveRun`, which the caller reports
- * on the schedule.
- */
-export async function runDetachedChatTurn(
-  input: {
-    sessionId: string;
-    userId: string | number | null;
-    content: string;
-    options?: AnyRecord;
-    /**
-     * Aborts a run already in progress instead of refusing to start. A
-     * scheduled message sets this: the user picked the time knowing it might
-     * land mid-run, so the timer outranks whatever is running.
-     */
-    interruptActiveRun?: boolean;
-  },
-  dependencies: ChatWebSocketDependencies,
-): Promise<{ started: boolean; error: string | null }> {
-  const session = sessionsDb.getSessionById(input.sessionId);
-  if (!session) {
-    return { started: false, error: 'The session no longer exists.' };
-  }
-
-  const provider = session.provider as LLMProvider;
-  if (!dependencies.runtime.hasRuntime(provider)) {
-    return { started: false, error: `Provider "${provider}" is not available.` };
-  }
-
-  const activeRun = chatRunRegistry.getRun(input.sessionId);
-  if (activeRun && activeRun.status === 'running') {
-    if (!input.interruptActiveRun) {
-      return { started: false, error: 'A run was already in progress for this session.' };
-    }
-    // Same shape as `chat.abort`: cancel the provider run and emit the
-    // terminal `complete` on its behalf, so every watching client sees the
-    // interrupted run end before this turn's stream begins. The interrupted
-    // run's own dispatch settles later through completeRunIfCurrent, which is
-    // scoped to that run and cannot touch the one started here.
-    const aborted = await dependencies.runtime.abort(activeRun.provider, input.sessionId);
-    chatRunRegistry.completeRun(input.sessionId, {
-      exitCode: aborted ? 0 : 1,
-      aborted: true,
-    });
-  }
-
-  return dispatchRun(
-    null,
-    input.userId,
-    input.sessionId,
-    session,
-    { sessionId: input.sessionId, content: input.content, options: input.options ?? {} },
-    dependencies,
-  );
-}
-
 export function handleChatConnection(
   ws: WebSocket,
   request: AuthenticatedWebSocketRequest,
@@ -1451,6 +1540,16 @@ export function handleChatConnection(
   connectedClients.add(ws);
 
   const userId = readRequestUserId(request);
+
+  // One control service for this connection's three transport verbs: the
+  // injected instance (production's single process-wide object, or a criterion's
+  // spy), or — for a harness that drove the gateway with a bare `{ runtime }` —
+  // one resolved over that same runtime. Resolved here, once, so no handler
+  // builds one and the connection cannot hold two.
+  const resolvedDependencies: ResolvedChatWebSocketDependencies = {
+    ...dependencies,
+    control: resolveChatControl(dependencies),
+  };
 
   ws.on('message', async (rawMessage) => {
     try {
@@ -1464,31 +1563,31 @@ export function handleChatConnection(
 
       switch (messageType) {
         case 'chat.edit-send':
-          await handleChatEditSend(ws, userId, data, dependencies);
+          await handleChatEditSend(ws, userId, data, resolvedDependencies);
           return;
         case 'chat.send':
-          await handleChatSend(ws, userId, data, dependencies);
+          await handleChatSend(ws, userId, data, resolvedDependencies);
           return;
         case 'chat.abort':
-          await handleChatAbort(ws, data, dependencies);
+          await handleChatAbort(ws, userId, data, resolvedDependencies);
           return;
         case 'chat.cancel-queued':
-          await handleChatCancelQueued(ws, userId, data, dependencies);
+          await handleChatCancelQueued(ws, userId, data, resolvedDependencies);
           return;
         case 'chat.stop-task':
-          await handleChatStopTask(ws, userId, data, dependencies);
+          await handleChatStopTask(ws, userId, data, resolvedDependencies);
           return;
         case 'chat.background-task':
-          await handleChatBackgroundTask(ws, userId, data, dependencies);
+          await handleChatBackgroundTask(ws, userId, data, resolvedDependencies);
           return;
         case 'chat.subscribe':
-          handleChatSubscribe(ws, data, dependencies);
+          handleChatSubscribe(ws, data, resolvedDependencies);
           return;
         case 'activity.subscribe':
           handleActivitySubscribe(ws, data);
           return;
         case 'chat.permission-response':
-          handlePermissionResponse(data, dependencies);
+          handlePermissionResponse(data, resolvedDependencies);
           return;
         default:
           sendProtocolError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type "${messageType}".`);

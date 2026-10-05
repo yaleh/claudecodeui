@@ -12,19 +12,6 @@ CREATE TABLE IF NOT EXISTS users (
 );
 `;
 
-export const API_KEYS_TABLE_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS api_keys (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    key_name TEXT NOT NULL,
-    api_key TEXT UNIQUE NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_used DATETIME,
-    is_active BOOLEAN DEFAULT 1,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-`;
-
 export const USER_CREDENTIALS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS user_credentials (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -330,6 +317,33 @@ CREATE TABLE IF NOT EXISTS superseded_provider_sessions (
 );
 `;
 
+/**
+ * Personal access tokens (PAT) issued by the OAuth module.
+ *
+ * Only the SHA-256 hash of a token is ever stored; `token_prefix` keeps the
+ * first eight characters (`ccp_` + five hex digits) so a listing can show which
+ * token a row is without the hash being reversible. `scopes` is a JSON array of
+ * granted scope strings, and every timestamp column is written from the service's
+ * injected clock rather than `CURRENT_TIMESTAMP` so expiry is testable.
+ *
+ * Stage 0 of `mcp-gateway-SPEC` builds only this table: the OAuth client/grant
+ * tables arrive in stage 5 and the `api_keys` retirement is AC-225.
+ */
+export const ACCESS_TOKENS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS access_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    token_prefix TEXT NOT NULL,
+    name TEXT,
+    scopes TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME,
+    last_used DATETIME,
+    revoked_at DATETIME
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -339,10 +353,11 @@ ${USER_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);
 
-${API_KEYS_TABLE_SCHEMA_SQL}
-CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(api_key);
-CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
-CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);
+-- The legacy plaintext api_keys table and its idx_api_keys_* indexes are
+-- deliberately NOT declared here: the feature was retired in favour of hashed
+-- access_tokens, and a fresh database must not carry the dead structure. A
+-- database that still has them is cleaned up by dropLegacyApiKeysStructures
+-- in migrations.ts.
 
 ${USER_CREDENTIALS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_user_credentials_user_id ON user_credentials(user_id);

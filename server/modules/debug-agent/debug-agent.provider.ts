@@ -266,6 +266,49 @@ function createDebugAgentRuntime(
   forwardFrames: DebugAgentFrameForwarder,
   hostDriver: DebugAgentHostDriver,
 ): DebugAgentRuntime {
+  /**
+   * The text of each command this process queued, keyed by the uuid it minted.
+   *
+   * A push records the command but does not run it, so by the time its round is
+   * opened (after the in-flight turn ends) the dispatch that carried the text is
+   * long gone. Keeping it here is what lets the queued message's round be opened
+   * with the message the user actually sent rather than a placeholder. Keyed by
+   * the host's own uuid, which is unique, so a later round cannot read another
+   * command's text.
+   */
+  const queuedTextByCommand = new Map<string, string>();
+
+  /**
+   * Opens the round a dequeued command becomes and ends it with its own
+   * terminal frame.
+   *
+   * Called only after the walk that dequeued the command has ended and its run
+   * has been completed, because the registry holds one run per session: opened
+   * any earlier, `openUnattendedTurn` would fall back to the still-open run's
+   * writer and the command would never become a round of its own. The turn is
+   * ended immediately after the frame, so no lease is left holding the process.
+   */
+  async function openQueuedCommandRound(input: {
+    armed: ArmedDebugAgentScenario;
+    commandUuid: string;
+  }): Promise<void> {
+    const writer = await hostDriver.openUnattendedTurn({
+      appSessionId: input.armed.sessionId,
+      text: queuedTextByCommand.get(input.commandUuid) ?? `queued command ${input.commandUuid}`,
+      runId: crypto.randomUUID(),
+    });
+
+    writer.send(
+      createCompleteMessage({
+        provider: DEBUG_AGENT_RUNTIME_PROVIDER_ID,
+        sessionId: input.armed.providerSessionId,
+        exitCode: 0,
+      }),
+    );
+
+    await hostDriver.endUnattendedTurn({ appSessionId: input.armed.sessionId });
+  }
+
   return {
     async run(command, options, writer, context) {
       const sessionId = typeof options.sessionId === 'string' ? options.sessionId : '';
@@ -295,7 +338,11 @@ function createDebugAgentRuntime(
       // back. Asking the host again here would answer about the moment after,
       // when the pushed command's own arrival may already have changed it.
       if (options[DEBUG_AGENT_BUSY_INPUT_OPTION] === true) {
-        return acceptPushedCommand({ armed, writer, context, forwardFrames, hostDriver });
+        const accepted = acceptPushedCommand({ armed, writer, context, forwardFrames, hostDriver });
+        // The push does not run, so the dispatch that carried this text is gone
+        // before its round is opened. Remembered here for that later round.
+        queuedTextByCommand.set(accepted.commandUuid, command);
+        return accepted;
       }
 
       // The turn's own prompt, written before the walk it starts.
@@ -351,6 +398,11 @@ function createDebugAgentRuntime(
       // "processing" with nothing running.
       let delivery = writer;
 
+      // Every queued command this walk dequeues and starts. Collected during the
+      // walk and acted on after it, because the round each one becomes can only
+      // be opened once this walk's own run has ended — see the loop below.
+      const startedCommands: string[] = [];
+
       const reading = await runDebugAgentScenario({
         scenario: armed.scenario,
         sessionId: armed.providerSessionId,
@@ -367,6 +419,7 @@ function createDebugAgentRuntime(
         onDelivery: (next) => {
           delivery = next;
         },
+        onQueuedCommandStarted: (commandUuid) => startedCommands.push(commandUuid),
       });
 
       const evaluation = evaluateScenarioExpectations({
@@ -394,6 +447,15 @@ function createDebugAgentRuntime(
           exitCode: evaluation.failures.length === 0 ? 0 : 1,
         }),
       );
+
+      // The round that was in flight has ended, so each command the walk started
+      // — a queued message no withdrawal removed — now becomes an independent
+      // round of its own: a run with a runId distinct from this one, ended with
+      // its own terminal frame. The same held process serves it; nothing here
+      // opens a second process.
+      for (const commandUuid of startedCommands) {
+        await openQueuedCommandRound({ armed, commandUuid });
+      }
 
       return { reading, evaluation };
     },

@@ -822,5 +822,34 @@
       "unsavedRow": "Tidak disimpan — nilainya kosong.",
       "unsavedSummary": "Baris ini tidak akan disimpan karena nilainya kosong:"
     }
+  },
+  "accessTokens": {
+    "title": "Token Akses Pribadi",
+    "description": "Buat token akses pribadi untuk mengautentikasi klien MCP dan aplikasi lain terhadap API CloudCLI.",
+    "newButton": "Token Baru",
+    "form": {
+      "namePlaceholder": "Nama token (mis. Klien MCP Saya)",
+      "expiryLabel": "Kedaluwarsa dalam",
+      "expiryOption": "{{days}} hari",
+      "createButton": "Buat token",
+      "cancelButton": "Batal"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ Simpan Token Akses Anda",
+      "alertMessage": "Ini satu-satunya kali Anda melihat token ini. Simpan dengan aman.",
+      "copy": "Salin",
+      "iveSavedIt": "Saya sudah menyimpannya"
+    },
+    "list": {
+      "empty": "Belum ada token akses yang dibuat.",
+      "unnamed": "Token tanpa nama",
+      "expires": "Kedaluwarsa:",
+      "lastUsed": "Terakhir digunakan:",
+      "never": "Tidak pernah",
+      "active": "Aktif",
+      "revoked": "Dicabut",
+      "revokeButton": "Cabut",
+      "revokeConfirm": "Yakin ingin mencabut token ini? Tindakan ini tidak dapat dibatalkan."
+    }
   }
 }

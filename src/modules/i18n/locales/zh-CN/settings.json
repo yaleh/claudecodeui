@@ -609,5 +609,34 @@
       "unsavedRow": "不会保存——值为空。",
       "unsavedSummary": "以下变量因为值为空，不会保存："
     }
+  },
+  "accessTokens": {
+    "title": "个人访问令牌",
+    "description": "创建个人访问令牌，用于向 CloudCLI API 验证 MCP 客户端和其他应用程序。",
+    "newButton": "新建令牌",
+    "form": {
+      "namePlaceholder": "令牌名称（例如：我的 MCP 客户端）",
+      "expiryLabel": "有效期",
+      "expiryOption": "{{days}} 天",
+      "createButton": "创建令牌",
+      "cancelButton": "取消"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ 请保存您的访问令牌",
+      "alertMessage": "这是您唯一一次看到此令牌。请妥善保存。",
+      "copy": "复制",
+      "iveSavedIt": "我已保存"
+    },
+    "list": {
+      "empty": "尚未创建访问令牌。",
+      "unnamed": "未命名令牌",
+      "expires": "到期时间：",
+      "lastUsed": "上次使用：",
+      "never": "从未",
+      "active": "有效",
+      "revoked": "已吊销",
+      "revokeButton": "吊销",
+      "revokeConfirm": "确定要吊销此令牌吗？此操作无法撤销。"
+    }
   }
 }

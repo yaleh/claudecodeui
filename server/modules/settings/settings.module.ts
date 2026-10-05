@@ -1,5 +1,5 @@
 import {
-  apiKeysDb,
+  accessTokensDb,
   credentialsDb,
   notificationPreferencesDb,
   pushSubscriptionsDb,
@@ -9,17 +9,14 @@ import {
   getPublicKey,
   notifyUserIfEnabled,
 } from '@/modules/notifications/index.js';
+import { createAccessTokensService } from '@/modules/oauth/index.js';
 
 import { createSettingsRouter } from './settings.routes.js';
 import { createSettingsService } from './settings.service.js';
 
+const accessTokensService = createAccessTokensService({ now: () => new Date() });
+
 const settingsService = createSettingsService({
-  apiKeys: {
-    list: (userId) => apiKeysDb.getApiKeys(userId),
-    create: (userId, keyName) => apiKeysDb.createApiKey(userId, keyName),
-    remove: (userId, keyId) => apiKeysDb.deleteApiKey(userId, keyId),
-    toggle: (userId, keyId, isActive) => apiKeysDb.toggleApiKey(userId, keyId, isActive),
-  },
   credentials: {
     list: (userId, type) => credentialsDb.getCredentials(userId, type),
     create: (userId, name, type, value, description) =>
@@ -44,6 +41,12 @@ const settingsService = createSettingsService({
     remove: (endpoint) => pushSubscriptionsDb.removeSubscription(endpoint),
   },
   getVapidPublicKey: getPublicKey,
+  accessTokens: {
+    list: (userId) => accessTokensDb.listByUser(userId),
+    findById: (tokenId) => accessTokensDb.findById(tokenId),
+    issue: (input) => accessTokensService.issueToken(input),
+    revoke: (tokenId) => accessTokensService.revokeToken(tokenId),
+  },
 });
 
 /** Settings router assembled for the authenticated server mount. */

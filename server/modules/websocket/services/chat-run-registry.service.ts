@@ -10,7 +10,15 @@ import type {
   RealtimeClientConnection,
 } from '@/shared/types.js';
 
-type ChatRunStatus = 'running' | 'completed';
+/**
+ * Lifecycle of one tracked run.
+ *
+ * `aborted` is a terminal state of its own, not a synonym for `completed`: a
+ * cancelled turn's terminal event carries `aborted: true`, and the registry
+ * reports that fact back as `aborted` so a caller addressing the run by id can
+ * tell "the user cancelled it" from "it ran to its own end".
+ */
+type ChatRunStatus = 'running' | 'completed' | 'aborted';
 
 /**
  * One live (or recently finished) provider run for a single app session.
@@ -21,7 +29,9 @@ type ChatRunStatus = 'running' | 'completed';
  *   written from it so history/resume work after the run.
  * - `status`: drives `chat_subscribed.isProcessing`, prevents double sends
  *   into the same session, and guards the synthetic-complete fallback in the
- *   chat handler (only emitted when a runtime died without completing).
+ *   chat handler (only emitted when a runtime died without completing). It is
+ *   also what a run read back by id reports — `running` until the terminal
+ *   `complete`, then `completed` or, when that event was an abort, `aborted`.
  * - `runId`: opaque identity for this run, minted once in `startRun`. `seq` is
  *   numbered per run, so it is the `runId` that tells a reconnecting client
  *   whether its cursor still belongs to the run now in flight: the same id
@@ -50,11 +60,55 @@ type ChatRun = {
 };
 
 /**
- * How long a completed run stays available for replay. Covers the window
+ * Read-only facts about one run, looked up by the run's own id.
+ *
+ * Deliberately *not* the internal `ChatRun`: a caller addressing a run by id
+ * needs its identity and lifecycle and nothing else, and handing out the
+ * internal record would leak the live `writer` and the event buffer it could
+ * still mutate. Consumed by this module's criterion
+ * (`server/modules/websocket/tests/chat-run-by-id.test.ts`); exported from this
+ * service module rather than the module barrel because its only consumer today
+ * is that same-module criterion.
+ */
+export type ChatRunSummary = {
+  runId: string;
+  sessionId: string;
+  source: ChatRunSource;
+  status: 'running' | 'completed' | 'aborted';
+  startedAt: number;
+  completedAt: number | null;
+  lastSeq: number;
+};
+
+/**
+ * Why a `getRunById` lookup returned no summary.
+ *
+ * `expired` means the run existed and stayed terminal past the retention
+ * window; `unknown` means the id was never handed out. The two are kept apart
+ * so a caller can distinguish "you waited too long" from "that id is not
+ * ours". Consumed by the same criterion as `ChatRunSummary`.
+ */
+export type ChatRunLookupMiss = {
+  status: 'unknown';
+  reason: 'expired' | 'unknown';
+};
+
+/**
+ * The result of a run lookup by id: the run's summary, or a typed miss.
+ * Consumed by the same criterion as `ChatRunSummary`.
+ */
+export type ChatRunLookupResult = ChatRunSummary | ChatRunLookupMiss;
+
+/**
+ * How long a terminal run stays available for replay. Covers the window
  * between a run finishing and the client refreshing history over REST (for
  * example when the browser tab was asleep while the run completed).
+ *
+ * This is only the default: `createChatRunRegistry` accepts a `retentionMs`
+ * override (today, the criterion uses it to move a fake clock past the window
+ * without a real wait).
  */
-const COMPLETED_RUN_RETENTION_MS = 5 * 60 * 1000;
+const DEFAULT_RUN_RETENTION_MS = 5 * 60 * 1000;
 
 /**
  * Upper bound on buffered events per run so a very long tool-heavy run cannot
@@ -65,117 +119,180 @@ const COMPLETED_RUN_RETENTION_MS = 5 * 60 * 1000;
 const MAX_BUFFERED_EVENTS_PER_RUN = 5000;
 
 /**
- * Active and recently-completed runs keyed by app session id.
+ * Resolves the retention window from the explicit option or the environment.
  *
- * This map is the single in-memory source of truth for "is something running
- * for this session" — the chat websocket handler, abort path, and subscribe
- * path all consult it instead of asking each provider runtime individually.
+ * Precedence: a positive finite `explicit` wins; otherwise
+ * `CHAT_RUN_RETENTION_MS` when it parses to a positive integer; otherwise the
+ * 5-minute default. Anything else falls back rather than producing a zero or
+ * `NaN` window that would evict every run instantly.
  */
-const runs = new Map<string, ChatRun>();
+function resolveRetentionMs(explicit: number | undefined): number {
+  if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit > 0) {
+    return explicit;
+  }
+  const fromEnv = Number(process.env.CHAT_RUN_RETENTION_MS);
+  return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_RUN_RETENTION_MS;
+}
 
-function evictRunLater(appSessionId: string): void {
-  const timer = setTimeout(() => {
-    const run = runs.get(appSessionId);
-    if (run && run.status === 'completed') {
-      runs.delete(appSessionId);
+/**
+ * Builds one run registry with its own maps, retention window and clock.
+ *
+ * Consumers: the module-level singleton `chatRunRegistry` (below) is the
+ * process-wide instance `server/index.ts` and the websocket gateway use; this
+ * module's criterion (`server/modules/websocket/tests/chat-run-by-id.test.ts`)
+ * builds an isolated instance with an injected clock and retention so it can
+ * advance time past the retention window without a real wait. That is why
+ * every timestamp the registry records (`startedAt`, `completedAt`) and its
+ * expiry decision go through `now()` rather than `Date.now()` directly —
+ * otherwise a fake clock would not move the readings.
+ */
+export function createChatRunRegistry(options?: {
+  retentionMs?: number;
+  now?: () => number;
+}) {
+  const retentionMs = resolveRetentionMs(options?.retentionMs);
+  const now = options?.now ?? (() => Date.now());
+
+  /**
+   * Active and recently-completed runs keyed by app session id.
+   *
+   * This map is the single in-memory source of truth for "is something running
+   * for this session" — the chat websocket handler, abort path, and subscribe
+   * path all consult it instead of asking each provider runtime individually.
+   */
+  const runs = new Map<string, ChatRun>();
+
+  /**
+   * Every tracked run keyed by its own run id, alongside the session-keyed map
+   * above rather than instead of it.
+   *
+   * The two answer different questions and diverge the moment a resident
+   * session's busy send supersedes a running turn: `runs` follows the session and
+   * holds whichever run is *current*, while this index keeps the run that was
+   * superseded reachable by the id it was already handed out under. A run stays
+   * here after it is superseded and after it reaches a terminal state, until the
+   * retention timer evicts it.
+   */
+  const runsById = new Map<string, ChatRun>();
+
+  function evictRunLater(appSessionId: string): void {
+    const timer = setTimeout(() => {
+      const run = runs.get(appSessionId);
+      // A terminal run — completed or aborted — is what the retention window
+      // is for. A run still `running` in its slot is never dropped: its own
+      // writer has not sent its terminal event yet.
+      if (run && run.status !== 'running') {
+        runs.delete(appSessionId);
+        runsById.delete(run.runId);
+      }
+    }, retentionMs);
+
+    // Never keep the process alive just to evict a buffered run.
+    timer.unref?.();
+  }
+
+  /** Projects the internal record onto the read-only summary handed to callers. */
+  function summarize(run: ChatRun): ChatRunSummary {
+    return {
+      runId: run.runId,
+      sessionId: run.appSessionId,
+      source: run.source,
+      status: run.status,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      lastSeq: run.lastSeq,
+    };
+  }
+
+  /**
+   * Decorates one outbound live event for a run and records it in the event log.
+   *
+   * Responsibilities:
+   * 1. Remap `sessionId` (and `actualSessionId` on `complete`) to the stable
+   *    app session id — provider-native ids never leave the backend.
+   * 2. Assign the next `seq` so clients can detect/replay gaps, and stamp the
+   *    run's `runId` so a client can tell which run that `seq` belongs to.
+   * 3. Buffer the event for `chat.subscribe` replay.
+   * 4. Flip the run to `completed` — or `aborted` when the terminal event says
+   *    the run was cancelled — when that event passes by.
+   */
+  function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): NormalizedMessage | null {
+    // Exactly-one-terminal contract: when a run is aborted the chat handler
+    // emits the terminal `complete` immediately, but the killed runtime may
+    // still emit its own `complete` from its exit handler moments later.
+    // Whichever arrives first wins; every later terminal event is dropped once
+    // the run is no longer `running` — whether it ended `completed` or
+    // `aborted`. Narrowing this guard to `completed` would let a late
+    // `complete` overwrite a run that already ended in `aborted`.
+    if (message.kind === 'complete' && run.status !== 'running') {
+      return null;
     }
-  }, COMPLETED_RUN_RETENTION_MS);
 
-  // Never keep the process alive just to evict a buffered run.
-  timer.unref?.();
-}
+    run.lastSeq += 1;
 
-/**
- * Decorates one outbound live event for a run and records it in the event log.
- *
- * Responsibilities:
- * 1. Remap `sessionId` (and `actualSessionId` on `complete`) to the stable
- *    app session id — provider-native ids never leave the backend.
- * 2. Assign the next `seq` so clients can detect/replay gaps, and stamp the
- *    run's `runId` so a client can tell which run that `seq` belongs to.
- * 3. Buffer the event for `chat.subscribe` replay.
- * 4. Flip the run to `completed` when the terminal `complete` event passes by.
- */
-function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): NormalizedMessage | null {
-  // Exactly-one-complete contract: when a run is aborted the chat handler
-  // emits the terminal `complete` immediately, but the killed runtime may
-  // still emit its own `complete` from its exit handler moments later.
-  // Whichever arrives first wins; the duplicate is dropped here.
-  if (message.kind === 'complete' && run.status === 'completed') {
-    return null;
+    const outbound: NormalizedMessage = {
+      ...message,
+      sessionId: run.appSessionId,
+      seq: run.lastSeq,
+      runId: run.runId,
+    };
+
+    if (message.kind === 'complete') {
+      // The provider may report its own id here; the frontend only ever knows
+      // the app id, so the "actual" id is by definition the app id as well.
+      outbound.actualSessionId = run.appSessionId;
+      // `aborted` is the provider's own fact (see `createCompleteMessage`), not
+      // a flag invented here: a cancelled turn must read back as `aborted`
+      // rather than be flattened into a run that completed.
+      run.status = message.aborted === true ? 'aborted' : 'completed';
+      run.completedAt = now();
+      evictRunLater(run.appSessionId);
+    }
+
+    run.events.push(outbound);
+    if (run.events.length > MAX_BUFFERED_EVENTS_PER_RUN) {
+      run.events.splice(0, run.events.length - MAX_BUFFERED_EVENTS_PER_RUN);
+    }
+
+    return outbound;
   }
 
-  run.lastSeq += 1;
+  /**
+   * Records the provider-native session id for a run and persists the
+   * app-id-to-provider-id mapping so history fetches and future resumes can
+   * address the provider transcript.
+   *
+   * Called from the gateway writer when the runtime either calls
+   * `setSessionId(...)` or emits its `session_created` event — whichever
+   * happens first wins; later calls with the same id are no-ops.
+   */
+  function recordProviderSessionId(run: ChatRun, providerSessionId: string): void {
+    if (!providerSessionId || run.providerSessionId === providerSessionId) {
+      return;
+    }
 
-  const outbound: NormalizedMessage = {
-    ...message,
-    sessionId: run.appSessionId,
-    seq: run.lastSeq,
-    runId: run.runId,
-  };
+    run.providerSessionId = providerSessionId;
 
-  if (message.kind === 'complete') {
-    // The provider may report its own id here; the frontend only ever knows
-    // the app id, so the "actual" id is by definition the app id as well.
-    outbound.actualSessionId = run.appSessionId;
-    run.status = 'completed';
-    run.completedAt = Date.now();
-    evictRunLater(run.appSessionId);
-  }
-
-  run.events.push(outbound);
-  if (run.events.length > MAX_BUFFERED_EVENTS_PER_RUN) {
-    run.events.splice(0, run.events.length - MAX_BUFFERED_EVENTS_PER_RUN);
-  }
-
-  return outbound;
-}
-
-/**
- * Records the provider-native session id for a run and persists the
- * app-id-to-provider-id mapping so history fetches and future resumes can
- * address the provider transcript.
- *
- * Called from the gateway writer when the runtime either calls
- * `setSessionId(...)` or emits its `session_created` event — whichever
- * happens first wins; later calls with the same id are no-ops.
- */
-function recordProviderSessionId(run: ChatRun, providerSessionId: string): void {
-  if (!providerSessionId || run.providerSessionId === providerSessionId) {
-    return;
-  }
-
-  run.providerSessionId = providerSessionId;
-
-  try {
-    sessionsDb.assignProviderSessionId(run.appSessionId, providerSessionId);
-    void broadcastSessionUpserted(run.appSessionId).catch((error) => {
+    try {
+      sessionsDb.assignProviderSessionId(run.appSessionId, providerSessionId);
+      void broadcastSessionUpserted(run.appSessionId).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[ChatRunRegistry] Failed to broadcast canonical session mapping', {
+          appSessionId: run.appSessionId,
+          providerSessionId,
+          error: message,
+        });
+      });
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[ChatRunRegistry] Failed to broadcast canonical session mapping', {
+      console.error('[ChatRunRegistry] Failed to persist provider session id mapping', {
         appSessionId: run.appSessionId,
         providerSessionId,
         error: message,
       });
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('[ChatRunRegistry] Failed to persist provider session id mapping', {
-      appSessionId: run.appSessionId,
-      providerSessionId,
-      error: message,
-    });
+    }
   }
-}
 
-/**
- * Registry of live provider runs keyed by the stable app session id.
- *
- * The registry is what makes the websocket protocol provider-independent:
- * every run gets a `ChatSessionWriter` that remaps provider-native session
- * ids to the app id, assigns `seq` numbers, and buffers events for replay —
- * regardless of which provider runtime produced them.
- */
-export const chatRunRegistry = {
   /**
    * Starts tracking a run and returns it, or `null` when a run is already in
    * progress for the session (callers must reject the duplicate send).
@@ -198,8 +315,12 @@ export const chatRunRegistry = {
    * the session would be left waiting on a run that never reports itself over.
    * Status tracks the run's *own* turn; the map slot is what "the session's
    * current run" means, and the newer run simply takes it.
+   *
+   * Both the superseded run and the new one stay addressable through
+   * `getRunById` — this only changes which one `getRun` calls the session's
+   * current run.
    */
-  startRun(input: {
+  function startRun(input: {
     appSessionId: string;
     provider: LLMProvider;
     providerSessionId: string | null;
@@ -242,7 +363,7 @@ export const chatRunRegistry = {
       lastSeq: 0,
       events: [],
       writer: null as unknown as ChatSessionWriter,
-      startedAt: Date.now(),
+      startedAt: now(),
       completedAt: null,
     };
 
@@ -258,154 +379,207 @@ export const chatRunRegistry = {
     });
 
     runs.set(input.appSessionId, run);
+    // Both runs are registered by their own id: the superseded one must remain
+    // reachable through the id it was already handed out under.
+    runsById.set(run.runId, run);
     return run;
-  },
+  }
 
   /**
-   * Opens a run for a turn the *host* layer detected, with nobody watching.
+   * Looks a run up by its own id, whoever currently holds its session's slot.
    *
-   * The one thing this adds over `startRun` is the pair of facts a host caller
-   * cannot state: `connection: null` and `source: 'unattended'`. Both are true
-   * by construction here rather than by the caller's word — an unattended turn
-   * is one no socket asked for, so there is no connection to attach, and the
-   * source is what tells it apart from the `scheduled` turns that share the
-   * no-connection shape.
+   * `getRun(appSessionId)` answers "what is this session's current run"; this
+   * answers "what is this specific run", as a read-only summary. They diverge
+   * the moment a resident session's busy send supersedes a running turn — the
+   * newer run takes the session slot while the older one is still running its
+   * own turn — and a caller that was handed both ids (the original send and the
+   * queued one) has no other way to reach the older run.
    *
-   * Returns the run's writer, or `null` when a run is already in flight for the
-   * session: the caller (a resident host driver) treats that as "carry on as
-   * before" rather than as a failure, because a turn that arrives while the
-   * session is busy is a real sequence, not an error. Only the writer is
-   * handed back — a driver has no business reading `seq`, `events` or the run's
-   * status, and the frames it sends through the writer are what maintain them.
+   * A terminal run is reported only while it is inside the retention window,
+   * judged lazily against the injected clock; past it the lookup answers
+   * `{ status: 'unknown', reason: 'expired' }`, and an id that was never handed
+   * out answers `{ status: 'unknown', reason: 'unknown' }`. Consumed by this
+   * module's criteria `chat-run-by-id.test.ts` and `chat-control-busy.test.ts`
+   * and, later, by the MCP gateway's run-addressing verbs.
    */
-  openUnattendedRun(input: {
-    appSessionId: string;
-    provider: LLMProvider;
-    providerSessionId: string | null;
-    userId: string | number | null;
+  function getRunById(runId: string): ChatRunLookupResult {
+    const run = runsById.get(runId);
+    if (!run) {
+      return { status: 'unknown', reason: 'unknown' };
+    }
+
+    if (run.status !== 'running' && run.completedAt !== null && now() - run.completedAt > retentionMs) {
+      return { status: 'unknown', reason: 'expired' };
+    }
+
+    return summarize(run);
+  }
+
+  return {
+    startRun,
+
     /**
-     * Accepted and unused: the run record is keyed by the app session id and
-     * carries no display name. It is part of the shape because the host layer
-     * holds it on the same reading that produced the rest, and splitting the
-     * shape in two so this caller could drop one field would be the seam
-     * inventing a distinction the call site does not have.
+     * Opens a run for a turn the *host* layer detected, with nobody watching.
+     *
+     * The one thing this adds over `startRun` is the pair of facts a host caller
+     * cannot state: `connection: null` and `source: 'unattended'`. Both are true
+     * by construction here rather than by the caller's word — an unattended turn
+     * is one no socket asked for, so there is no connection to attach, and the
+     * source is what tells it apart from the `scheduled` turns that share the
+     * no-connection shape.
+     *
+     * Returns the run's writer, or `null` when a run is already in flight for the
+     * session: the caller (a resident host driver) treats that as "carry on as
+     * before" rather than as a failure, because a turn that arrives while the
+     * session is busy is a real sequence, not an error. Only the writer is
+     * handed back — a driver has no business reading `seq`, `events` or the run's
+     * status, and the frames it sends through the writer are what maintain them.
      */
-    sessionName?: string | null;
-  }): { writer: ChatSessionWriter } | null {
-    const run = this.startRun({
-      appSessionId: input.appSessionId,
-      provider: input.provider,
-      providerSessionId: input.providerSessionId,
-      connection: null,
-      userId: input.userId,
-      source: 'unattended',
-    });
-    return run ? { writer: run.writer } : null;
-  },
+    openUnattendedRun(input: {
+      appSessionId: string;
+      provider: LLMProvider;
+      providerSessionId: string | null;
+      userId: string | number | null;
+      /**
+       * Accepted and unused: the run record is keyed by the app session id and
+       * carries no display name. It is part of the shape because the host layer
+       * holds it on the same reading that produced the rest, and splitting the
+       * shape in two so this caller could drop one field would be the seam
+       * inventing a distinction the call site does not have.
+       */
+      sessionName?: string | null;
+    }): { writer: ChatSessionWriter } | null {
+      const run = startRun({
+        appSessionId: input.appSessionId,
+        provider: input.provider,
+        providerSessionId: input.providerSessionId,
+        connection: null,
+        userId: input.userId,
+        source: 'unattended',
+      });
+      return run ? { writer: run.writer } : null;
+    },
 
-  getRun(appSessionId: string): ChatRun | undefined {
-    return runs.get(appSessionId);
-  },
-  isProcessing(appSessionId: string): boolean {
-    return runs.get(appSessionId)?.status === 'running';
-  },
+    getRun(appSessionId: string): ChatRun | undefined {
+      return runs.get(appSessionId);
+    },
 
-  listRunningRuns(): Array<{
-    sessionId: string;
-    provider: LLMProvider;
-    startedAt: number;
-    lastSeq: number;
-  }> {
-    return Array.from(runs.values())
-      .filter((run) => run.status === 'running')
-      .map((run) => ({
-        sessionId: run.appSessionId,
-        provider: run.provider,
-        startedAt: run.startedAt,
-        lastSeq: run.lastSeq,
-      }));
-  },
+    getRunById,
 
-  /**
-   * Adds a websocket connection to a run's live audience.
-   *
-   * This is the generic replacement for the Claude-only writer reconnect:
-   * after a page refresh the new socket subscribes and immediately starts
-   * receiving the still-running stream, for every provider.
-   *
-   * Subscribing does not take the stream away from sockets that were already
-   * watching — a session open in two places stays live in both, and the
-   * refreshed tab's abandoned socket is dropped when the next event finds it
-   * closed. Replay stays per-connection because each client sends its own
-   * `lastSeq` with `chat.subscribe`.
-   */
-  attachConnection(appSessionId: string, connection: RealtimeClientConnection): boolean {
-    const run = runs.get(appSessionId);
-    if (!run) {
-      return false;
-    }
+    isProcessing(appSessionId: string): boolean {
+      return runs.get(appSessionId)?.status === 'running';
+    },
 
-    run.writer.updateWebSocket(connection);
-    return true;
-  },
+    listRunningRuns(): Array<{
+      sessionId: string;
+      provider: LLMProvider;
+      startedAt: number;
+      lastSeq: number;
+    }> {
+      return Array.from(runs.values())
+        .filter((run) => run.status === 'running')
+        .map((run) => ({
+          sessionId: run.appSessionId,
+          provider: run.provider,
+          startedAt: run.startedAt,
+          lastSeq: run.lastSeq,
+        }));
+    },
 
-  /**
-   * Returns buffered events with `seq` greater than `afterSeq` for replay.
-   *
-   * `runId` is the run the caller's `afterSeq` was recorded against. `seq` is
-   * numbered per run, so a cursor recorded against a *different* run than the
-   * one currently in flight means nothing here: `afterSeq` is ignored and the
-   * run replays from its first event. A matching `runId`, or none at all (a
-   * client that predates run ids, or an internal caller), keeps the plain
-   * `seq > afterSeq` rule.
-   *
-   * An empty array with `run.lastSeq > afterSeq` not covered by the buffer
-   * means the buffer was truncated; the client should refresh over REST.
-   */
-  replayEvents(appSessionId: string, afterSeq: number, runId?: string): NormalizedMessage[] {
-    const run = runs.get(appSessionId);
-    if (!run) {
-      return [];
-    }
+    /**
+     * Adds a websocket connection to a run's live audience.
+     *
+     * This is the generic replacement for the Claude-only writer reconnect:
+     * after a page refresh the new socket subscribes and immediately starts
+     * receiving the still-running stream, for every provider.
+     *
+     * Subscribing does not take the stream away from sockets that were already
+     * watching — a session open in two places stays live in both, and the
+     * refreshed tab's abandoned socket is dropped when the next event finds it
+     * closed. Replay stays per-connection because each client sends its own
+     * `lastSeq` with `chat.subscribe`.
+     */
+    attachConnection(appSessionId: string, connection: RealtimeClientConnection): boolean {
+      const run = runs.get(appSessionId);
+      if (!run) {
+        return false;
+      }
 
-    const effectiveAfterSeq = runId !== undefined && runId !== run.runId ? 0 : afterSeq;
-    return run.events.filter((event) => typeof event.seq === 'number' && event.seq > effectiveAfterSeq);
-  },
+      run.writer.updateWebSocket(connection);
+      return true;
+    },
 
-  /**
-   * Emits a synthetic terminal `complete` if (and only if) the run is still
-   * marked running. Used when a provider runtime throws or resolves without
-   * having produced its own terminal event, and by the abort path.
-   */
-  completeRun(appSessionId: string, opts: { exitCode: number; aborted?: boolean }): void {
-    const run = runs.get(appSessionId);
-    if (!run || run.status !== 'running') {
-      return;
-    }
+    /**
+     * Returns buffered events with `seq` greater than `afterSeq` for replay.
+     *
+     * `runId` is the run the caller's `afterSeq` was recorded against. `seq` is
+     * numbered per run, so a cursor recorded against a *different* run than the
+     * one currently in flight means nothing here: `afterSeq` is ignored and the
+     * run replays from its first event. A matching `runId`, or none at all (a
+     * client that predates run ids, or an internal caller), keeps the plain
+     * `seq > afterSeq` rule.
+     *
+     * An empty array with `run.lastSeq > afterSeq` not covered by the buffer
+     * means the buffer was truncated; the client should refresh over REST.
+     */
+    replayEvents(appSessionId: string, afterSeq: number, runId?: string): NormalizedMessage[] {
+      const run = runs.get(appSessionId);
+      if (!run) {
+        return [];
+      }
 
-    run.writer.sendComplete(opts);
-  },
+      const effectiveAfterSeq = runId !== undefined && runId !== run.runId ? 0 : afterSeq;
+      return run.events.filter((event) => typeof event.seq === 'number' && event.seq > effectiveAfterSeq);
+    },
 
-  /**
-   * Safety-net variant of `completeRun` scoped to one specific run: a no-op
-   * unless `run` is still the session's current, running run. A runtime
-   * promise can resolve after its own `complete` already streamed AND a new
-   * run has replaced it in the registry (a queued message sends within
-   * milliseconds of the previous turn ending) — the session-keyed
-   * `completeRun` would terminate that newer run.
-   */
-  completeRunIfCurrent(run: ChatRun, opts: { exitCode: number; aborted?: boolean }): void {
-    if (runs.get(run.appSessionId) !== run || run.status !== 'running') {
-      return;
-    }
+    /**
+     * Emits a synthetic terminal `complete` if (and only if) the run is still
+     * marked running. Used when a provider runtime throws or resolves without
+     * having produced its own terminal event, and by the abort path.
+     */
+    completeRun(appSessionId: string, opts: { exitCode: number; aborted?: boolean }): void {
+      const run = runs.get(appSessionId);
+      if (!run || run.status !== 'running') {
+        return;
+      }
 
-    run.writer.sendComplete(opts);
-  },
+      run.writer.sendComplete(opts);
+    },
 
-  /**
-   * Test-only escape hatch: clears every tracked run.
-   */
-  clearAll(): void {
-    runs.clear();
-  },
-};
+    /**
+     * Safety-net variant of `completeRun` scoped to one specific run: a no-op
+     * unless `run` is still the session's current, running run. A runtime
+     * promise can resolve after its own `complete` already streamed AND a new
+     * run has replaced it in the registry (a queued message sends within
+     * milliseconds of the previous turn ending) — the session-keyed
+     * `completeRun` would terminate that newer run.
+     */
+    completeRunIfCurrent(run: ChatRun, opts: { exitCode: number; aborted?: boolean }): void {
+      if (runs.get(run.appSessionId) !== run || run.status !== 'running') {
+        return;
+      }
+
+      run.writer.sendComplete(opts);
+    },
+
+    /**
+     * Test-only escape hatch: clears every tracked run.
+     */
+    clearAll(): void {
+      runs.clear();
+      runsById.clear();
+    },
+  };
+}
+
+/**
+ * Registry of live provider runs keyed by the stable app session id.
+ *
+ * The registry is what makes the websocket protocol provider-independent:
+ * every run gets a `ChatSessionWriter` that remaps provider-native session
+ * ids to the app id, assigns `seq` numbers, and buffers events for replay —
+ * regardless of which provider runtime produced them. This is the process-wide
+ * instance `server/index.ts`, the websocket gateway and the control plane
+ * share; the factory above is the injection seam for an isolated instance.
+ */
+export const chatRunRegistry = createChatRunRegistry();

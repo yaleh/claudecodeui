@@ -521,5 +521,34 @@
       "unsavedRow": "不會儲存——值為空。",
       "unsavedSummary": "以下變數因為值為空，不會儲存："
     }
+  },
+  "accessTokens": {
+    "title": "個人存取權杖",
+    "description": "建立個人存取權杖，用於向 CloudCLI API 驗證 MCP 用戶端與其他應用程式。",
+    "newButton": "新增權杖",
+    "form": {
+      "namePlaceholder": "權杖名稱（例如：我的 MCP 用戶端）",
+      "expiryLabel": "有效期限",
+      "expiryOption": "{{days}} 天",
+      "createButton": "建立權杖",
+      "cancelButton": "取消"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ 請儲存您的存取權杖",
+      "alertMessage": "這是您唯一一次看到此權杖。請妥善保存。",
+      "copy": "複製",
+      "iveSavedIt": "我已儲存"
+    },
+    "list": {
+      "empty": "尚未建立存取權杖。",
+      "unnamed": "未命名權杖",
+      "expires": "到期時間：",
+      "lastUsed": "上次使用：",
+      "never": "從未",
+      "active": "有效",
+      "revoked": "已撤銷",
+      "revokeButton": "撤銷",
+      "revokeConfirm": "確定要撤銷此權杖嗎？此操作無法復原。"
+    }
   }
 }

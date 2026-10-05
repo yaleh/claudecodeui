@@ -578,5 +578,34 @@
       "unsavedRow": "Non enregistré — la valeur est vide.",
       "unsavedSummary": "Ces lignes ne seront pas enregistrées car leur valeur est vide :"
     }
+  },
+  "accessTokens": {
+    "title": "Jetons d'accès personnels",
+    "description": "Créez des jetons d'accès personnels pour authentifier les clients MCP et d'autres applications auprès de l'API CloudCLI.",
+    "newButton": "Nouveau jeton",
+    "form": {
+      "namePlaceholder": "Nom du jeton (ex. : Mon client MCP)",
+      "expiryLabel": "Expire dans",
+      "expiryOption": "{{days}} jours",
+      "createButton": "Créer le jeton",
+      "cancelButton": "Annuler"
+    },
+    "newToken": {
+      "alertTitle": "⚠️ Enregistrez votre jeton d'accès",
+      "alertMessage": "C'est la seule fois où vous verrez ce jeton. Conservez-le en lieu sûr.",
+      "copy": "Copier",
+      "iveSavedIt": "Je l'ai enregistré"
+    },
+    "list": {
+      "empty": "Aucun jeton d'accès créé pour l'instant.",
+      "unnamed": "Jeton sans nom",
+      "expires": "Expire :",
+      "lastUsed": "Dernière utilisation :",
+      "never": "Jamais",
+      "active": "Actif",
+      "revoked": "Révoqué",
+      "revokeButton": "Révoquer",
+      "revokeConfirm": "Voulez-vous vraiment révoquer ce jeton ? Cette action est irréversible."
+    }
   }
 }
