@@ -4,7 +4,7 @@ title: AC-250 判据台账尾部红是 merge race：session_create/session_inter
   061da3d2（10:08:04Z）只提交在 task 分支、fan-in 6e89ad58（10:20:24Z）才带进 develop、主检出 ff 于
   10:20:31Z，末拍红 10:19:16Z 早于落地 —— verification-only 归因入档（净树直跑 7/7/0 exit 0
   ×3），不重新实现既有修复
-status: ready
+status: done
 labels:
   - gap
 parent: null
