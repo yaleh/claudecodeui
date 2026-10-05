@@ -1,5 +1,9 @@
 // authRoutes: used by the server entrypoint to mount public authentication endpoints.
 export { authRoutes } from './auth.module.js';
+// credentialVerifier: the assembled non-throwing credential check the OAuth
+// consent page authenticates its browser user with. Consumers: server/index.ts,
+// which injects it into the AC-268 OAuth mount.
+export { credentialVerifier } from './auth.module.js';
 
 // createCredentialVerifier: the non-throwing credential-check narrow port the
 // OAuth consent page (AC-260, oauth module) authenticates its browser user
