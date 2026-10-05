@@ -75,16 +75,16 @@ AC-265（GOAL-021 退出条件 6「管理」；SPEC `docs/proposals/mcp-gateway-
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 AC-265 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-settings.routes.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-settings.routes.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-settings.routes.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 授权列表每行含客户端名称、回调主机、scope、授权时间、最近使用；整段响应原始文本找不到种子客户端的 `client_secret` 明文/其 sha256、令牌明文；正例对照 clientName 出现；逐字写出首行与扫描结果。
-- [ ] AC4 (b) 吊销授权后，其名下 access 令牌下一次 `POST /mcp` 401；吊销前 200（正例对照）；逐字写出两次状态码与 `revoked_at`。
-- [ ] AC5 (c) 禁用客户端后，其令牌下一次 `POST /mcp` 401；另一未被禁用客户端令牌仍 200（正例对照）；逐字写出。
-- [ ] AC6 (d) as A 吊销 B 的授权 ⇒ 404 且该 grant `revoked_at` 仍 NULL；as B 吊销同一条 ⇒ 200（正例对照）；逐字写出三次读数。
-- [ ] AC7 (e) 客户端列表区分 DCR（`createdVia==='dcr'`）与手工（`'manual'`），两者名称/回调主机齐，文本无密钥；逐字写出两行 `createdVia`。
-- [ ] AC8 取假形态两条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 列表返回密钥哈希 ⇒ AC3 红；(ii) 吊销不校验归属 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`token-info.routes.test.ts`、`access-tokens.service.test.ts` 不改一字仍逐字通过。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 AC-265 命令，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-settings.routes.test.ts`（写下完整命令与完整输出）。
+- [x] AC2 判据绿：`for f in server/modules/oauth/tests/oauth-settings.routes.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-settings.routes.test.ts` 退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+- [x] AC3 (a) 授权列表每行含客户端名称、回调主机、scope、授权时间、最近使用；整段响应原始文本找不到种子客户端的 `client_secret` 明文/其 sha256、令牌明文；正例对照 clientName 出现；逐字写出首行与扫描结果。
+- [x] AC4 (b) 吊销授权后，其名下 access 令牌下一次 `POST /mcp` 401；吊销前 200（正例对照）；逐字写出两次状态码与 `revoked_at`。
+- [x] AC5 (c) 禁用客户端后，其令牌下一次 `POST /mcp` 401；另一未被禁用客户端令牌仍 200（正例对照）；逐字写出。
+- [x] AC6 (d) as A 吊销 B 的授权 ⇒ 404 且该 grant `revoked_at` 仍 NULL；as B 吊销同一条 ⇒ 200（正例对照）；逐字写出三次读数。
+- [x] AC7 (e) 客户端列表区分 DCR（`createdVia==='dcr'`）与手工（`'manual'`），两者名称/回调主机齐，文本无密钥；逐字写出两行 `createdVia`。
+- [x] AC8 取假形态两条必须红（先提交实现再变异，逐条记录变异 diff、逐字失败行、恢复命令）：(i) 列表返回密钥哈希 ⇒ AC3 红；(ii) 吊销不校验归属 ⇒ AC6 红。每条恢复命令 + 恢复后重跑绿。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；`token-info.routes.test.ts`、`access-tokens.service.test.ts` 不改一字仍逐字通过。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
 
 ## DoD
 
