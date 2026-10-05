@@ -1,7 +1,7 @@
 ---
 id: AC-239
 title: SDK 与 zod 声明进 dependencies：生产是 npm install -g，不装 devDependencies，不再依赖传递安装的副本
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-020
 criterion: for f in
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T03:33:37.821Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
