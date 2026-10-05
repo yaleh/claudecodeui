@@ -1,7 +1,7 @@
 // S1 / S4 side by side: one row per recogniser text source, same corpus (v3, 466 clips), same judge, same system (L2a + D1 silent).
 import { readFileSync, existsSync } from 'node:fs';
 const ROOT = '/data/home/yale/work/tc-verify/corpus/voice-index-loop/';   // replay.mjs is imported dynamically, after ASR_FILE is set
-const SRC = [['Qwen3-ASR 1.7B (OpenRouter)', 'asr-v3.jsonl', ''], ['SenseVoice (sherpa text)', 'asr-sv.jsonl', 'sv'], ['SenseVoice (own CTC text)', 'asr-svown.jsonl', 'svown'], ['Omni transcript', 'asr-omni-t.jsonl', 'omnit'], ['Omni instruction (rewritten)', 'asr-omni-i.jsonl', 'omnii']];
+const SRC = [['Qwen3-ASR 1.7B (OpenRouter)', 'asr-v3.jsonl', ''], ['SenseVoice (sherpa text)', 'asr-sv.jsonl', 'sv'], ['SenseVoice (own CTC text)', 'asr-svown.jsonl', 'svown'], ['Omni transcript', 'asr-omni-t.jsonl', 'omnit'], ['Omni instruction (rewritten)', 'asr-omni-i.jsonl', 'omnii'], ['SenseVoice (patched sherpa)', 'asr-sv2.jsonl', 'sv2']];
 const only = process.argv[2];   // child mode: print one JSON line for one source
 if (only !== undefined) {
   process.env.ASR_FILE = SRC[Number(only)][1];

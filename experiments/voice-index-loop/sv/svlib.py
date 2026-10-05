@@ -29,6 +29,9 @@ def load(path):
 def feats(x):
     o = knf.FbankOptions(); o.frame_opts.dither = 0; o.frame_opts.snip_edges = os.environ.get('SV_SNIP', '1') == '1'; o.frame_opts.samp_freq = 16000
     o.mel_opts.num_bins = 80; o.frame_opts.window_type = 'hamming'
+    if os.environ.get('SV_DC'): o.frame_opts.remove_dc_offset = os.environ['SV_DC'] == '1'
+    if os.environ.get('SV_POW2'): o.frame_opts.round_to_power_of_two = os.environ['SV_POW2'] == '1'
+    if os.environ.get('SV_WIN'): o.frame_opts.window_type = os.environ['SV_WIN']
     if os.environ.get('SV_LOW'): o.mel_opts.low_freq = float(os.environ['SV_LOW'])
     if os.environ.get('SV_HIGH'): o.mel_opts.high_freq = float(os.environ['SV_HIGH'])
     if os.environ.get('SV_PREEMPH'): o.frame_opts.preemph_coeff = float(os.environ['SV_PREEMPH'])

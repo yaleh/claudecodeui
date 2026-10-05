@@ -4,6 +4,7 @@ import sys, os, json, re, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np, svlib
 ROOT = '/data/home/yale/work/tc-verify/corpus/voice-index-loop/'
+SVD = os.environ.get('SVDIR', 'sv'); KLIM = int(os.environ.get('CTC_K', '0')); ALIASES = os.environ.get('ALIASES')
 TH = 0.85            # window = consecutive tokens with p < TH, padded by one token each side
 PAD_FRAMES = 2
 LAM = 1.0
@@ -45,11 +46,13 @@ def ctc_ll(lp, seqs):
     end = 2 * ln                                       # last label state index = 2*len-1, plus the trailing blank state 2*len
     return np.logaddexp(a[np.arange(N), end - 1], a[np.arange(N), end])
 def main():
+    global AL
+    AL = json.load(open(ROOT + ALIASES)) if ALIASES else {}
     svf, entf, outf, pref = sys.argv[1:5]
-    ents = json.load(open(ROOT + entf)); rows = [json.loads(l) for l in open(ROOT + 'sv/' + svf)]
-    done = set(json.loads(l)['id'] for l in open(ROOT + 'sv/' + outf)) if os.path.exists(ROOT + 'sv/' + outf) else set()
+    ents = json.load(open(ROOT + entf)); rows = [json.loads(l) for l in open(ROOT + SVD + '/' + svf)]
+    done = set(json.loads(l)['id'] for l in open(ROOT + SVD + '/' + outf)) if os.path.exists(ROOT + SVD + '/' + outf) else set()
     t0 = time.time(); n = 0; LIMIT = int(os.environ.get('LIMIT', '0'))
-    with open(ROOT + 'sv/' + outf, 'a') as fo:
+    with open(ROOT + SVD + '/' + outf, 'a') as fo:
         for r in rows:
             cid = r['id']
             if LIMIT and n >= LIMIT: break
@@ -57,7 +60,7 @@ def main():
             if pref == 'v3:' and cid.startswith('v3:c'): continue
             mid = cid.split(':', 1)[1]; mid = mid if mid.startswith('c') is False else mid[1:]
             if mid not in ents and str(mid) not in ents: continue
-            terms = ents.get(str(mid)) ; lp = np.load(ROOT + 'sv/lp/' + cid.replace(':', '_') + '.npy').astype(np.float32)
+            terms = ents.get(str(mid)) ; lp = np.load(ROOT + SVD + '/lp/' + cid.replace(':', '_') + '.npy').astype(np.float32)
             toks = r['tokens']; pos = []; raw = ''
             for k in toks: pos.append(len(raw)); raw += k['tok'].replace('▁', ' ')
             lead = len(raw) - len(raw.lstrip()); text = raw.strip()
@@ -72,10 +75,26 @@ def main():
                     else: wins.append([a, b])
                     i = j + 1
                 else: i += 1
+            terms = list(terms)
+            if KLIM and len(terms) > KLIM:   # scale rule: recent first, then the user's own words by count, then the rest
+                terms = sorted(terms, key=lambda e: (-e['r'], -min(e['c'], 99) - (1000 if 'U' in e.get('s', '') else 0), -e['p']))[:KLIM]
+            alias_extra = {}
+            if ALIASES:
+                for canon, heard in AL.get(str(mid), []):
+                    ws = [w for w in re.split(r'\s+', re.sub(r'[^A-Za-z0-9\s]', ' ', heard.lower())) if w]
+                    ids = []; ok = bool(ws)
+                    for w in ws:
+                        sg = seg_word(w, True)
+                        if sg is None: ok = False; break
+                        ids += sg
+                    if ok and ids: alias_extra.setdefault(canon, []).append(ids)
+                have = {e['t'] for e in terms}
+                for canon in alias_extra:
+                    if canon not in have: terms.append({'t': canon, 'r': 0, 'p': 1, 'c': 1, 'ty': 'term', 's': 'A', 'tb': 0})
             cand_seqs = []; cand_idx = []
             for ci, e in enumerate(terms):
-                for s in variants(e['t']): cand_seqs.append(s); cand_idx.append(ci)
-            out_w = []
+                for s in variants(e['t']) + alias_extra.get(e['t'], []): cand_seqs.append(s); cand_idx.append(ci)
+            out_w = []; META = {}
             for a, b in wins:
                 f0 = max(0, toks[a]['t'] - PAD_FRAMES); f1 = min(lp.shape[0], (toks[b + 1]['t'] if b + 1 < len(toks) else lp.shape[0]) + PAD_FRAMES)
                 seg = lp[f0:f1]
@@ -91,11 +110,11 @@ def main():
                 scored = []
                 for ci, v in best.items():
                     e = terms[ci]; prior = 0.25 * e['p'] + 0.20 * e['r'] + 0.10 * min(1.0, e['c'] / 5)
-                    scored.append((e['t'], v - ll_h, v - ll_h + LAM * prior))
+                    scored.append((e['t'], v - ll_h, v - ll_h + LAM * prior)); META[e['t']] = [e.get('ty', ''), e.get('s', ''), e.get('tb', 0)]
                 top_llr = sorted(scored, key=lambda x: -x[1])[:50]; top_pri = sorted(scored, key=lambda x: -x[2])[:50]
                 cs = max(0, pos[a] - lead); ce = min(len(text), pos[b] + len(toks[b]['tok'].replace('▁', ' ')) - lead)
                 out_w.append({'a': a, 'b': b, 'cs': cs, 'ce': ce, 'f0': f0, 'f1': f1, 'minp': min(k['p'] for k in toks[a:b + 1]), 'hyp': text[cs:ce], 'll_h': ll_h, 'llr': [[t, round(x, 2)] for t, x, _ in top_llr], 'pri': [[t, round(x, 2)] for t, _, x in top_pri], 'n': len(scored)})
-            fo.write(json.dumps({'id': cid, 'text': text, 'windows': out_w}, ensure_ascii=False) + '\n'); fo.flush(); n += 1
+            fo.write(json.dumps({'id': cid, 'text': text, 'windows': out_w, 'meta': META, 'pool': len(terms)}, ensure_ascii=False) + '\n'); fo.flush(); n += 1
             if n % 50 == 0: print(n, round(time.time() - t0), 's', flush=True)
     print('finished', n)
 main()
