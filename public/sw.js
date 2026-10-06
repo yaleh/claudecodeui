@@ -24,6 +24,15 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  // Never intercept the OAuth consent flow or the MCP endpoint. They are server-rendered
+  // pages and JSON-RPC, not part of the app shell, and a consent form's 302 chain ends on
+  // another origin: routing that navigation through this worker added nothing and left an
+  // unhandled "Failed to convert value to 'Response'" behind when the chain was cut short.
+  const pathname = new URL(url).pathname;
+  if (pathname.startsWith('/oauth/') || pathname.startsWith('/.well-known/') || pathname === '/mcp') {
+    return;
+  }
+
   // Navigation requests (HTML) — always go to network, no caching
   if (event.request.mode === 'navigate') {
     event.respondWith(
@@ -57,8 +66,10 @@ self.addEventListener('fetch', event => {
   }
 
   // Everything else — network-first
+  // `caches.match` resolves to undefined on a miss, and respondWith rejects a non-Response;
+  // answer a miss with a network error instead.
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+    fetch(event.request).catch(() => caches.match(event.request).then(cached => cached || Response.error()))
   );
 });
 
