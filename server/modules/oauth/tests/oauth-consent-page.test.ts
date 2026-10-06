@@ -22,12 +22,23 @@
  *   (g) `X-Frame-Options`, CSP `frame-ancestors 'none'` and `Cache-Control: no-store`
  *       are on GET and on the successful POST;
  *   (h) `createCredentialVerifier` maps a login to `{ ok, userId }` and a throw to
- *       `{ ok: false }`.
+ *       `{ ok: false }`;
+ *   (i) the page's CSP `form-action` lists the registered callback's origin — with
+ *       only `'self'` a browser silently refuses the 302 to the callback;
+ *   (j) a `redirect_uri` the client did not register is refused on GET and on POST
+ *       (allow and deny alike): nothing renders, nothing redirects, no code issues;
+ *   (k) the CSP source written for a callback is a bare origin or scheme, and a URI
+ *       that would smuggle a `;` or a space into the header is refused;
+ *   (l) in a REAL browser, Allow lands on the registered callback on another
+ *       origin with the code and the verbatim state, while a control page served
+ *       with the old `form-action 'self'` does not — which is what makes (l) able
+ *       to go red.
  */
 
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { once } from 'node:events';
+import http from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
@@ -35,6 +46,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import express from 'express';
+import { chromium } from 'playwright';
 
 import { createCredentialVerifier } from '@/modules/auth/index.js';
 import {
@@ -49,6 +61,7 @@ import {
   createOAuthStore,
 } from '@/modules/oauth/index.js';
 import type { OAuthStore } from '@/modules/oauth/index.js';
+import { cspSourceForRedirectUri } from '@/modules/oauth/oauth-consent.routes.js';
 import { AppError } from '@/shared/utils.js';
 
 const PUBLIC_BASE_URL = 'https://cli.example';
@@ -73,7 +86,7 @@ type Harness = {
   /** The store behind the provider, for registering clients. */
   store: OAuthStore;
   /** Registers a public client with the canonical callback and returns its id. */
-  registerClient: (clientName: string) => string;
+  registerClient: (clientName: string, redirectUri?: string) => string;
 };
 
 /** Runs `run` against a fresh temp database, real provider/store and the production consent router. */
@@ -102,10 +115,10 @@ async function withConsentServer(run: (harness: Harness) => Promise<void>): Prom
       ? { ok: true as const, userId: USER_ID }
       : { ok: false as const };
 
-  const registerClient = (clientName: string): string =>
+  const registerClient = (clientName: string, redirectUri: string = REDIRECT_URI): string =>
     store.registerClient({
       clientName,
-      redirectUris: [REDIRECT_URI],
+      redirectUris: [redirectUri],
       metadata: {},
       createdVia: 'manual',
       publicClient: true,
@@ -520,4 +533,146 @@ test('(h) createCredentialVerifier maps login success and failure without throwi
   assert.deepEqual(failure, { ok: false });
 
   console.log(`(h) success=${JSON.stringify(success)} failure=${JSON.stringify(failure)}`);
+});
+
+test("(i) the consent page's CSP form-action lists the registered callback origin", async () => {
+  await withConsentServer(async (harness) => {
+    const clientId = harness.registerClient('consent-app');
+    const form = await getConsentForm(harness, clientId, pkcePair().challenge, [READ_SCOPE]);
+    const csp = form.headers.get('content-security-policy') ?? '';
+    assert.ok(
+      csp.includes("form-action 'self' https://app.example;"),
+      `form-action must name the callback origin so the browser can follow the redirect: ${csp}`
+    );
+    assert.ok(!csp.includes('*'), `no wildcard may appear in the CSP: ${csp}`);
+    console.log(`(i) csp="${csp}"`);
+  });
+});
+
+test('(j) an unregistered redirect_uri is refused on GET and on POST allow and deny', async () => {
+  await withConsentServer(async (harness) => {
+    const clientId = harness.registerClient('consent-app');
+    const pair = pkcePair();
+    const evil = 'https://evil.example/steal';
+
+    const getResponse = await fetch(
+      `${harness.baseUrl}/authorize?${authorizeQuery(clientId, pair.challenge, [READ_SCOPE]).replace(
+        encodeURIComponent(REDIRECT_URI),
+        encodeURIComponent(evil)
+      )}`
+    );
+    const getBody = await getResponse.text();
+    assert.equal(getResponse.status, 400);
+    assert.ok(!getBody.includes('csrf_token'), 'no form may be rendered for an unregistered callback');
+    assert.ok(!getBody.includes('evil.example'), 'the unregistered host must not be echoed as a callback');
+
+    // A valid CSRF token from a legitimate render must not change the answer.
+    const legit = await getConsentForm(harness, clientId, pair.challenge, [READ_SCOPE]);
+    const before = codeCount();
+    for (const action of ['deny', 'allow']) {
+      const response = await postConsent(harness, {
+        csrf_token: extractCsrfToken(legit.body),
+        action,
+        client_id: clientId,
+        redirect_uri: evil,
+        state: 'xyz',
+        code_challenge: pair.challenge,
+        code_challenge_method: 'S256',
+        username: OWNER,
+        password: CORRECT_PASSWORD,
+        scope: [],
+      });
+      assert.equal(response.status, 400, `POST ${action} to an unregistered callback must be refused`);
+      assert.equal(response.headers.get('location'), null, `POST ${action} must not redirect anywhere`);
+    }
+    assert.equal(codeCount(), before, 'no authorization code may be issued');
+    console.log(`(j) GET=${getResponse.status} POST deny/allow refused with no Location; codes ${before} -> ${codeCount()}`);
+  });
+});
+
+test('(k) the CSP source for a callback is a bare origin or scheme, and unsafe URIs are refused', () => {
+  assert.equal(cspSourceForRedirectUri('https://app.example/cb'), 'https://app.example');
+  assert.equal(cspSourceForRedirectUri('http://localhost:58214/callback'), 'http://localhost:58214');
+  assert.equal(cspSourceForRedirectUri('http://127.0.0.1:8080/cb?x=1'), 'http://127.0.0.1:8080');
+  assert.equal(cspSourceForRedirectUri('cursor://anysphere.cursor-retrieval/oauth'), 'cursor:');
+  for (const unsafe of [
+    'https://evil.example;script-src/cb',
+    'https://evil.example,x/cb',
+    'https://a b.example/cb',
+    'not a url',
+    '',
+  ]) {
+    assert.equal(cspSourceForRedirectUri(unsafe), null, `must refuse ${JSON.stringify(unsafe)}`);
+  }
+  console.log('(k) origins and schemes pass; ; , space and non-URLs are refused');
+});
+
+test('(l) in a real browser Allow follows the 302 to a registered callback on another origin', async () => {
+  const landing = http.createServer((req, res) => {
+    res.setHeader('content-type', 'text/html');
+    res.end('<h1>callback reached</h1>');
+  });
+  landing.listen(0, '127.0.0.1');
+  await once(landing, 'listening');
+  const landingOrigin = `http://127.0.0.1:${(landing.address() as AddressInfo).port}`;
+
+  // Control: the SAME form and redirect, served with the pre-fix CSP.
+  const control = http.createServer((req, res) => {
+    if (req.method === 'POST') {
+      res.statusCode = 302;
+      res.setHeader('location', `${landingOrigin}/cb?code=control&state=xyz`);
+      res.end();
+      return;
+    }
+    res.setHeader('content-type', 'text/html');
+    res.setHeader('content-security-policy', "default-src 'none'; form-action 'self'; frame-ancestors 'none'");
+    res.end('<form method="post" action=""><button id="allow">Allow</button></form>');
+  });
+  control.listen(0, '127.0.0.1');
+  await once(control, 'listening');
+
+  const browser = await chromium.launch();
+  try {
+    await withConsentServer(async (harness) => {
+      const callback = `${landingOrigin}/cb`;
+      const clientId = harness.registerClient('browser-app', callback);
+      const query = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: callback,
+        response_type: 'code',
+        scope: READ_SCOPE,
+        state: 'xyz',
+        code_challenge: pkcePair().challenge,
+        code_challenge_method: 'S256',
+      });
+
+      const page = await browser.newPage();
+      await page.goto(`${harness.baseUrl}/authorize?${query.toString()}`);
+      await page.fill('input[name=username]', OWNER);
+      await page.fill('input[name=password]', CORRECT_PASSWORD);
+      await page.click('button[value=allow]');
+      await page.waitForURL(`${landingOrigin}/cb**`, { timeout: 10_000 });
+      const landed = new URL(page.url());
+      assert.equal(landed.origin, landingOrigin);
+      assert.ok((landed.searchParams.get('code') ?? '').length > 0, 'the callback must receive a non-empty code');
+      assert.equal(landed.searchParams.get('state'), 'xyz', 'the callback must receive the verbatim state');
+
+      const controlPage = await browser.newPage();
+      await controlPage.goto(`http://127.0.0.1:${(control.address() as AddressInfo).port}/authorize`);
+      await controlPage.click('#allow');
+      await controlPage.waitForTimeout(1500);
+      assert.ok(
+        !controlPage.url().startsWith(landingOrigin),
+        'control: with form-action \'self\' the browser must NOT follow the redirect — otherwise this test cannot detect the defect'
+      );
+      console.log(
+        `(l) real Chromium: Allow -> ${landed.origin}${landed.pathname} code=${(landed.searchParams.get('code') ?? '').length} chars state=${landed.searchParams.get('state')}; `
+        + `control (old CSP) stayed on ${new URL(controlPage.url()).pathname}`
+      );
+    });
+  } finally {
+    await browser.close();
+    await new Promise<void>((resolve) => landing.close(() => resolve()));
+    await new Promise<void>((resolve) => control.close(() => resolve()));
+  }
 });

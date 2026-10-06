@@ -83,6 +83,9 @@ async function withConsentServer(
       ({
         client_id: clientId,
         client_name: 'consent-app',
+        // A real client always carries the callbacks it registered, and the consent
+        // route refuses any callback outside that list before it reaches the limiter.
+        redirect_uris: JSON.stringify([REDIRECT_URI]),
         disabled_at: null,
       }) as unknown as OAuthClientRow,
   };
