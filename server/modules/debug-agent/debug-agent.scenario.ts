@@ -87,6 +87,15 @@ export type DebugAgentTranscriptMode = (typeof DEBUG_AGENT_TRANSCRIPT_MODES)[num
  * engine reads the queue rather than the document for these two.
  */
 export const DEBUG_AGENT_OPS = [
+  // The one step whose timing is the CALLER's rather than the clock's. It carries
+  // nothing and writes nothing, the same shape as `wait` below; what it states is
+  // "the walk may not pass this point until it is released" (see
+  // `runDebugAgentScenario` and the control plane's release action). A criterion
+  // uses it to take a fixed offset out of the walk: the events after the barrier
+  // fire when the criterion says its own reading window is over, so the wait is
+  // the window's own cost and does not scale with host load the way a fixed
+  // offset does.
+  'await-release',
   'cancel-ack',
   'dequeue',
   'exit',
@@ -215,6 +224,12 @@ export type DebugAgentExitDetail = (typeof DEBUG_AGENT_EXIT_DETAILS)[number];
  * that can go backwards cannot order two observations of the same file.
  */
 export type DebugAgentScenarioStep = { at: number } & (
+  /**
+   * Holds the walk until the control plane releases it — the one step whose time
+   * is the caller's rather than the clock's. Carries nothing and writes nothing,
+   * exactly like `wait`; see `DEBUG_AGENT_OPS` for what a criterion uses it for.
+   */
+  | { op: 'await-release' }
   | { op: 'cancel-ack' }
   | { op: 'dequeue' }
   | { op: 'exit'; detail: DebugAgentExitDetail }

@@ -271,13 +271,105 @@ function asPeerMessageRow(row: AnyRecord, text: string, origin: MessageOrigin): 
 }
 
 /**
+ * How long an `await-release` step waits for its release before failing the run.
+ *
+ * Bounded for the same reason every other wait in this engine is: a release that
+ * never arrives must fail with a reading that names it, not hang until something
+ * upstream kills the process and leaves a transcript that is neither the old one
+ * nor the new one. Twenty seconds is several times the round trip the criterion
+ * that uses this takes on a loaded host, so the ceiling is reached only when the
+ * release genuinely never comes — and a run that reaches it is red, which is the
+ * honest report.
+ */
+export const DEBUG_AGENT_RELEASE_CEILING_MS = 20_000;
+
+/**
+ * The release state of each run this process is walking, keyed by app session id.
+ *
+ * Module state for the same reason the armed-scenario registry is: a run is
+ * process-local, and the control verb that releases it has to reach the run the
+ * same process is walking. A run registers itself when it starts and drops the
+ * entry when it ends, so a release can be stated at any point around the barrier
+ * — before it is reached, while it is being waited on, or after the run is over.
+ */
+const releaseStates = new Map<string, { released: boolean; waiters: Array<() => void> }>();
+
+/**
+ * Releases the run walking `appSessionId` and returns how many waiters it woke.
+ *
+ * The three call orderings all have to mean something, because a criterion states
+ * the release from a browser and cannot know which side of the barrier it is on:
+ * a release that arrives first is recorded and the barrier passes on arrival, one
+ * that arrives while the barrier is waiting wakes it, and one that arrives after
+ * both reports zero. What it never does is fail — "released twice" and "released
+ * after the walk moved on" are the same fact, and the caller reads the count.
+ */
+export function releaseDebugAgentRun(appSessionId: string): number {
+  const state = releaseStates.get(appSessionId) ?? { released: false, waiters: [] };
+  releaseStates.set(appSessionId, state);
+
+  if (state.released) {
+    return 0;
+  }
+
+  state.released = true;
+  const waiters = state.waiters.splice(0, state.waiters.length);
+  for (const wake of waiters) {
+    wake();
+  }
+
+  return waiters.length;
+}
+
+/**
+ * Blocks until some other party releases the run walking `appSessionId`.
+ *
+ * The wait is registered against the session's own state rather than a channel of
+ * its own so the "released before the barrier was reached" ordering needs no
+ * second mechanism: the flag is read first, and `releaseDebugAgentRun` flips it
+ * under the same entry this registers on.
+ */
+async function awaitDebugAgentRelease(appSessionId: string): Promise<void> {
+  const state = releaseStates.get(appSessionId) ?? { released: false, waiters: [] };
+  releaseStates.set(appSessionId, state);
+
+  if (state.released) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    let wake: () => void = () => undefined;
+    const timer = setTimeout(() => {
+      const index = state.waiters.indexOf(wake);
+      if (index >= 0) {
+        state.waiters.splice(index, 1);
+      }
+      reject(
+        new AppError(
+          `The run for session "${appSessionId}" reached an "await-release" step and nothing released it within ${DEBUG_AGENT_RELEASE_CEILING_MS}ms. The debug agent control plane's release action is what states it — see POST /api/debug-agent/release.`,
+          { code: 'DEBUG_AGENT_RELEASE_TIMEOUT', statusCode: 500 },
+        ),
+      );
+    }, DEBUG_AGENT_RELEASE_CEILING_MS);
+
+    wake = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    state.waiters.push(wake);
+  });
+}
+
+/**
  * Runs one armed scenario.
  *
  * The clock is absolute: `steps[].at` is milliseconds from the start of the run,
- * so a step's time does not depend on how long the previous step took. `wait` and
- * `scroll` write nothing and forward nothing — a scenario uses them to place
- * time and follow-along intent on the clock, and neither has a transcript shape
- * or a frame of its own.
+ * so a step's time does not depend on how long the previous step took. `wait`,
+ * `scroll` and `await-release` write nothing and forward nothing — a scenario
+ * uses them to place time and follow-along intent on the clock, and none has a
+ * transcript shape or a frame of its own. `await-release` is the one of the three
+ * whose time is the caller's rather than the clock's: it holds the walk until
+ * another party states that the steps behind it may fire.
  */
 export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<DebugAgentRunReading> {
   const { scenario, sessionId, appSessionId, cwd, transcriptPath, normalizeMessage, forwardFrames } = input;
@@ -301,6 +393,14 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
   const before = readTranscriptShape(transcriptPath);
   const steps: DebugAgentStepObservation[] = [];
   const startedAt = Date.now();
+
+  // This run's release state, registered before the first step so a release that
+  // arrived while the clock request was still travelling reaches it. The flag is
+  // carried over rather than reset: it is the same run the caller released.
+  releaseStates.set(appSessionId, {
+    released: releaseStates.get(appSessionId)?.released ?? false,
+    waiters: [],
+  });
 
   // Which writer this run's frames go to. It starts as the caller's own and is
   // replaced by the run's writer when an unattended turn opens one: the turn
@@ -651,12 +751,31 @@ export async function runDebugAgentScenario(input: DebugAgentRunInput): Promise<
         break;
       }
 
+      case 'await-release': {
+        // Writes nothing and forwards nothing, like `wait` above; what it does is
+        // hold the walk here until the control plane releases it. A scenario puts
+        // it in front of the steps whose timing has to follow a *client's* own
+        // progress, which is what a criterion needs when the alternative is a
+        // fixed offset that a loaded host can outrun: with the barrier, the
+        // events behind it fire when the criterion says its reading window has
+        // closed, and not one moment before.
+        await awaitDebugAgentRelease(appSessionId);
+        break;
+      }
+
       default:
         break;
     }
 
     steps.push({ index, op: step.op, ...readTranscriptShape(transcriptPath) });
   }
+
+  // The run is over, so its release state is. Nothing may wake a waiter past this
+  // point, and a leftover entry would let a later run under a reused id inherit a
+  // release it never received. A run that throws is left behind on purpose: its
+  // transcript is already half-written, and the id is minted per arming, so the
+  // entry is inert.
+  releaseStates.delete(appSessionId);
 
   return { before, steps };
 }
