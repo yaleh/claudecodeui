@@ -1,7 +1,7 @@
 ---
 id: gap-voice-confidence-flag-shadow-stats
 title: 置信度标记的影子统计：按 θ 扫描「本来会画几条下划线」，写进语音数据记录（纯函数，与离线实验口径逐条一致，不出任何 UI）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
