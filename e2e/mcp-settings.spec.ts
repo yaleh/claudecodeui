@@ -24,12 +24,20 @@ const VITE_BIN = path.join(REPO_ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
 /** The two gate states this criterion drives, each naming the exact `MCP_ENABLED` value its server boots with. */
 type GateState = {
   label: 'enabled' | 'disabled';
-  /** The value exported as `MCP_ENABLED` (or null to leave the variable absent). */
-  mcpEnabled: string | null;
+  /**
+   * The value exported as `MCP_ENABLED`. Always an explicit value — never absent.
+   *
+   * `server/load-env.ts` backfills every key the spawned child does not already carry from the deployer's
+   * repo-root `.env`, writing back only while `!process.env[key]` holds. So leaving the key out is NOT a way
+   * to spell the off state: in a checkout whose `.env` pins `MCP_ENABLED=true`, an absent key is silently
+   * rewritten to `true` and the disabled reading flips to "enabled". The gate reads the explicit `false` as
+   * closed (`readMcpGatewayGate('false')`), which is the state this criterion means.
+   */
+  mcpEnabled: string;
 };
 
 const ENABLED_STATE: GateState = { label: 'enabled', mcpEnabled: 'true' };
-const DISABLED_STATE: GateState = { label: 'disabled', mcpEnabled: null };
+const DISABLED_STATE: GateState = { label: 'disabled', mcpEnabled: 'false' };
 
 /** The five scope vocabulary values, in the order the create form renders them. */
 const SCOPE_VOCABULARY = [
@@ -44,6 +52,41 @@ const SCOPE_VOCABULARY = [
 const CHILD_READY_TIMEOUT_MS = 30_000;
 /** How long a browser landing is given before the criterion reads the page back as evidence. */
 const LANDING_TIMEOUT_MS = 30_000;
+
+/**
+ * The keys each booted server's readings depend on. Every one MUST be pinned explicitly on the child's env.
+ *
+ * An absent key is not a state here: `server/load-env.ts` writes it back from `<repo root>/.env` whenever
+ * `!process.env[key]` holds. `MCP_ENABLED` decides the (a)/(b) status reading; `PUBLIC_BASE_URL` decides the
+ * (a) endpoint's base (`settings.module.ts` exposes it as `gateway.publicBaseUrl()`, and
+ * `settings.service.ts` falls back to `origin` only when it is null/empty). Both are therefore named here and
+ * asserted present on every state's env, so a future edit that reached for "delete the key" fails loudly
+ * instead of flipping a reading on whichever machine happens to have a `.env`.
+ */
+const READING_KEYS = ['MCP_ENABLED', 'PUBLIC_BASE_URL'] as const;
+
+/**
+ * The key NAMES this checkout's repo-root `.env` defines, or `[]` when there is none.
+ *
+ * Read (never written) so a deployer's environment is visible in the run's own output instead of quietly
+ * deciding a reading. The criterion does not care what the values are — it cares that no reading can be
+ * flipped by them, which is what `READING_KEYS` guarantees. Logging the names is the cheap guard that makes a
+ * future `.env` change show up in a red's own output rather than as a silent flip.
+ */
+const readDotenvKeys = (): string[] => {
+  try {
+    return fs
+      .readFileSync(path.join(REPO_ROOT, '.env'), 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith('#'))
+      .map((line) => (line.split('=')[0] ?? '').trim())
+      .filter((key) => key.length > 0);
+  } catch {
+    // No `.env` is a normal checkout; the coupling this criterion guards against is simply absent.
+    return [];
+  }
+};
 
 // ---------------------------------------------------------------------------
 // HTTP / process plumbing
@@ -153,12 +196,16 @@ const bootState = async (state: GateState, dataDir: string): Promise<BootedState
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) baseEnv[key] = value;
   }
-  for (const name of ['DATABASE_PATH', 'HOST', 'SERVER_PORT', 'JWT_SECRET', 'NODE_OPTIONS', 'PUBLIC_BASE_URL']) {
+  for (const name of ['DATABASE_PATH', 'HOST', 'SERVER_PORT', 'JWT_SECRET', 'NODE_OPTIONS', 'NO_COLOR']) {
     delete baseEnv[name];
   }
-  for (const name of ['NO_COLOR', 'MCP_ENABLED']) {
-    delete baseEnv[name];
-  }
+  // Both keys the readings depend on are PINNED here, explicitly, for BOTH states — never left absent.
+  //
+  // `server/load-env.ts` backfills a key the child does not carry from `<repo root>/.env` (`!process.env[key]`),
+  // so a deleted key is not "off": in a checkout whose `.env` pins `MCP_ENABLED=true` and a non-empty
+  // `PUBLIC_BASE_URL`, the deleted value comes back, (b) reads a disabled state as "enabled", and (a) reads
+  // the deployer's base url instead of this state's own origin. An explicit value wins the backfill, which is
+  // what makes the two readings the criterion's own rather than the environment's.
   const serverEnv: Record<string, string> = {
     ...baseEnv,
     DATABASE_PATH: path.join(dataDir, 'auth.db'),
@@ -169,8 +216,19 @@ const bootState = async (state: GateState, dataDir: string): Promise<BootedState
     // The start-up sweep reaps every session scope on the host, not only this run's.
     CLAUDE_SESSION_SCOPE_SWEEP: 'off',
     FORCE_COLOR: '0',
+    MCP_ENABLED: state.mcpEnabled,
+    // `<base>/mcp` must resolve to THIS state's origin, so the base is pinned to the loopback the server binds
+    // rather than inherited from a deployer's `.env` (which may advertise a public https origin).
+    PUBLIC_BASE_URL: `http://127.0.0.1:${serverPort}`,
   };
-  if (state.mcpEnabled !== null) serverEnv.MCP_ENABLED = state.mcpEnabled;
+  for (const key of READING_KEYS) {
+    if (serverEnv[key] === undefined || serverEnv[key] === '') {
+      throw new Error(
+        `${key} is not pinned on the ${state.label} server env; server/load-env.ts would backfill it from the `
+        + "deployer's .env, which is exactly the environment coupling this criterion must not depend on",
+      );
+    }
+  }
 
   const server = spawn(process.execPath, [TSX_CLI, '--tsconfig', 'server/tsconfig.json', 'server/index.ts'], {
     cwd: REPO_ROOT,
@@ -277,6 +335,21 @@ const bootStateWithPage = async (browser: Browser, state: GateState): Promise<{
 
 test.describe.configure({ mode: 'serial', timeout: 110_000 });
 
+/**
+ * Records this checkout's own `.env` key names once, at the top of the run.
+ *
+ * The readings themselves are pinned (see `READING_KEYS`), so those values cannot decide a reading — but the
+ * NAMES being visible is what turns a future `.env` change from a silent flip into something the run's output
+ * shows. `(none)` is the normal case for a checkout with no `.env`: nothing for `load-env.ts` to backfill.
+ */
+test.beforeAll(() => {
+  const keys = readDotenvKeys();
+  console.log(
+    `dotenv-keys=${keys.length > 0 ? keys.join(',') : '(none)'}; `
+    + `reading keys pinned explicitly on every state=${READING_KEYS.join(',')}`,
+  );
+});
+
 test.describe('CloudCLI MCP block and token scopes in settings', () => {
   test('(b) disabled state: the page shows "not enabled" and renders no connect command', async ({ browser }) => {
     const { booted, page, close } = await bootStateWithPage(browser, DISABLED_STATE);
@@ -296,7 +369,8 @@ test.describe('CloudCLI MCP block and token scopes in settings', () => {
       const bearerOnPage = bodyText.includes('Bearer');
 
       console.log(
-        `(b) MCP_ENABLED=${JSON.stringify(booted.state.mcpEnabled)}; status node="${statusText}" `
+        `(b) server env MCP_ENABLED=${JSON.stringify(booted.serverEnv.MCP_ENABLED)} `
+        + `PUBLIC_BASE_URL=${JSON.stringify(booted.serverEnv.PUBLIC_BASE_URL)}; status node="${statusText}" `
         + `(data-enabled=${await status.getAttribute('data-enabled')}); enable hint="${hintText}"; `
         + `connect-command nodes=${commandCount}; "Bearer" anywhere on page=${bearerOnPage}`,
       );
@@ -328,7 +402,8 @@ test.describe('CloudCLI MCP block and token scopes in settings', () => {
       const copyVisible = await copyButton.isVisible();
 
       console.log(
-        `(a) server env MCP_ENABLED=${JSON.stringify(booted.serverEnv.MCP_ENABLED)}; status node="${statusText}" `
+        `(a) server env MCP_ENABLED=${JSON.stringify(booted.serverEnv.MCP_ENABLED)} `
+        + `PUBLIC_BASE_URL=${JSON.stringify(booted.serverEnv.PUBLIC_BASE_URL)}; status node="${statusText}" `
         + `(data-enabled=${await status.getAttribute('data-enabled')}); endpoint="${endpointText}"; `
         + `copy button visible=${copyVisible}`,
       );
