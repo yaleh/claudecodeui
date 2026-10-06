@@ -1,4 +1,4 @@
-import type { McpGatewayGateReading } from '@/modules/mcp-gateway/index.js';
+import type { McpAuditRouteEntry, McpGatewayGateReading } from '@/modules/mcp-gateway/index.js';
 import { normalizeAccessTokenScopes } from '@/modules/oauth/index.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -84,6 +84,17 @@ type SettingsDependencies = {
     path: string;
     /** The deployment's public base url, or null to fall back to the request's own origin. */
     publicBaseUrl(): string | null;
+  };
+  /**
+   * The read seam the Settings → API page's MCP-audit list needs (AC-304).
+   *
+   * Optional so the existing service criteria keep constructing the dependency
+   * object they always have; the module always supplies it (see
+   * `settings.module.ts`). The reader owns the ownership lookup and the
+   * write-only default; this module only forwards the caller's query options.
+   */
+  mcpAudit?: {
+    listForUser(input: { userId: number; limit?: unknown; includeReads?: unknown }): McpAuditRouteEntry[];
   };
 };
 
@@ -265,6 +276,21 @@ export function createSettingsService(dependencies: SettingsDependencies) {
         path: gateway.path,
         baseUrl: gateway.publicBaseUrl() ?? origin,
       };
+    },
+    /**
+     * The Settings → API page's recent MCP tool-call list: the current user's
+     * audit rows, write calls only unless `includeReads` is set. The reader owns
+     * the ownership lookup and the summary shape; this is a thin pass-through.
+     */
+    listMcpAudit(userId: number, options: { limit?: unknown; includeReads?: unknown }) {
+      const audit = dependencies.mcpAudit;
+      if (!audit) {
+        throw new AppError('MCP audit log is not configured', {
+          code: 'MCP_AUDIT_UNAVAILABLE',
+          statusCode: 500,
+        });
+      }
+      return { rows: audit.listForUser({ userId, ...options }) };
     },
     getNotificationPreferences(userId: number) {
       return { success: true, preferences: dependencies.notifications.getPreferences(userId) };

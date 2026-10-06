@@ -1,10 +1,16 @@
 import {
   accessTokensDb,
   credentialsDb,
+  mcpAuditLogDb,
   notificationPreferencesDb,
+  oauthClientsDb,
   pushSubscriptionsDb,
 } from '@/modules/database/index.js';
-import { MCP_GATEWAY_PATH, readMcpGatewayGate } from '@/modules/mcp-gateway/index.js';
+import {
+  createMcpAuditReader,
+  MCP_GATEWAY_PATH,
+  readMcpGatewayGate,
+} from '@/modules/mcp-gateway/index.js';
 import {
   createNotificationEvent,
   getPublicKey,
@@ -56,6 +62,22 @@ const settingsService = createSettingsService({
     issue: (input) => accessTokensService.issueToken(input),
     revoke: (tokenId) => accessTokensService.revokeToken(tokenId),
   },
+  // The MCP-audit readback (AC-304): the reader owns ownership + the write-only
+  // default; these are the production seams it reads. A user's rows are the rows
+  // of that user's token ids (the audit table has no user_id column), and a row's
+  // client name comes from the OAuth client when it has one, else the PAT's own
+  // name (a PAT has a null `client_id`).
+  mcpAudit: createMcpAuditReader({
+    listTokenIdsForUser: (userId) => accessTokensDb.listByUser(userId).map((token) => token.id),
+    listRowsForTokens: (tokenIds, limit, excludeTools) =>
+      mcpAuditLogDb.listForTokens(tokenIds, { limit, excludeTools }),
+    resolveClientName: (row) =>
+      row.client_id !== null
+        ? (oauthClientsDb.findById(row.client_id)?.client_name ?? 'mcp client')
+        : row.token_id !== null
+          ? (accessTokensDb.findById(row.token_id)?.name ?? 'personal access token')
+          : null,
+  }),
 });
 
 /** Settings router assembled for the authenticated server mount. */

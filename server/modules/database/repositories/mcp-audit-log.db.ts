@@ -12,8 +12,10 @@
  * twice. `deleteOlderThan` deletes strictly before the cutoff, so a row exactly
  * on the boundary is retained.
  *
- * Consumers: server/modules/mcp-gateway (mcp-gateway.audit.ts) through the
- * database module barrel.
+ * Consumers: server/modules/mcp-gateway (mcp-gateway.audit.ts, which writes the
+ * rows) and server/modules/settings (via the mcp-audit reader's
+ * `listRowsForTokens` seam, which reads one user's rows back for the MCP-audit
+ * settings page), both through the database module barrel.
  */
 
 import { getConnection } from '@/modules/database/connection.js';
@@ -87,6 +89,43 @@ export const mcpAuditLogDb = {
   allRows(): McpAuditLogRow[] {
     const db = getConnection();
     return db.prepare(`SELECT ${AUDIT_COLUMNS} FROM mcp_audit_log ORDER BY id ASC`).all() as McpAuditLogRow[];
+  },
+
+  /**
+   * The audit rows belonging to any of `tokenIds`, newest first, bounded to
+   * `options.limit` rows.
+   *
+   * Ownership is expressed as a token-id set because the audit table stores
+   * `token_id`/`client_id` and has no `user_id` (AC-244's shape is deliberately
+   * unchanged); the caller resolves a user to its token ids. An empty
+   * `tokenIds` returns `[]` WITHOUT running a query — an `IN ()` predicate is a
+   * syntax error, and "this user owns no tokens" is already the correct answer.
+   *
+   * `options.excludeTools` appends `AND tool NOT IN (...)` INSIDE the same
+   * statement as `LIMIT`, so the limit counts the rows the caller will actually
+   * receive (the default write-only view counts write rows, not rows that a
+   * later JS filter would have discarded).
+   *
+   * Pure read: it classifies nothing, parses no digest, and reads no clock.
+   * `ORDER BY at DESC, id DESC` breaks ties between rows written in the same
+   * second by insertion order, so the order is total and stable. Consumers:
+   * the settings module's MCP-audit reader, through the database module barrel.
+   */
+  listForTokens(tokenIds: number[], options: { limit: number; excludeTools?: readonly string[] }): McpAuditLogRow[] {
+    if (tokenIds.length === 0) {
+      return [];
+    }
+    const params: unknown[] = [...tokenIds];
+    const placeholders = tokenIds.map(() => '?').join(', ');
+    let sql = `SELECT ${AUDIT_COLUMNS} FROM mcp_audit_log WHERE token_id IN (${placeholders})`;
+    const excludeTools = options.excludeTools ?? [];
+    if (excludeTools.length > 0) {
+      sql += ` AND tool NOT IN (${excludeTools.map(() => '?').join(', ')})`;
+      params.push(...excludeTools);
+    }
+    sql += ' ORDER BY at DESC, id DESC LIMIT ?';
+    params.push(options.limit);
+    return getConnection().prepare(sql).all(...params) as McpAuditLogRow[];
   },
 
   /**
