@@ -2,7 +2,7 @@
 id: gap-suite-server-phase-bypass-npx-and-tsx-cli-wrapper
 title: 服务端阶段每个测试文件经 npx → tsx CLI → node --test → 子进程起 5–6 个进程、约 525 MB：改为 node
   --import tsx --test（2 个进程、约 307 MB），为后续抬并发腾出内存余量
-status: ready
+status: done
 labels:
   - gap
 parent: null
