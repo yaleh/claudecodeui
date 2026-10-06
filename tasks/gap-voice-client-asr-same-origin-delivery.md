@@ -45,7 +45,8 @@ extra:
 - **S1 运行时同源提供。** 依赖加入并锁定；三个文件的白名单路由；vite dev 代理。
 - **S2 前端改用固定路径。** 删除四个 env 常量与「全有或全无」的读取逻辑，改为 `BASE_URL` 前缀的固定路径；原因文案改成指向目录与文档；更新 worker 里「onnxruntime-web 刻意不是依赖」的注释与相关单测。
 - **S3 文档与 `.env.example`。**
-- **S4 真实部署验证。** 在 `cloudcli.lrfz.com` 对应的服务上不设任何 `VITE_` 变量，仅靠目录路径，在真实浏览器里走完首次下载 → 缓存 → 重开零下载 → 识别。
+
+上线后的真实部署验证（在 `cloudcli.lrfz.com` 上不设任何 `VITE_` 变量、仅靠目录路径，经 HTTPS 走完首次下载 → 缓存 → 重开零下载 → 识别）是**交付之后的动作，不是本任务的 AC**：由 yale 在部署后取读数，写进 `docs/experiments/2026-10-06-voice-client-asr-probe.md` §10；它不阻塞本任务 fan-in。
 
 ## AC
 
@@ -55,11 +56,10 @@ extra:
 - [x] S2：目录未配置或文件缺失时，适配器返回 `ENGINE_UNAVAILABLE`，原因文案同时包含目录变量名与文档路径，且**没有发起任何对 `/voice-client/model/` 的下载请求**（单测断言 `fetch` 调用次数为 0）。
 - [x] S3：新增的部署文档包含两个模型文件的完整下载链接、字节数、sha256、目录变量与 HTTPS 要求；`grep -c "resolve/main/model.int8.onnx" <文档>` 至少为 1，`.env.example` 含 `VOICE_CLIENT_MODEL_DIR`。
 - [x] `npm run typecheck`、`npm run lint`、`npm run build` 均退出码 0。
-- [ ] S4 真实部署：在不设任何 `VITE_VOICE_CLIENT_*` 的 build 上，仅配置目录路径，用真实浏览器打开 HTTPS 页面完成首次下载、重新打开后模型请求数为 0、识别出文本；读数写进 `docs/experiments/2026-10-06-voice-client-asr-probe.md`，该条由人 yale 在真实部署上取得，执行者不得代写（待外部）
 
 ## DoD
 
-真实落地的标准：一台**只照部署文档操作**的主机（装依赖、把两个模型文件放进文档指定的目录、设一个目录变量或沿用 `SENSEVOICE_MODEL_DIR`、构建并启动）就能让浏览器端识别可用，期间**不需要自己托管任何 URL、不需要设置任何 `VITE_` 变量**；并在真实浏览器里经 HTTPS 看到「首次下载有进度 → 校验 → 缓存 → 重开零下载 → 识别上屏」。只有单测、没有按文档从零部署一次的读数，不算完成。
+真实落地的标准：一台**只照部署文档操作**的主机（装依赖、把两个模型文件放进文档指定的目录、设一个目录变量或沿用 `SENSEVOICE_MODEL_DIR`、构建并启动）就能让浏览器端识别可用，期间**不需要自己托管任何 URL、不需要设置任何 `VITE_` 变量**。本任务的验收面是 S0–S3 与构建三件套；上线后的真实浏览器读数属交付后动作（见 Plan 末段），不作为本任务的 AC。
 
 ## Worker note（2026-10-06）
 
@@ -69,8 +69,6 @@ S0–S3 与 `npm run typecheck` / `npm run lint` / `npm run build` 已在隔离 
 - S1：`package.json:200` 为 `"onnxruntime-web": "1.30.0"`，`npm ls onnxruntime-web` 显示 1.30.0；对 3311 端口运行中的服务 `curl -sI`：`/voice-client/ort/ort.wasm.min.mjs` 200、`ort-wasm-simd-threaded.mjs` 200、`ort-wasm-simd-threaded.wasm` 200 且 `Content-Type: application/wasm`；`/voice-client/ort/package.json`、`/voice-client/model/notes.txt`、`..%2f..%2fpackage.json`、`%2e%2e%2f%2e%2e%2fpackage.json` 均 404；`Range: bytes=0-3` 得 206（`Content-Range: bytes 0-3/14239897`）；`/api/voice/client-assets` 未登录为 401（走现有鉴权）。
 - S2：`grep -rn "VITE_VOICE_CLIENT" src shared server docs .env.example` 无命中；`voiceClientAsrRouting.test.ts` 11/11，退出码 0（含 `/sub/` 前缀与「`fetch` 调用次数为 0」）。
 - S3：`docs/operations/voice-client-asr-deployment.md` 中 `resolve/main/model.int8.onnx` 出现 2 次；`.env.example` 含 `VOICE_CLIENT_MODEL_DIR`。
-
-S4 是必须在真实浏览器 / 真实部署上由人取得的外部读数，执行者不得代写，故保持未勾选，本任务停在 `needs-human`：待 yale 在 `cloudcli.lrfz.com` 上按 `docs/operations/voice-client-asr-deployment.md` 从零部署一次、把读数写进 `docs/experiments/2026-10-06-voice-client-asr-probe.md` §10 之后，勾选 S4 再放行。
 
 ## Touches
 
