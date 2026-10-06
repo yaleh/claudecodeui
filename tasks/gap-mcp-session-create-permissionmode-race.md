@@ -36,5 +36,5 @@ All ACs above pass under the project's scoped test runner (per docs/operations/p
 - server/modules/mcp-gateway/mcp-session-lifecycle.ts
 - server/modules/mcp-gateway/mcp-session-write-deps.ts
 - server/index.ts
-- server/modules/mcp-gateway/tests/ (new or updated test file for this AC)
+- server/modules/mcp-gateway/tests/mcp-session-lifecycle.test.ts (updated criterion test for this AC)
 - tasks/gap-mcp-session-create-permissionmode-race.md
