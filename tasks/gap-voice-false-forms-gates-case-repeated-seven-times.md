@@ -3,7 +3,7 @@ id: gap-voice-false-forms-gates-case-repeated-seven-times
 title: 7 个 voice false-forms 文件各有一个「…and the repository gates still exit
   0」用例，各自串行重跑同一批兄弟判据、typecheck、lint，合计约 373s（server 阶段 139s
   的长杆）：合并为一次，套件已覆盖的改成「存在且被套件收集」的廉价断言
-status: todo
+status: ready
 labels:
   - gap
 parent: null
