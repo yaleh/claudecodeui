@@ -18,7 +18,7 @@ goal_ac: AC-284
 
 **现状（源码核实，非推测）**——三种旧错误形态在同一网关里并存：
 
-1. **纯文本一句话**：`server/modules/mcp-gateway/mcp-gateway.audit.ts:272` 对未鉴权返回 `{ content:[{type:'text',text:'Unauthorized.'}], isError:true }`；`:285` 对 scope 不足返回 `'Insufficient scope for this tool.'`；`:312-316` 的 catch 把抛出的 `Error.message` 原样作为 text。`session_read` 的 not found 在 `server/modules/mcp-gateway/mcp-gateway.read-tools.ts:636` 抛 `Error('Session "…" was not found.')`，经上述 catch 渲染成一句纯文本。
+1. **纯文本一句话**：`server/modules/mcp-gateway/mcp-gateway.audit.ts:272` 对未鉴权返回 `{ content:[{type:'text',text:'Unauthorized.'}], isError:true }`；`:285` 对 scope 不足返回 `'Insufficient scope for this tool.'`；`:312-316` 的 catch 把抛出的 `Error.message` 原样作为 text。`session_read` 的 not found 在 `server/modules/mcp-gateway/mcp-gateway.read-tools.ts:636` 抛 `Error('Session \"…\" was not found.')`，经上述 catch 渲染成一句纯文本。
 2. **文本里塞 JSON**：各工具自带 `refusal()` 返回 `new Error(JSON.stringify({code,message,...}))`——`mcp-approvals.ts:341`、`mcp-session-lifecycle.ts:208`、`mcp-session-send.ts:222`、`mcp-session-background.ts:173`、`mcp-session-cancel-queued.ts:119`、`mcp-session-reconfigure.ts:148`、`mcp-session-host-control.ts:151`；另有 `mcp-gateway.write-tools.ts:269` 与 `:205`、`mcp-resolve-target.ts:215`、`mcp-gateway.read-tools.ts:553` 同形。落地后 `content[0].text` 就是一段 JSON 字符串。
 3. **失败没有 `structuredContent`**：`transport` 只在 `outputSchema` 存在且**成功**时填 `structuredContent`（`mcp-gateway.audit.ts:298-303`），失败三分支（`:272` / `:285` / `:312-316`）一律不带。
 
@@ -48,18 +48,39 @@ goal_ac: AC-284
 7. **红先行**：先提交判据（此时文件不存在 → 存在性闸以退出码 1 输出缺失文件名）；再实现，记录实现后退出码 0。
 8. **移植既有判据**：对旧形状的断言逐条改到新形状，保持断言强度；在任务记录里列旧→新。
 9. **变异三连**（先提交实现再变异，逐条记录 mutation diff、逐字失败行、恢复命令）：(i) 让某工具回到纯文本错误 ⇒ (a)(b) 红；(ii) 让某工具的 not found 用另一个 code ⇒ (c) 红；(iii) 往注册表加一个工具而不加探针 ⇒ (d) 红。
-10. **同步计数 pin**：新判据文件使 `server/**/*.test.ts` 总数 +1，改 `server/shared/tests/quay-test-script.test.ts` 的两处 `known/unknown` pin（以运行时 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` 的实际计数为准，读数为 237 时两处 unknown 分别 234→235、236→237）。
+10. **同步计数 pin**：新判据文件使 `server/**/*.test.ts` 总数 +1，改 `server/shared/tests/quay-test-script.test.ts` 的两处 `known/unknown` pin（以运行时 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` 的实际计数为准，读数为 238 时两处 unknown 分别 235、237）。
 
 ## AC
 
-- [ ] AC1 判据文件 `server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts` 存在，且 `npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts` 退出码 0。任务记录里含「实现前该命令因文件缺失以退出码 1 输出缺失文件名」与「实现后退出码 0」的两段逐字输出（红先行证据）。
-- [ ] AC2 (a) 读法：真实 HTTP 加 MCP SDK 客户端，对全部 17 个工具跑错误探针；每个失败 `isError === true`，且 `structuredContent` 形如 `{ code, message, retryable, details? }`，`code` 匹配 `^[A-Z][A-Z0-9_]*$`，`retryable` 为 boolean，`message` 为非空英文（无 CJK）。判据：`mcp-error-envelope.test.ts` 的对应断言；探针覆盖会话不存在、项目不存在、歧义、参数缺失、参数类型错、未知工具、权限不足、会话忙、审批或排队消息不存在、运行不存在十类。
-- [ ] AC3 (b) 读法：不再有纯文本或「文本里塞 JSON」形态——对每个失败断言 `typeof result.structuredContent === 'object'` 且 `structuredContent` 含 `code`；同时 `content[0]?.text`（若存在）不得是可解析出含 `code` 字段对象的 JSON 字符串，也不得是该失败唯一的信息载体。至少点名回归 `session_read`（旧纯文本）与 `session_send`（旧文本里 JSON）。
-- [ ] AC4 (c) 读法：同一类问题在所有工具上用同一个 code——探针表按「错误类别 → 期望 code」断言每个工具的同类失败 code 恒等；会话不存在一律同一个 code。并且源码（非测试）内不再对同一类问题并存两套说法：`grep -rn "SESSION_NOT_FOUND\|TARGET_NOT_FOUND" server/modules/mcp-gateway/*.ts` 的结果不得同时出现两者描述同一「会话不存在」类别。
-- [ ] AC5 (d) 读法：探针表由工具注册表驱动——判据从真实 `tools/list` 取工具名集，断言每个工具名在探针表的「有探针」或「显式豁免」条目里出现；注册表新增工具而不加探针时本测试必须红。判据同时由变异 (iii) 证明。
-- [ ] AC6 变异证据：先提交实现再变异，逐条记录 mutation diff、逐字失败行与恢复命令。(i) 让某个工具回到纯文本错误 ⇒ (a)(b) 必须红；(ii) 让某个工具的 not found 用另一个 code ⇒ (c) 必须红；(iii) 往注册表加一个工具而不加探针 ⇒ (d) 必须红。三条缺一不可。
-- [ ] AC7 既有判据移植：凡断言旧错误形状的既有测试（见 `## Touches` 的测试文件清单）逐条移植到新形状，断言强度不降，不删除不放宽；任务记录里逐条列旧断言→新断言。判据：`bash scripts/test.sh --for-task gap-ac284-mcp-error-envelope` 退出码 0，且 diff 中无删除 `assert` 或把严格断言放宽成 truthy/跳过。
-- [ ] AC8 计数 pin 同步：`server/shared/tests/quay-test-script.test.ts` 的两处 `known/unknown` pin 相应加一（以运行时实际计数为准），使 `npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0。
+- [x] AC1 判据文件 `server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts` 存在，且 `npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts` 退出码 0。任务记录里含「实现前该命令因文件缺失以退出码 1 输出缺失文件名」与「实现后退出码 0」的两段逐字输出（红先行证据）。
+  - 红先行（实现前，判据文件不存在，命令同上）→ EXIT=1，逐字输出：`Could not find 'server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts'`
+  - 实现后同命令 → EXIT=0：`ℹ tests 7` / `ℹ pass 7` / `ℹ fail 0`
+- [x] AC2 (a) 读法：真实 HTTP 加 MCP SDK 客户端，对全部 17 个工具跑错误探针；每个失败 `isError === true`，且 `structuredContent` 形如 `{ code, message, retryable, details? }`，`code` 匹配 `^[A-Z][A-Z0-9_]*$`，`retryable` 为 boolean，`message` 为非空英文（无 CJK）。判据：`mcp-error-envelope.test.ts` 的对应断言；探针覆盖会话不存在、项目不存在、歧义、参数缺失、参数类型错、未知工具、权限不足、会话忙、审批或排队消息不存在、运行不存在十类。
+  - 证据：真实 express 挂载 + MCP SDK `Client`（`node:http` fetch）+ `tools/list` 读注册表；`PROBE_TABLE` 覆盖全部 17 个工具，`CLASS_PROBES` 覆盖十类，`assertEnvelope` 逐项断言 `isError===true`、`structuredContent` 为对象、键 ⊆ {code,message,retryable,details}、`code` 匹配 `^[A-Z][A-Z0-9_]*$` 且属 `MCP_ERROR_CODES` 词表、`message` 非空且无 CJK（`CJK_PATTERN`）、`retryable` 为 boolean。判据 7/7 通过。
+- [x] AC3 (b) 读法：不再有纯文本或「文本里塞 JSON」形态——对每个失败断言 `typeof result.structuredContent === 'object'` 且 `structuredContent` 含 `code`；同时 `content[0]?.text`（若存在）不得是可解析出含 `code` 字段对象的 JSON 字符串，也不得是该失败唯一的信息载体。至少点名回归 `session_read`（旧纯文本）与 `session_send`（旧文本里 JSON）。
+  - 证据：`assertEnvelope` 对每个失败断言 `structuredContent` 为对象且含 `code`，并断言 `content[0]?.text` 不是可解析出含 `code` 对象的 JSON 串、也不是唯一载体；具名回归 `session_read{session:NO_SUCH_SESSION}` → `SESSION_NOT_FOUND`（旧纯文本）与 `session_send{session:'sess-1'}` → `SESSION_BUSY`（旧 JSON-in-text，`details.runId='run-busy'`、`retryable=true`）均有专用用例。
+- [x] AC4 (c) 读法：同一类问题在所有工具上用同一个 code——探针表按「错误类别 → 期望 code」断言每个工具的同类失败 code 恒等；会话不存在一律同一个 code。并且源码（非测试）内不再对同一类问题并存两套说法：`grep -rn "SESSION_NOT_FOUND\|TARGET_NOT_FOUND" server/modules/mcp-gateway/*.ts` 的结果不得同时出现两者描述同一「会话不存在」类别。
+  - 证据：判据 (c) 用例对每个触发会话不存在的工具断言 code 恒为 `SESSION_NOT_FOUND`；源码 grep（上式，源码文件非递归）→ `TARGET_NOT_FOUND` 出现 0 次，`SESSION_NOT_FOUND` 是会话不存在的唯一 code（`mcp-resolve-target.ts` 的 `notFoundCode` 返回 `'SESSION_NOT_FOUND' | 'PROJECT_NOT_FOUND'`）。
+- [x] AC5 (d) 读法：探针表由工具注册表驱动——判据从真实 `tools/list` 取工具名集，断言每个工具名在探针表的「有探针」或「显式豁免」条目里出现；注册表新增工具而不加探针时本测试必须红。判据同时由变异 (iii) 证明。
+  - 证据：判据 (d) 从真实 `tools/list` 取工具名集（断言恰为 17，正控），断言每个名字落在 `PROBE_TABLE`（有探针）或 `EXEMPT_TOOLS`（显式豁免）且不双桶、不重复；变异 (iii) 证明会红。
+- [x] AC6 变异证据：先提交实现再变异，逐条记录 mutation diff、逐字失败行与恢复命令。(i) 让某个工具回到纯文本错误 ⇒ (a)(b) 必须红；(ii) 让某个工具的 not found 用另一个 code ⇒ (c) 必须红；(iii) 往注册表加一个工具而不加探针 ⇒ (d) 必须红。三条缺一不可。
+  - 实现在 `3a25d65f`、`cbe0989c` 提交后变异，恢复后判据回到 7/7 绿。
+  - (i) mutation：`mcp-gateway.audit.ts` 的 catch 内对 `session_read` 返回纯文本 `{ content:[{type:'text',text:'No such session.'}], isError:true }` ⇒ 2 红，逐字：`AssertionError [ERR_ASSERTION]: regression session_read (was plain text): a failure must carry a structuredContent object (no plain-text-only failures)`。恢复：`git checkout -- server/modules/mcp-gateway/mcp-gateway.audit.ts`。
+  - (ii) mutation：catch 内把 `session_read` 的 `SESSION_NOT_FOUND` 改写成 `SESSION_BUSY` ⇒ 2 红，逐字：`AssertionError [ERR_ASSERTION]: every "session not found" answer must be SESSION_NOT_FOUND, saw SESSION_BUSY`。恢复同上。
+  - (iii) mutation：`mcp-gateway.transport.ts` 的 `createMcpServer` 尾部额外注册 `withMcpAudit({ name:'ac284_phantom', description:'a tool the criterion has no probe for', inputSchema:{}, annotations: readMcpToolAnnotations('overview'), requiredScopes:['cloudcli:read'], handler: () => ({}) })(server, principal)` ⇒ 1 红，逐字：`AssertionError [ERR_ASSERTION]: tools/list must return the full 17-tool set, got ac284_phantom, approval_answer, approvals_list, overview, projects_list, quay_snapshot, run_get, session_background, session_cancel_queued, session_close, session_create, session_get, session_interrupt, session_read, session_reconfigure, session_send, session_start, sessions_list`。恢复：`git checkout -- server/modules/mcp-gateway/mcp-gateway.transport.ts`。
+- [x] AC7 既有判据移植：凡断言旧错误形状的既有测试（见 `## Touches` 的测试文件清单）逐条移植到新形状，断言强度不降，不删除不放宽；任务记录里逐条列旧断言→新断言。判据：`bash scripts/test.sh --for-task gap-ac284-mcp-error-envelope` 退出码 0，且 diff 中无删除 `assert` 或把严格断言放宽成 truthy/跳过。
+  - 旧→新（逐条）：
+    - `mcp-approvals.test.ts` / `mcp-cancel-queued.test.ts` / `mcp-overview.test.ts` / `mcp-run-get.test.ts` / `mcp-session-background.test.ts` / `mcp-session-host-control.test.ts` / `mcp-session-lifecycle.test.ts` / `mcp-session-reconfigure.test.ts` / `mcp-session-send.test.ts`：共用 `parseToolResult` 助手，失败 payload 旧从 `JSON.parse(content[0].text)` 取 → 新从 `structuredContent` 取；成功路径不变。
+    - `mcp-read-tools.test.ts`：失败 `payload` 改从 `structuredContent` 取；错误探针改走一条**从不调用 `tools/list`** 的客户端（SDK Client 会缓存 `tools/list` 的输出校验器，并在 `isError` 结果上也校验 `structuredContent`，成功 schema 一律不匹配，故被 list 预热的客户端会抛错）。
+    - `mcp-resolve-target.test.ts`：`TARGET_NOT_FOUND` → `SESSION_NOT_FOUND` / `PROJECT_NOT_FOUND`；CJK 文案 → 英文；`candidates` 移到 `details`。
+    - `mcp-production-session-wiring.test.ts`：读信封；`TARGET_NOT_FOUND` → `PROJECT_NOT_FOUND`。
+    - `mcp-session-host-control.test.ts`：`payload.leases` → `payload.details.leases`；消息断言 `cron×1` / `background-task×1` 保留。
+    - `mcp-session-lifecycle.test.ts`：`body.candidates` → `body.details.candidates`；`body.supported` → `body.details.supported`。
+    - `mcp-session-reconfigure.test.ts`：`payload.supported` → `payload.details.supported`（含 `plan`/`auto` 两处 `includes`）。
+    - 源码 `mcp-session-host-control.ts`：租约文案由 CJK 译为英文，但保留既有断言所钉的 `×`（乘积符号不是 CJK）。
+  - 判据：`bash scripts/test.sh --for-task gap-ac284-mcp-error-envelope` → EXIT=0，`# tests 16` / `# pass 16` / `# fail 0`（含静态 typecheck/lint 两阶段）。迁移只改字段读取路径与错误码字符串，未删除 `assert`、未放宽为 truthy/skip。
+- [x] AC8 计数 pin 同步：`server/shared/tests/quay-test-script.test.ts` 的两处 `known/unknown` pin 相应加一（以运行时实际计数为准），使 `npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0。
+  - 运行时 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` = 238。`:154` 改 `known=3 unknown=235`、`:203` 改 `known=1 unknown=237`（各 +1）。同命令 → EXIT=0，`ℹ tests 11` / `ℹ pass 11` / `ℹ fail 0`。
 
 ## DoD
 
@@ -92,6 +113,7 @@ goal_ac: AC-284
 - server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts
 - server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts
 - server/modules/mcp-gateway/tests/mcp-overview.test.ts
+- server/modules/mcp-gateway/tests/mcp-production-session-wiring.test.ts
 - server/modules/mcp-gateway/tests/mcp-read-tools.test.ts
 - server/modules/mcp-gateway/tests/mcp-resolve-target.test.ts
 - server/modules/mcp-gateway/tests/mcp-run-get.test.ts
