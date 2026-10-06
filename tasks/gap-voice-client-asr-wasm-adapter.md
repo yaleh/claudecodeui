@@ -45,18 +45,18 @@ extra:
 - **S0 纯前端与后处理模块。** 把探针 `experiments/voice-client-asr-probe/probe.mjs` 里的 fbank / LFR+CMVN / CTC 贪心 / metadata 读取移成 `.ts` 纯函数（不引入 Node 内置、不引入 ES2021+ 库特性，保证两套编译配置都能编译）。用探针留下的对照读数做回归：片段 1 的前 6 个 token 为 `检/t=4 查/t=7 we/t=12 b/t=15 ▁server/t=18 进/t=25`，fbank 与 `kaldi_native_fbank` 的 `max|Δ|` 为 0。
 - **S1 模型下载与缓存模块。** 独立于识别逻辑：`fetch` 流式读 + 进度回调 + sha256 校验 + Cache API 读写 + `storage.persist()` + 损坏恢复 + 降级路径。所有环境依赖（`fetch`、`caches`、`crypto.subtle`、`navigator.storage`）注入，测试用假实现覆盖「零请求」「截断不入缓存」「损坏重下」「配额失败降级」。
 - **S2 Worker 与适配器。** Worker 承载 onnxruntime-web 会话并暴露 `{init, run}`；适配器实现 `AsrAdapter`，未就绪时和 `sensevoice-local` 一样用稳定错误码回答（例如 `ENGINE_UNAVAILABLE`），不抛异常、不静默换识别器；两个入口守卫（容器类型、请求预算）先于引擎执行。构建标识与模型哈希写进每条识别记录。
-- **S3 路由与回退。** `useVoiceInput` 在客户端路径可用时用它识别，否则走服务端；回退触发有两条：引擎不可用，或单条片段实际实时因子超过阈值（按片段，不按平均）。回退要有可观察的事件，不得静默。
+- **S3 路由与回退。** `useVoiceInput` 在客户端路径可用时用它识别，否则走服务端；`voiceConfig` 增加客户端路径的启用开关，`useVoiceAvailable` 反映客户端路径的就绪状态；回退触发有两条：引擎不可用，或单条片段实际实时因子超过阈值（按片段，不按平均）。回退要有可观察的事件，不得静默。
 - **S4 真机验证。** 手机与桌面各跑一次完整流程，读首次下载进度、二次打开零下载、熄屏后恢复，记录进文档。
 
 ## AC
 
-- [ ] S0：新增的纯前端模块单测通过，且对探针留下的 token 回归读数（片段 1 前 6 个 token 与 `t`）逐项相同；命令 `npx vitest run <新增前端单测文件>` 退出码 0。
-- [ ] S1：缓存模块单测通过并至少覆盖五种情形：命中缓存时 `fetch` 调用次数为 0；下载被截断或哈希不符时 `cache.put` 调用次数为 0；缓存条目哈希不符时丢弃并重新下载；`caches` 不可用或 `put` 抛配额错误时识别仍可用且产生一条用户可见的降级提示；下载进度回调的已下载字节单调不减。命令 `npx vitest run <新增缓存单测文件>` 退出码 0。
-- [ ] S2：适配器按 `shared/asr/asrRegistry.ts` 登记 `locality: 'local-client'`，并通过现有适配器不变式测试（`shared/asr/asrInvariants.ts` 所驱动的 `src/shared/asr/tests/asrContractInvariants.test.ts`）；该测试不得为它新增豁免；未就绪时返回稳定错误码而不是抛异常。
+- [ ] S0：新增的纯前端模块单测通过，且对探针留下的 token 回归读数（片段 1 前 6 个 token 与 `t`）逐项相同；命令 `npx vitest run src/shared/tests/voiceClientFrontend.test.ts` 退出码 0。
+- [ ] S1：缓存模块单测通过并至少覆盖五种情形：命中缓存时 `fetch` 调用次数为 0；下载被截断或哈希不符时 `cache.put` 调用次数为 0；缓存条目哈希不符时丢弃并重新下载；`caches` 不可用或 `put` 抛配额错误时识别仍可用且产生一条用户可见的降级提示；下载进度回调的已下载字节单调不减。命令 `npx vitest run src/modules/chat/utils/tests/voiceModelCache.test.ts` 退出码 0。
+- [ ] S2：适配器按 `shared/asr/asrRegistry.ts` 登记 `locality: 'local-client'`，并通过现有适配器不变式测试 `npx vitest run src/shared/asr/tests/asrContractInvariants.test.ts`（退出码 0）；该测试不得为它新增豁免；未就绪时返回稳定错误码而不是抛异常。
 - [ ] S2：适配器源文件不 import 任何 Node 内置模块，`npm run typecheck` 在根配置与 `server/tsconfig.json` 两套配置下都通过。
-- [ ] S3：路由单测证明两条回退触发都生效（引擎不可用；单条片段实时因子超阈值但其余片段正常），且回退时发出一条可观察事件；命令 `npx vitest run <新增路由单测文件>` 退出码 0。
-- [ ] 全部新增 `src/` 代码满足 `frontend-module-standards`（`@/` 导入、type 而非 interface、barrel、单文件测试），`npx oxlint <新增与改动的文件>` 退出码 0。
-- [ ] 真机：在手机上首次下载时进度条可见，**关闭并重新打开页面后 `fetch` 模型的请求数为 0**，且识别结果的高置信 token 与服务端一致率不低于 95%；读数由 yale 在真机上取得并写进 `docs/experiments/2026-10-06-voice-client-asr-probe.md` 的 §10，执行者不得代写（待外部）。
+- [ ] S3：路由单测证明两条回退触发都生效（引擎不可用；单条片段实时因子超阈值但其余片段正常），且回退时发出一条可观察事件；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts` 退出码 0。
+- [ ] 全部新增 `src/` 代码满足 `frontend-module-standards`（`@/` 导入、type 而非 interface、barrel、单文件测试），`npx oxlint` 对新增与改动的文件退出码 0。
+- [ ] 真机：在手机上首次下载时进度条可见，关闭并重新打开页面后 `fetch` 模型的请求数为 0，且识别结果的高置信 token 与服务端一致率不低于 95%，读数只能由人 yale 在真机上取得并写进 `docs/experiments/2026-10-06-voice-client-asr-probe.md` 的 §10，执行者不得代写（待外部）
 
 ## DoD
 
@@ -67,12 +67,15 @@ extra:
 - shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider.ts
 - shared/asr/asrRegistry.ts
 - src/shared/voiceClientFrontend.ts
+- src/shared/voiceConfig.ts
 - src/modules/chat/utils/voiceModelCache.ts
 - src/modules/chat/audio/voiceClientAsrWorker.ts
 - src/modules/chat/hooks/useVoiceInput.ts
+- src/modules/chat/hooks/useVoiceAvailable.ts
 - src/shared/tests/voiceClientFrontend.test.ts
 - src/modules/chat/utils/tests/voiceModelCache.test.ts
 - src/modules/chat/tests/voiceClientAsrRouting.test.ts
+- src/modules/chat/tests/voiceCaptureTestHarness.ts
 - src/shared/asr/tests/asrContractInvariants.test.ts
 - docs/experiments/2026-10-06-voice-client-asr-probe.md
 - tasks/gap-voice-client-asr-wasm-adapter.md
