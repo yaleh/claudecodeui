@@ -78,7 +78,7 @@ goal_ac: AC-284
     - `mcp-session-lifecycle.test.ts`：`body.candidates` → `body.details.candidates`；`body.supported` → `body.details.supported`。
     - `mcp-session-reconfigure.test.ts`：`payload.supported` → `payload.details.supported`（含 `plan`/`auto` 两处 `includes`）。
     - 源码 `mcp-session-host-control.ts`：租约文案由 CJK 译为英文，但保留既有断言所钉的 `×`（乘积符号不是 CJK）。
-  - 判据：`bash scripts/test.sh --for-task gap-ac284-mcp-error-envelope` → EXIT=0，`# tests 16` / `# pass 16` / `# fail 0`（含静态 typecheck/lint 两阶段）。迁移只改字段读取路径与错误码字符串，未删除 `assert`、未放宽为 truthy/skip。
+  - 判据：`bash scripts/test.sh --for-task gap-ac284-mcp-error-envelope` → EXIT=0，`# tests 17` / `# pass 17` / `# fail 0`（含静态 typecheck/lint 两阶段；Touches 补入 `mcp-production-session-wiring.test.ts` 后为 17 个测试文件）。迁移只改字段读取路径与错误码字符串，未删除 `assert`、未放宽为 truthy/skip。
 - [x] AC8 计数 pin 同步：`server/shared/tests/quay-test-script.test.ts` 的两处 `known/unknown` pin 相应加一（以运行时实际计数为准），使 `npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0。
   - 运行时 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` = 238。`:154` 改 `known=3 unknown=235`、`:203` 改 `known=1 unknown=237`（各 +1）。同命令 → EXIT=0，`ℹ tests 11` / `ℹ pass 11` / `ℹ fail 0`。
 
