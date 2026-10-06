@@ -102,8 +102,10 @@ for f in server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts; do [ 
 - server/modules/mcp-gateway/mcp-overview-tools.ts
 - server/modules/mcp-gateway/mcp-gateway.read-tools.ts
 - server/modules/mcp-gateway/mcp-error-envelope.ts
+- server/modules/mcp-gateway/mcp-tool-error-codes.ts
 - server/modules/mcp-gateway/index.ts
 - server/modules/websocket/services/chat-control.service.ts
+- server/modules/websocket/services/chat-websocket.service.ts
 - server/modules/websocket/index.ts
 - server/modules/providers/services/provider-runtime.service.ts
 - server/modules/providers/list/claude/claude-runtime.provider.ts
