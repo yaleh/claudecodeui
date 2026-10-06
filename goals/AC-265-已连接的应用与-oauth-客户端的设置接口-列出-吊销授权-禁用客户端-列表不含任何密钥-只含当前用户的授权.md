@@ -1,7 +1,7 @@
 ---
 id: AC-265
 title: 已连接的应用与 OAuth 客户端的设置接口：列出、吊销授权、禁用客户端，列表不含任何密钥，只含当前用户的授权
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-settings.routes.test.ts; do
@@ -22,6 +22,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:25:19.247Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

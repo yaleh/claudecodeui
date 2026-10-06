@@ -1,7 +1,7 @@
 ---
 id: AC-259
 title: OAuth 授权服务器的语义：PKCE 强制 S256，授权码一次性且 60 秒过期，refresh 每用一次即轮换且旧的复用会吊销整个授权，受众必须匹配
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in server/modules/oauth/tests/oauth-provider.test.ts; do [ -f
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:24:35.887Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

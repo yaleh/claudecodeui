@@ -1,7 +1,7 @@
 ---
 id: AC-275
 title: 真实 claude 二进制的常驻驱动经控制服务撤回排队消息：uuid 来自真实驱动，撤回后那条消息不成为一轮，进程 pid 不变
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-022
 criterion: for f in
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:28:42.052Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

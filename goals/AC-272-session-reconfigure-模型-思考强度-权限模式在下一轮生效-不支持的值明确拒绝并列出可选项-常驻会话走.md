@@ -1,7 +1,7 @@
 ---
 id: AC-272
 title: session_reconfigure：模型、思考强度、权限模式在下一轮生效，不支持的值明确拒绝并列出可选项，常驻会话走驱动的在线重配置
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-022
 criterion: for f in
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:28:00.914Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

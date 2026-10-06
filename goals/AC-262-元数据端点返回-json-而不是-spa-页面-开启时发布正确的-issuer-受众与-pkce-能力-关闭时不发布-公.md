@@ -1,7 +1,7 @@
 ---
 id: AC-262
 title: 元数据端点返回 JSON 而不是 SPA 页面：开启时发布正确的 issuer、受众与 PKCE 能力，关闭时不发布，公网基址必须是 https
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: for f in
@@ -29,6 +29,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-05T23:24:48.173Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

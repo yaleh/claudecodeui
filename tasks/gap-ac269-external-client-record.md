@@ -5,7 +5,7 @@ title: AC-269 外部客户端绑定记录齐全：scripts/mcp-smoke.mjs 增
   docs/proposals/cloudcli-mcp-external-client.md
   九节读数（客户端与版本、公网基址不含令牌、回调主机、DCR、resource、refresh、工具调用超时、overview
   返回、MCP_DCR=allowlist 重绑）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -49,15 +49,15 @@ AC-269（GOAL-021 退出条件 8 前半；SPEC `docs/proposals/mcp-gateway-SPEC.
 
 ## AC
 
-- [ ] AC1 红态基线逐字记录：改动前运行 AC-269 判据命令 `for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-external-client.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node scripts/mcp-smoke.mjs --check-external-record docs/proposals/cloudcli-mcp-external-client.md`，存在性闸退出码 **1** 并逐字输出 `缺判据文件：scripts/mcp-smoke.mjs`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：同一命令退出 **0**，写下 `--check-external-record` 的 stdout 与 stderr 逐字；`node --test scripts/mcp-smoke.test.mjs` 退出 **0** 并写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 九节齐全：记录文件恰有九个标题 `客户端与版本`、`公网基址`、`回调主机`、`是否使用 DCR`、`是否发送 resource`、`是否使用 refresh token`、`工具调用超时`、`overview 返回`、`allowlist 重绑`，每节都有非空 `读数：` 与 `结论：` 两行；逐字打印每节两行。
-- [ ] AC4 单测覆盖五件机械检查：`node --test scripts/mcp-smoke.test.mjs` 退出 **0**，至少覆盖（a）缺整条节点名该节、（b）缺 `读数：`/`结论：` 行点名该节、（c）读数或结论为空点红、（d）`公网基址` 含 `ccp_`/`cca_` 令牌点红并点名、（e）九节齐全 exit 0；逐条写出测试名。
-- [ ] AC5 取假形态 (i) 缺一节必红并点名：删掉记录里任一节（如 `overview 返回`）后 `--check-external-record` 退出 **非 0**，stderr 逐字点名 `缺节：overview 返回`；登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
-- [ ] AC6 取假形态 (ii) 公网基址含令牌必红：把 `公网基址` 一节读数改成含 `ccp_`（或 `cca_`）令牌的 URL 后 `--check-external-record` 退出 **非 0** 并点名公网基址含令牌；登记变异 diff、逐字失败行、恢复命令；恢复后重跑回绿。
-- [ ] AC7 九节读数是真绑定的原始读数：读数来自一次真实的外部 MCP 客户端经 cloudflared 公网基址的 OAuth 绑定与 `overview` 调用（客户端可为 Gemini、Claude.ai 连接器或其他外部 MCP 客户端，记录里写明实际所用者与版本），九节读数逐条原始、非模板；若本轮拿不到任何外部客户端或公网基址，执行者不得编造，逐节点名缺哪节并停在 `needs-human`。
-- [ ] AC8 不点亮 AC-270：`grep -c '^外部客户端验收：通过' docs/proposals/cloudcli-mcp-external-client.md` → **0**，且 `grep -c '外部客户端验收：通过' scripts/mcp-smoke.mjs` → **0**（模板与脚本输出都不得出现以该字样开头的行）。
-- [ ] AC9 契约面与边界：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs` 退出 **0**；`git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；证明产品代码（`server/`、`src/`）一行未改。
+- [x] AC1 红态基线逐字记录：改动前运行 AC-269 判据命令 `for f in scripts/mcp-smoke.mjs docs/proposals/cloudcli-mcp-external-client.md; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; node scripts/mcp-smoke.mjs --check-external-record docs/proposals/cloudcli-mcp-external-client.md`，存在性闸退出码 **1**，逐字输出 `缺判据文件：docs/proposals/cloudcli-mcp-external-client.md`。注：AC 原文预测点名 `scripts/mcp-smoke.mjs`，但该文件已由 `gap-ac256` 落进 develop，故本分支存活侧缺的是记录文件本身；存在性闸仍红并逐字点名缺失的判据文件（意图 = 先红后绿不变，仅预测的文件名过时）。
+- [x] AC2 判据绿：同一命令退出 **0**；stdout 逐字 `记录合格：docs/proposals/cloudcli-mcp-external-client.md 九节齐全、每节 读数：/结论： 非空、公网基址不含令牌串`，stderr 为空。`node --test scripts/mcp-smoke.test.mjs` 退出 **0**，读数 `tests 39 / pass 39 / fail 0`。
+- [x] AC3 九节齐全：记录文件恰有九个标题 `客户端与版本`、`公网基址`、`回调主机`、`是否使用 DCR`、`是否发送 resource`、`是否使用 refresh token`、`工具调用超时`、`overview 返回`、`allowlist 重绑`，每节都有非空 `读数：` 与 `结论：` 两行（记录文件第 12–55 行）。
+- [x] AC4 单测覆盖五件机械检查：`node --test scripts/mcp-smoke.test.mjs` 退出 **0**（39/39）。逐条测试名：(a) 缺整条节点名 = `外部记录（a）：缺一节就红，并逐字点名缺的是哪节`、`外部记录（a 纯函数）：checkExternalRecordText 对只有一节的记录点名其余八节全缺`、`外部记录（a 纯函数）：checkExternalRecordFile 对不存在的文件把九节点名全缺`；(b) 缺 `读数：`/`结论：` 行点名 = `外部记录（b-1）：缺 \`结论：\` 行的节点名该节缺哪行，不报整节`、`外部记录（b-2）：缺 \`读数：\` 行的节点名该节缺哪行`；(c) 读数为空点红 = `外部记录（c-1）：\`读数：\` 冒号后为空时点红并点名该节`、`外部记录（c-2）：\`结论：\` 冒号后只有空白也算空`；(d) 公网基址含令牌红 = `外部记录（d-1）：公网基址含 \`ccp_\` 令牌必红并点名该节`、`外部记录（d-2）：公网基址含 \`cca_\` 令牌必红并点名该节`；(e) 九节齐全 exit 0 = `外部记录（e）：九节齐全 exit 0`（另含 `外部记录（e 纯函数）：九节齐全判绿`、`外部记录：文件不存在时 exit 1 并把九节点名全缺`、`外部记录：\`--check-external-record\` 缺文件参数时给用法并 exit 1`）。
+- [x] AC5 取假形态 (i) 缺一节必红并点名：删掉 `overview 返回` 一节后 `--check-external-record` 退出 **1**，stderr 逐字 `缺节：overview 返回 —— 缺整个小节`；变异 diff 为删去该节 `## overview 返回` 小节（读数+结论共 5 行）；恢复命令 `cp /tmp/ac269-run/record.bak docs/proposals/cloudcli-mcp-external-client.md`（等价于 `git checkout -- <file>` 后重填），恢复后重跑 `EXIT=0`。
+- [x] AC6 取假形态 (ii) 公网基址含令牌必红：把 `公网基址` 一节读数改成含 `cca_7f9c…` 令牌的 URL（`…trycloudflare.com/?access=cca_…`）后 `--check-external-record` 退出 **1**，stderr 逐字 `缺节：公网基址 —— 正文含令牌串（ccp_/cca_）——公网基址只应是 https 主机名，不得带任何令牌`；恢复命令同 AC5，恢复后 `EXIT=0`，且该节 token 扫描为空。
+- [x] AC7 九节读数是真绑定的原始读数：外部客户端 = 终端 Claude Code `2.1.289`（@modelcontextprotocol/sdk 1.29.0，node v24.21.0），经临时 cloudflared quick tunnel 公网基址 `https://sheriff-kitchen-lenders-accessing.trycloudflare.com` 走 OAuth 2.1 + PKCE S256 绑定（DCR `created_via="dcr"`、发 `resource=https://<基址>/mcp`、拿 `ccr_` refresh token），并调用了 `overview` 与 `run_get`；九节读数逐条原始、非模板。
+- [x] AC8 不点亮 AC-270：`grep -c '^外部客户端验收：通过' docs/proposals/cloudcli-mcp-external-client.md` → **0**；`grep -c '外部客户端验收：通过' scripts/mcp-smoke.mjs` → **0**。
+- [x] AC9 契约面与边界：`npx oxlint scripts/mcp-smoke.mjs scripts/mcp-smoke.test.mjs` 退出 **0**；`git diff --stat develop...HEAD` = `docs/proposals/cloudcli-mcp-external-client.md | 55 +`（ASCII `(new)`）、`scripts/mcp-smoke.mjs | 132 +`、`scripts/mcp-smoke.test.mjs | 149 +`，与 `## Touches` 逐条对齐；`git status --porcelain -- server src` 为空 ⇒ 产品代码（`server/`、`src/`）一行未改。
 
 ## DoD
 

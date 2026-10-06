@@ -77,6 +77,33 @@ export const RESIDENT_SECTION_TITLES = [
  */
 export const RESIDENT_CANCEL_SECTION = '撤回与 pid 不变';
 
+/**
+ * AC-269 的外部客户端绑定记录里必须齐全的**九节**，AC 逐字。`--check-external-record` 按这个数组逐节
+ * 检查，缺哪节点名哪节。**与前两个节集合都不同**：AC-256 是嵌套冒烟（八节）、AC-276 是常驻专有能力
+ * （八节），本条是经 cloudflared 公网基址的外部客户端绑定（九节），记录文件也不同
+ * （`DEFAULT_EXTERNAL_RECORD`）。标题即 id：整行相等比对（中文没有词边界，不用 `\b`）。
+ */
+export const EXTERNAL_SECTION_TITLES = [
+  '客户端与版本',
+  '公网基址',
+  '回调主机',
+  '是否使用 DCR',
+  '是否发送 resource',
+  '是否使用 refresh token',
+  '工具调用超时',
+  'overview 返回',
+  'allowlist 重绑',
+];
+
+/**
+ * 令牌扫描只针对 `公网基址` 一节正文：出现 `ccp_`（PAT 前缀）或 `cca_`（OAuth access 前缀）即红——
+ * 记录里只应有 https 主机名，不带任何令牌。
+ */
+export const EXTERNAL_TOKEN_SECTION = '公网基址';
+
+/** `公网基址` 一节正文里一旦出现这两个前缀之一就判红并点名。 */
+export const EXTERNAL_TOKEN_PATTERN = /ccp_|cca_/;
+
 /** 本机常驻服务端口；冒烟一律避开它，且全程不连接 / 不启用 / 不重启它。 */
 export const PROTECTED_PORT = 3001;
 
@@ -85,6 +112,9 @@ export const DEFAULT_RECORD = path.join(ROOT, 'docs/proposals/cloudcli-mcp-smoke
 
 /** AC-276 的常驻冒烟记录文件默认位置（与 AC-256 的记录文件不同）。 */
 export const DEFAULT_RESIDENT_RECORD = path.join(ROOT, 'docs/proposals/cloudcli-mcp-resident-smoke.md');
+
+/** AC-269 的外部客户端绑定记录文件默认位置（与 AC-256/AC-276 的记录文件都不同）。 */
+export const DEFAULT_EXTERNAL_RECORD = path.join(ROOT, 'docs/proposals/cloudcli-mcp-external-client.md');
 
 /** MCP 网关的挂载路径（`MCP_GATEWAY_PATH`）；冒烟只打这一条。 */
 export const MCP_PATH = '/mcp';
@@ -355,6 +385,74 @@ export function checkResidentRecordFile(filePath) {
     return RESIDENT_SECTION_TITLES.map((title) => ({ title, reason: `记录文件不存在（${filePath}）` }));
   }
   return checkResidentRecordText(fs.readFileSync(filePath, 'utf8'));
+}
+
+// ---------------------------------------------------------------------------
+// 外部客户端绑定记录（AC-269）：解析与逐节检查 —— 九节、令牌扫描与另两个节集合都分开
+// ---------------------------------------------------------------------------
+
+/**
+ * 抽出外部记录的某个小节（整段正文 + `读数：` 行 + `结论：` 行）。三种缺失（缺整节 / 缺行 / 行为空）
+ * 分开报，与 `--check-record`/`--check-resident-record` 同一套判读方式。
+ * @param {string} text
+ * @param {string} title
+ * @returns {{ text: string, reading: string | null, conclusion: string | null } | null}
+ */
+export function parseExternalSection(text, title) {
+  return parseResidentSection(text, title);
+}
+
+/**
+ * 外部记录的三件机械检查（AC-269/AC3 逐字）：
+ *   (a) 九节逐节非空 `读数：` 与 `结论：`，缺整节点名该节、缺行点名该节缺哪行；
+ *   (b) `公网基址` 一节正文不得出现 `ccp_`/`cca_` 令牌串（出现即红并点名该节）；
+ *   (c) 文件不存在时把九节点名全缺（由 {@link checkExternalRecordFile} 承担）。
+ * 返回缺什么（空数组 = 齐全）。
+ * @param {string} text
+ * @returns {Array<{ title: string, reason: string }>}
+ */
+export function checkExternalRecordText(text) {
+  /** @type {Array<{ title: string, reason: string }>} */
+  const missing = [];
+  for (const title of EXTERNAL_SECTION_TITLES) {
+    const parsed = parseExternalSection(text, title);
+    if (parsed === null) {
+      missing.push({ title, reason: '缺整个小节' });
+      continue;
+    }
+    if (parsed.reading === null) {
+      missing.push({ title, reason: '缺 `读数：` 行' });
+    } else if (parsed.reading.trim() === '') {
+      missing.push({ title, reason: '`读数：` 为空（冒号后去掉空白后没有内容）' });
+    }
+    if (parsed.conclusion === null) {
+      missing.push({ title, reason: '缺 `结论：` 行' });
+    } else if (parsed.conclusion.trim() === '') {
+      missing.push({ title, reason: '`结论：` 为空（冒号后去掉空白后没有内容）' });
+    }
+  }
+
+  // (b) 公网基址一节不得含令牌：只在该节存在时判，否则上面已经点名「缺整个小节」，再报一次是重复。
+  const publicBase = parseExternalSection(text, EXTERNAL_TOKEN_SECTION);
+  if (publicBase !== null && EXTERNAL_TOKEN_PATTERN.test(publicBase.text)) {
+    missing.push({
+      title: EXTERNAL_TOKEN_SECTION,
+      reason: '正文含令牌串（ccp_/cca_）——公网基址只应是 https 主机名，不得带任何令牌',
+    });
+  }
+  return missing;
+}
+
+/**
+ * 读文件后逐节检查。文件不存在时把九节全部点名为缺失（红态基线就是这一条）。
+ * @param {string} filePath
+ * @returns {Array<{ title: string, reason: string }>}
+ */
+export function checkExternalRecordFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return EXTERNAL_SECTION_TITLES.map((title) => ({ title, reason: `记录文件不存在（${filePath}）` }));
+  }
+  return checkExternalRecordText(fs.readFileSync(filePath, 'utf8'));
 }
 
 /**
@@ -2492,6 +2590,26 @@ export function runCheckResidentRecord(filePath) {
   return 1;
 }
 
+/**
+ * `--check-external-record`：逐节检查外部客户端绑定记录（九节、非空读数/结论、`公网基址` 不含
+ * `ccp_`/`cca_` 令牌串），缺哪节点名哪节；齐全 exit 0。**纯读**，不起实例、不碰网络。
+ * @param {string} filePath
+ */
+export function runCheckExternalRecord(filePath) {
+  const missing = checkExternalRecordFile(filePath);
+  if (missing.length === 0) {
+    process.stdout.write(
+      `记录合格：${filePath} 九节齐全、每节 读数：/结论： 非空、公网基址不含令牌串\n`,
+    );
+    return 0;
+  }
+  for (const entry of missing) {
+    process.stderr.write(`缺节：${entry.title} —— ${entry.reason}\n`);
+  }
+  process.stderr.write(`记录不合格（${filePath}）：缺 ${missing.length} 处，九节要求见 AC-269/AC3。\n`);
+  return 1;
+}
+
 // ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
@@ -2672,6 +2790,20 @@ export async function main(argv) {
 
   if (flags['check-resident-record'] !== undefined) {
     return runCheckResidentRecord(flags['check-resident-record']);
+  }
+
+  if (flags['check-external-record'] !== undefined) {
+    // 参数缺失（`--check-external-record` 后面没有值，parseFlags 记为 'true'）时给出用法并退非 0：
+    // 否则会去读一个叫 `true` 的文件，把「忘了给文件」误报成「记录缺九节」。
+    const target = flags['check-external-record'];
+    if (target === undefined || target === 'true' || target.trim() === '') {
+      process.stderr.write(
+        '用法：node scripts/mcp-smoke.mjs --check-external-record <记录文件>\n'
+        + '（缺 <记录文件>：按 AC-269 逐节检查九节、非空读数/结论、公网基址不含令牌串。）\n',
+      );
+      return 1;
+    }
+    return runCheckExternalRecord(target);
   }
 
   if (flags['run-resident'] !== undefined) {
