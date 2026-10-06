@@ -15,6 +15,13 @@
  * stay different acts: the run id is produced by exactly one thing (a real send)
  * and its absence is the honest reading of "no run was started".
  *
+ * A `permissionMode` argument closes the race between "create a session with a
+ * first message" and "the mode that first message runs under": the mode is
+ * checked against the provider's capability matrix before anything is created,
+ * recorded on the row, and carried on the opening send so the first child spawns
+ * with it — no `session_reconfigure` round-trip is needed before the message, so
+ * that first turn is not left paused on an unattended permission prompt.
+ *
  * `session_interrupt` stops the run a session currently has and NOTHING ELSE.
  * It calls the control service's `abort` and reports what that answered: a
  * resident session's process is owned by its host driver, so interrupting leaves
@@ -34,6 +41,7 @@
 
 import { z } from 'zod';
 
+import type { providerCapabilitiesService, providerModelsService } from '@/modules/providers/index.js';
 import type { LLMProvider } from '@/shared/types.js';
 
 import type { McpPrincipal } from './mcp-gateway.auth.js';
@@ -96,6 +104,19 @@ export type McpSessionCreateDeps = {
     switchLifecycle(provider: LLMProvider, sessionId: string, mode: string): unknown;
   };
   control: McpControlSeam;
+  /**
+   * The provider capability matrix, read exactly the way `session_reconfigure`
+   * reads it, so an unsupported `permissionMode` is refused with the supported
+   * list instead of being recorded and rejected later by the runtime.
+   *
+   * OPTIONAL so the pre-permissionMode wiring (and its AST-scanning criterion,
+   * AC-278) keeps compiling untouched. A caller that supplies no `permissionMode`
+   * never reads it; a caller that does, with the matrix unwired, fails closed —
+   * an unverifiable mode is refused rather than written.
+   */
+  capabilities?: Pick<typeof providerCapabilitiesService, 'getProviderCapabilities'>;
+  /** The session-row writer for the recorded permission mode (the same service `session_reconfigure` uses). */
+  models?: Pick<typeof providerModelsService, 'setSessionPermissionMode'>;
 };
 
 /** The services `session_interrupt` answers from. */
@@ -117,6 +138,16 @@ export type McpSessionCreateInput = {
   model?: string;
   /** The lifecycle mode to store before any turn runs. */
   lifecycleMode?: string;
+  /**
+   * The permission mode the FIRST run should launch under.
+   *
+   * Checked against the provider's capability matrix before anything is created
+   * (an unsupported value is refused), recorded on the session row so later
+   * turns inherit it, and carried on the opening send's run options so the very
+   * first child spawns with it — no `session_reconfigure` round-trip before the
+   * message, which is what makes an unattended first turn possible.
+   */
+  permissionMode?: string;
 };
 
 /** The `session_create` tool's Zod input shape, used for registration and validation. */
@@ -126,6 +157,7 @@ export const SESSION_CREATE_INPUT_SCHEMA = {
   provider: z.string().optional(),
   model: z.string().optional(),
   lifecycleMode: z.string().optional(),
+  permissionMode: z.string().optional(),
 } satisfies z.ZodRawShape;
 
 /**
@@ -186,7 +218,8 @@ export function readSessionCreateInput(args: Record<string, unknown>): McpSessio
   const provider = typeof args.provider === 'string' ? (args.provider as LLMProvider) : undefined;
   const model = typeof args.model === 'string' ? args.model : undefined;
   const lifecycleMode = typeof args.lifecycleMode === 'string' ? args.lifecycleMode : undefined;
-  return { project, message, provider, model, lifecycleMode };
+  const permissionMode = typeof args.permissionMode === 'string' ? args.permissionMode : undefined;
+  return { project, message, provider, model, lifecycleMode, permissionMode };
 }
 
 /** Reads and validates `session_interrupt`'s arguments. */
@@ -236,7 +269,30 @@ export async function buildSessionCreate(
   }
 
   const provider = input.provider ?? ('claude' as LLMProvider);
+
+  // Refuse an unsupported permission mode BEFORE the row exists: the same read
+  // `session_reconfigure` performs, against the same matrix. With the matrix
+  // unwired (the legacy wiring) an unverifiable mode fails closed rather than
+  // being written and rejected later by the runtime.
+  if (input.permissionMode !== undefined) {
+    const supported = deps.capabilities?.getProviderCapabilities(provider)?.permissionModes ?? [];
+    if (!supported.includes(input.permissionMode)) {
+      throw refusal({
+        code: 'UNSUPPORTED_PERMISSION_MODE',
+        supported: [...supported],
+        message: `该 provider 不支持权限模式 "${input.permissionMode}"；支持：${supported.join(', ')}。`,
+      });
+    }
+  }
+
   const created = deps.sessions.create(provider, entry.path, input.message ?? '');
+
+  // Record the mode on the row right after creation, so it is readable even when
+  // no message follows (the session is configured, just not started) and every
+  // later turn inherits it.
+  if (input.permissionMode !== undefined && deps.models !== undefined) {
+    deps.models.setSessionPermissionMode(provider, created.sessionId, input.permissionMode);
+  }
 
   if (input.lifecycleMode !== undefined) {
     // Before any send: the mode is read at dispatch time, so a resident session
@@ -251,7 +307,16 @@ export async function buildSessionCreate(
   }
 
   const caller: McpControlCaller = { userId: ctx.principal.userId, via: 'mcp' };
-  const sent = await deps.control.send(caller, { sessionId: created.sessionId, content: message });
+  // The mode rides on the opening send's options so the FIRST child spawns with
+  // it. When no mode was given the send input is byte-for-byte what it always
+  // was (no `options` key at all), which is what keeps the old call shape a
+  // reading rather than a convention.
+  const sent = await deps.control.send(
+    caller,
+    input.permissionMode === undefined
+      ? { sessionId: created.sessionId, content: message }
+      : { sessionId: created.sessionId, content: message, options: { permissionMode: input.permissionMode } },
+  );
   if (!sent.ok) {
     throw refusal({ code: sent.code, message: sent.message, sessionId: created.sessionId });
   }

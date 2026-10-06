@@ -2,7 +2,7 @@
 id: gap-mcp-session-create-permissionmode-race
 title: "MCP session_create: accept optional permissionMode, apply before first
   run starts"
-status: ready
+status: done
 labels:
   - gap
 parent: null

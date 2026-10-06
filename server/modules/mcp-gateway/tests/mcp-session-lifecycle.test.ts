@@ -60,13 +60,26 @@
  *   (f) a token lacking `cloudcli:session:control` is denied, exactly one
  *       `denied` audit row is written, and `abort` is never called.
  *
+ * The `permissionMode` legs (the race this task closes) add:
+ *   (g) with no `permissionMode` the opening send input is exactly
+ *       `{sessionId, content}` — no `options` key — and no mode is written;
+ *   (h) an unsupported `permissionMode` is refused with the capability matrix
+ *       BEFORE the row exists (no create, no write);
+ *   (i) a valid `permissionMode` is recorded on the row even with no message;
+ *   (j) with a message, the opening send carries `options.permissionMode`, and
+ *       the REAL claude per-run launch built from those options permits the
+ *       first tool call with no approval (no unattended pause); and
+ *   (k) the negative control — the SAME probe, with the mode omitted, observes
+ *       the first tool call WAIT for a person, so (j) is a reading rather than a
+ *       probe that can never see a pause.
+ *
  * The false forms (AC9) mutate the implementation after this criterion is green;
  * they are recorded in the task's change notes.
  */
 
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
@@ -78,7 +91,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
 
-import type { LLMProvider } from '@/shared/types.js';
+import type { LLMProvider, ProviderRuntimeContext, ProviderRuntimeWriter } from '@/shared/types.js';
 
 // --------------------------------------------------------------------------
 // The environment is set BEFORE any aliased module is imported: the debug
@@ -109,9 +122,16 @@ const { closeConnection, getConnection, initializeDatabase, mcpAuditLogDb, sessi
   '@/modules/database/index.js'
 );
 const { createAccessTokensService } = await import('@/modules/oauth/index.js');
-const { createProviderRuntimeService, providerRegistry, sessionsService } = await import(
-  '@/modules/providers/index.js'
-);
+const {
+  CLAUDE_PREDEFINED_MODELS,
+  claudeQueryFactory,
+  createProviderRuntimeService,
+  providerCapabilitiesService,
+  providerModelsService,
+  providerRegistry,
+  queryClaudeSDK,
+  sessionsService,
+} = await import('@/modules/providers/index.js');
 const { createSessionHostManager } = await import('@/modules/session-hosts/index.js');
 const { BOOT_ID, chatRunRegistry, connectedClients, createChatControlService } = await import(
   '@/modules/websocket/index.js'
@@ -217,21 +237,26 @@ function parseToolResult(result: unknown): ToolCall {
 
 type SpyControl = {
   counts: { send: number; abort: number };
+  /** Every `send` input, verbatim, in order — so the call SHAPE is a reading, not a claim. */
+  sendInputs: Array<Parameters<ChatControlService['send']>[1]>;
   control: ChatControlService;
 };
 
 /**
  * Wraps the real control service so every `send` / `abort` bumps its own
- * counter, then delegates. The SAME object is handed to the MCP gateway's write
- * tools, so "the control service was reached" is a count on one object rather
- * than an inference from its effects.
+ * counter and every `send` input is recorded, then delegates. The SAME object is
+ * handed to the MCP gateway's write tools, so "the control service was reached,
+ * with this exact input" is a reading on one object rather than an inference
+ * from its effects.
  */
 function wrapControl(real: ChatControlService): SpyControl {
   const counts = { send: 0, abort: 0 };
+  const sendInputs: Array<Parameters<ChatControlService['send']>[1]> = [];
   const control = {
     ...real,
     send: async (...args: Parameters<ChatControlService['send']>) => {
       counts.send += 1;
+      sendInputs.push(args[1]);
       return real.send(...args);
     },
     abort: async (...args: Parameters<ChatControlService['abort']>) => {
@@ -239,7 +264,121 @@ function wrapControl(real: ChatControlService): SpyControl {
       return real.abort(...args);
     },
   };
-  return { counts, control };
+  return { counts, sendInputs, control };
+}
+
+// --------------------------- the claude per-run permission probe ---------------------------
+
+/** Records the frames a driven claude run writes; the probe only needs a non-null writer. */
+function recordingWriter(): { frames: AnyRecord[]; writer: ProviderRuntimeWriter } {
+  const frames: AnyRecord[] = [];
+  return {
+    frames,
+    writer: {
+      send(data: unknown) {
+        frames.push(data as AnyRecord);
+      },
+      userId: null,
+      setSessionId() {},
+    },
+  };
+}
+
+/** The provider-scoped lookups the claude runtime reads; nothing but the launch is exercised. */
+function fakeContext(): ProviderRuntimeContext {
+  return {
+    resolveProviderSessionId: () => null,
+    resolveResumeModel: async () => undefined,
+    getProviderModels: async () => CLAUDE_PREDEFINED_MODELS,
+    normalizeMessage: () => [],
+    isProviderInstalled: async () => true,
+  };
+}
+
+/**
+ * The first-run permission reading, taken off the REAL claude per-run launch.
+ *
+ * The launch is driven for real (`queryClaudeSDK`) with only the SDK's `query`
+ * replaced — through the runtime's own factory seam — by a probe that, at the
+ * moment the run's stream starts, asks the `canUseTool` callback the runtime
+ * installed whether an ordinary `Bash` call is allowed. Two outcomes matter:
+ *
+ *  - `autoAllowed` — the callback resolved an `allow` with no human in the loop
+ *    (the mode the run launched under made the tool decision itself);
+ *  - `paused` — the callback is still pending after the grace window, i.e. the
+ *    run is waiting on a `permission.required` approval the SDK would surface as
+ *    the unattended "Permission required" pause.
+ *
+ * `sdk.permissionMode` is read straight off the options object the runtime
+ * built through `mapCliOptionsToSDK`, so "the mode reached the SDK" and "the
+ * first tool call needed no person" are two readings of one launch.
+ */
+async function observeFirstClaudeRun(runOptions: AnyRecord): Promise<{
+  sdkPermissionMode: unknown;
+  canUseToolInstalled: boolean;
+  autoAllowed: boolean;
+  paused: boolean;
+}> {
+  const configDir = await mkdtemp(path.join(SCRATCH, 'claude-run-'));
+  await mkdir(path.join(configDir, 'sessions'), { recursive: true });
+  const { writer } = recordingWriter();
+  const previousQuery = claudeQueryFactory.current;
+  const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const previousHome = process.env.HOME;
+  const probe = {
+    sdkPermissionMode: undefined as unknown,
+    canUseToolInstalled: false,
+    autoAllowed: false,
+    paused: false,
+  };
+  claudeQueryFactory.current = ((input: { options: AnyRecord }) => {
+    const sdk = input.options;
+    probe.sdkPermissionMode = sdk.permissionMode;
+    // The run's stream is empty; the probe fires on the first pull, which is the
+    // moment the SDK would ask about a tool, then the stream ends.
+    let probed = false;
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => {
+            if (!probed) {
+              probed = true;
+              const canUseTool = sdk.canUseTool;
+              if (typeof canUseTool === 'function') {
+                probe.canUseToolInstalled = true;
+                const controller = new AbortController();
+                const decision = canUseTool('Bash', { command: 'echo hi' }, { signal: controller.signal });
+                const verdict = await Promise.race([
+                  decision.then(() => 'decided', () => 'decided'),
+                  new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 250)),
+                ]);
+                probe.autoAllowed = verdict === 'decided';
+                probe.paused = verdict === 'pending';
+                // Release the pending approval so the run ends instead of leaking a timer.
+                controller.abort();
+                await decision.catch(() => undefined);
+              }
+            }
+            return { done: true as const, value: undefined };
+          },
+        };
+      },
+      interrupt: async () => {},
+    };
+  }) as unknown as typeof claudeQueryFactory.current;
+  process.env.CLAUDE_CONFIG_DIR = configDir;
+  process.env.HOME = configDir;
+  try {
+    await queryClaudeSDK('probe turn', { sessionId: 'probe-session-under-test', ...runOptions }, writer, fakeContext());
+  } finally {
+    claudeQueryFactory.current = previousQuery;
+    if (previousConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    await rm(configDir, { recursive: true, force: true });
+  }
+  return probe;
 }
 
 // --------------------------- scenario building ---------------------------
@@ -294,6 +433,8 @@ type Harness = {
   spy: SpyControl;
   /** The count of calls the criterion's `sessions.create` seam saw. */
   createCalls: { count: number; lastCreatedId: string };
+  /** Every `setSessionPermissionMode` call the real models service saw, in order. */
+  modelWrites: Array<{ provider: string; sessionId: string; mode: string }>;
   runtime: RuntimeService;
   call: (name: string, args?: AnyRecord, which?: 'main' | 'sendOnly' | 'createOnly') => Promise<ToolCall>;
 };
@@ -372,6 +513,10 @@ async function withHarness(options: HarnessOptions, run: (harness: Harness) => P
   // id the debug provider can run. See the file header for why the two ids
   // differ.
   const createCalls = { count: 0, lastCreatedId: '' };
+  // The real capability matrix and the real session-row writer, wrapped only so
+  // the criterion can read "was a permission mode recorded, and with what". The
+  // writer delegates, so the row it touches is a real one in the real database.
+  const modelWrites: Array<{ provider: string; sessionId: string; mode: string }> = [];
   const sessionCreateDeps = {
     projects: { list: () => FIXTURE_PROJECTS },
     sessions: {
@@ -385,6 +530,13 @@ async function withHarness(options: HarnessOptions, run: (harness: Harness) => P
         sessionsDb.setSessionLifecycleMode(sessionId, mode),
     },
     control: spy.control,
+    capabilities: providerCapabilitiesService,
+    models: {
+      setSessionPermissionMode: (provider: LLMProvider, sessionId: string, mode: string) => {
+        modelWrites.push({ provider, sessionId, mode });
+        return providerModelsService.setSessionPermissionMode(provider, sessionId, mode);
+      },
+    },
   };
   const sessionInterruptDeps = { control: spy.control };
 
@@ -468,6 +620,7 @@ async function withHarness(options: HarnessOptions, run: (harness: Harness) => P
       manager,
       spy,
       createCalls,
+      modelWrites,
       runtime,
       call: (name, args = {}, which = 'main') => {
         if (name === 'session_create' && typeof args.message === 'string' && args.message.length > 0 && firstSendAt === 0) {
@@ -752,6 +905,152 @@ test('(f) a token lacking cloudcli:session:control is denied, audits one denied 
       assert.equal(harness.spy.counts.abort, abortBefore + 1, 'the allowed call must reach the abort seam');
     },
   );
+});
+
+// --------------------------- (g) no permissionMode: the old call shape, untouched ---------------------------
+
+test('(g) session_create without a permissionMode keeps the send shape and writes no mode', { concurrency: false }, async () => {
+  await withHarness({ label: 'no-permission-mode', mode: 'per-run' }, async (harness) => {
+    const called = await harness.call('session_create', {
+      project: UNIQUE_PROJECT.id,
+      message: 'plain turn',
+      provider: DEBUG_AGENT_PROVIDER_ID,
+    });
+    assert.equal(called.isError, false, `the plain create must not error (text=${called.text})`);
+
+    const sent = harness.spy.sendInputs.at(-1) as AnyRecord;
+    const row = sessionsDb.getSessionById(harness.sessionId);
+
+    say(`(g) sendInput=${JSON.stringify(sent)} keys=${JSON.stringify(Object.keys(sent).sort())}`);
+    say(`(g) modelWrites=${JSON.stringify(harness.modelWrites)} rowPermissionMode=${row?.permission_mode ?? null}`);
+
+    // The call SHAPE is the reading: with no mode the send input is exactly the
+    // two fields it always was — no `options` key appears at all.
+    assert.deepEqual(Object.keys(sent).sort(), ['content', 'sessionId'], 'send input must carry only sessionId + content');
+    assert.equal(Object.prototype.hasOwnProperty.call(sent, 'options'), false, 'no options key may appear');
+    assert.equal(sent.sessionId, harness.sessionId, 'the send must target the created session');
+    assert.equal(sent.content, 'plain turn', 'the send must carry the message verbatim');
+
+    // No mode was recorded, so the row is untouched.
+    assert.equal(harness.modelWrites.length, 0, 'no permission mode may be written');
+    assert.equal(row?.permission_mode ?? null, null, 'the session row must carry no permission mode');
+  });
+});
+
+// --------------------------- (h) unsupported permissionMode is refused before the row exists ---------------------------
+
+test('(h) an unsupported permissionMode is refused with the matrix, before any session is created', { concurrency: false }, async () => {
+  const claudeModes = providerCapabilitiesService.getProviderCapabilities('claude')?.permissionModes ?? [];
+  await withHarness({ label: 'bad-permission-mode', mode: 'per-run' }, async (harness) => {
+    const rowsBefore = sessionRowCount();
+    const createBefore = harness.createCalls.count;
+
+    const refused = await harness.call('session_create', {
+      project: UNIQUE_PROJECT.id,
+      provider: 'claude',
+      permissionMode: 'totally-bogus',
+    });
+    const body = refused.payload as AnyRecord;
+    const rowsAfter = sessionRowCount();
+
+    say(`(h) isError=${refused.isError} body=${JSON.stringify(body)} rowsBefore=${rowsBefore} rowsAfter=${rowsAfter} createBefore=${createBefore} createAfter=${harness.createCalls.count}`);
+
+    assert.equal(refused.isError, true, 'an unsupported permission mode must be refused');
+    assert.equal(body.code, 'UNSUPPORTED_PERMISSION_MODE', 'the refusal must be a structured UNSUPPORTED_PERMISSION_MODE');
+    assert.deepEqual(body.supported, [...claudeModes], 'the refusal must list the provider matrix verbatim (the check session_reconfigure performs)');
+    assert.equal(rowsAfter, rowsBefore, 'an unsupported mode must create NO session row');
+    assert.equal(harness.createCalls.count, createBefore, 'the creation path must not be reached');
+    assert.equal(harness.modelWrites.length, 0, 'no permission mode may be written');
+  });
+});
+
+// --------------------------- (i) a valid permissionMode is recorded, even without a message ---------------------------
+
+test('(i) a valid permissionMode is persisted on the row with no message and starts no run', { concurrency: false }, async () => {
+  await withHarness({ label: 'record-permission-mode', mode: 'per-run' }, async (harness) => {
+    const called = await harness.call('session_create', {
+      project: UNIQUE_PROJECT.id,
+      provider: 'claude',
+      permissionMode: 'acceptEdits',
+    });
+    assert.equal(called.isError, false, `the create must not error (text=${called.text})`);
+
+    const row = sessionsDb.getSessionById(harness.sessionId);
+    const running = chatRunRegistry.listRunningRuns().filter((entry) => entry.sessionId === harness.sessionId);
+
+    say(`(i) payload=${JSON.stringify(called.payload)} modelWrites=${JSON.stringify(harness.modelWrites)} rowPermissionMode=${row?.permission_mode ?? null}`);
+
+    assert.equal(Object.prototype.hasOwnProperty.call(called.payload as AnyRecord, 'runId'), false, 'no message means no runId');
+    assert.deepEqual(
+      harness.modelWrites,
+      [{ provider: 'claude', sessionId: harness.sessionId, mode: 'acceptEdits' }],
+      'the mode must be written once, onto the created session',
+    );
+    assert.equal(row?.permission_mode ?? null, 'acceptEdits', 'the row must carry the recorded mode');
+    assert.equal(running.length, 0, 'no run must be started without a message');
+    assert.equal(harness.spy.counts.send, 0, 'the control service must not be called');
+  });
+});
+
+// --------------------------- (j) a permissionMode rides the FIRST send ---------------------------
+
+test('(j) a permissionMode is carried on the opening send so the first claude run needs no approval', { concurrency: false }, async () => {
+  await withHarness({ label: 'first-run-mode', mode: 'per-run' }, async (harness) => {
+    const called = await harness.call('session_create', {
+      project: UNIQUE_PROJECT.id,
+      message: 'unattended turn',
+      provider: 'claude',
+      permissionMode: 'bypassPermissions',
+    });
+    assert.equal(called.isError, false, `the create must not error (text=${called.text})`);
+
+    const sent = harness.spy.sendInputs.at(-1) as AnyRecord;
+    say(`(j) sendInput=${JSON.stringify(sent)} modelWrites=${JSON.stringify(harness.modelWrites)}`);
+
+    assert.deepEqual(sent.options, { permissionMode: 'bypassPermissions' }, 'the opening send must carry options.permissionMode');
+    assert.deepEqual(
+      harness.modelWrites,
+      [{ provider: 'claude', sessionId: harness.sessionId, mode: 'bypassPermissions' }],
+      'the mode must also be recorded on the row',
+    );
+
+    // The end-to-end reading: hand the options the send carried to the REAL
+    // claude per-run launch and observe the first tool call.
+    const probe = await observeFirstClaudeRun(sent.options as AnyRecord);
+    say(`(j) probe=${JSON.stringify(probe)}`);
+
+    assert.equal(probe.canUseToolInstalled, true, 'the claude runtime must install a canUseTool callback');
+    assert.equal(probe.sdkPermissionMode, 'bypassPermissions', 'mapCliOptionsToSDK must put the mode on the SDK options');
+    assert.equal(probe.paused, false, 'the first tool call must NOT wait on a person');
+    assert.equal(probe.autoAllowed, true, 'the mode must let the runtime allow the tool itself');
+  });
+});
+
+// --------------------------- (k) the same probe observes the pause it removes ---------------------------
+
+test('(k) without a permissionMode the SAME probe observes the first claude run pause for approval', { concurrency: false }, async () => {
+  await withHarness({ label: 'first-run-no-mode', mode: 'per-run' }, async (harness) => {
+    const called = await harness.call('session_create', {
+      project: UNIQUE_PROJECT.id,
+      message: 'unattended turn',
+      provider: 'claude',
+    });
+    assert.equal(called.isError, false, `the create must not error (text=${called.text})`);
+
+    const sent = harness.spy.sendInputs.at(-1) as AnyRecord;
+    say(`(k) sendInput=${JSON.stringify(sent)}`);
+
+    // The negative control's own send with one field missing: no options.
+    assert.equal(Object.prototype.hasOwnProperty.call(sent, 'options'), false, 'with no mode the send must carry no options');
+
+    const probe = await observeFirstClaudeRun({});
+    say(`(k) probe=${JSON.stringify(probe)}`);
+
+    assert.equal(probe.canUseToolInstalled, true, 'the claude runtime must still install a canUseTool callback');
+    assert.equal(probe.sdkPermissionMode, undefined, 'with no mode the SDK options must carry none');
+    assert.equal(probe.paused, true, 'the first tool call must wait on a person — the pause (j) removes');
+    assert.equal(probe.autoAllowed, false, 'the runtime must not allow the tool on its own');
+  });
 });
 
 // --------------------------- the stage-4 table ---------------------------
