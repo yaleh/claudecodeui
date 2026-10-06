@@ -1,7 +1,7 @@
 ---
 id: GOAL-021
 title: 经 OAuth 对外接入 CloudCLI MCP：授权服务器、授权页、客户端注册与吊销，外部客户端绑定由人确认
-status: active
+status: achieved
 kind: goal
 origin: 人 yale 2026-10-05 指令：创建并激活 GOAL-020 至 GOAL-022 及其 AC；同日 02:10 退回
   draft，理由逐字「等 GOAL-020 达成后再激活」。2026-10-06T23:22:46Z GOAL-020 已 achieved（AC-257
@@ -19,6 +19,11 @@ statusLog:
     to: active
     actor: goal-cli
     reason: ""
+  - at: 2026-10-06T01:53:00.128Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 
 ## 背景
