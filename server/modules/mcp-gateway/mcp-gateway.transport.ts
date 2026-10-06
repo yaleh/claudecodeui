@@ -36,6 +36,7 @@ import type { McpRunGetDeps } from './mcp-run-get.js';
 import type { SelfTargetDeps } from './mcp-self-target.js';
 import type { McpSessionRunGetSeam } from './mcp-session-send.js';
 import { readMcpToolAnnotations } from './mcp-tool-annotations.js';
+import type { McpWriteNotification } from './mcp-write-notification.js';
 
 /**
  * The MCP gateway's production assembly (AC-240). The consumer is
@@ -117,7 +118,8 @@ function createMcpServer(
   writeTools: McpWriteToolDeps | undefined,
   residentTools: McpResidentToolDeps | undefined,
   resolveDeps: McpResolveDeps | undefined,
-  selfTarget: SelfTargetDeps | undefined
+  selfTarget: SelfTargetDeps | undefined,
+  writeNotifications: McpWriteNotification | undefined
 ): McpServer {
   const server = new McpServer(SERVER_INFO, { capabilities: { tools: {} } });
   if (registerTools) {
@@ -148,18 +150,24 @@ function createMcpServer(
     handle: (args: Record<string, unknown>) => unknown | Promise<unknown>,
   ): void => {
     const guarded = resolveDeps === undefined ? handle : resolveInputTargets(handle, resolveDeps);
-    withMcpAudit({
-      name,
-      description,
-      inputSchema,
-      outputSchema,
-      // Every production tool's declaration hints come from the one table
-      // (AC1–AC7). Annotations are metadata only and are attached OUTSIDE the
-      // target gate and the scope check, so they cannot alter either.
-      annotations: readMcpToolAnnotations(name),
-      requiredScopes: [requiredScope],
-      handler: (args) => guarded(args as Record<string, unknown>),
-    })(server, principal);
+    withMcpAudit(
+      {
+        name,
+        description,
+        inputSchema,
+        outputSchema,
+        // Every production tool's declaration hints come from the one table
+        // (AC1–AC7). Annotations are metadata only and are attached OUTSIDE the
+        // target gate and the scope check, so they cannot alter either.
+        annotations: readMcpToolAnnotations(name),
+        requiredScopes: [requiredScope],
+        handler: (args) => guarded(args as Record<string, unknown>),
+      },
+      // AC-303's notification seam is handed every registration; it classifies
+      // each call itself (a read-only tool never notifies), so the write/read
+      // split stays in the one annotations table rather than here.
+      writeNotifications
+    )(server, principal);
   };
 
   if (readTools) {
@@ -241,7 +249,8 @@ function attachTransport(
   writeTools: McpWriteToolDeps | undefined,
   residentTools: McpResidentToolDeps | undefined,
   resolveDeps: McpResolveDeps | undefined,
-  selfTarget: SelfTargetDeps | undefined
+  selfTarget: SelfTargetDeps | undefined,
+  writeNotifications: McpWriteNotification | undefined
 ): void {
   const loopbackGuard = createMcpLoopbackGuard(env);
 
@@ -256,6 +265,7 @@ function attachTransport(
       residentTools,
       resolveDeps,
       selfTarget,
+      writeNotifications,
     );
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
@@ -402,6 +412,16 @@ export type McpGatewayDeps = {
    * (`session_start` / `session_create`) are never refused.
    */
   selfTarget?: SelfTargetDeps;
+  /**
+   * AC-303's write-call notification seam. When supplied, every tool this mount
+   * registers is wrapped with it, and a SUCCESSFUL call to a write tool
+   * (`readOnlyHint === false`) notifies the token's owner through it. The seam
+   * classifies read-only tools itself, so it is safe to hand it every
+   * registration. Absent keeps a mount that never notifies — every criterion
+   * before AC-303 — behaving exactly as it did; `server/index.ts` supplies the
+   * production assembly built by `createMcpWriteNotification`.
+   */
+  writeNotifications?: McpWriteNotification;
 };
 
 /** Whether the gateway attached anything, and the gate's own reason. */
@@ -433,7 +453,8 @@ export function mountMcpGateway(app: Express, deps: McpGatewayDeps = {}): McpGat
     deps.writeTools,
     deps.residentTools,
     deps.resolveDeps,
-    deps.selfTarget
+    deps.selfTarget,
+    deps.writeNotifications
   );
   return { mounted: true, reason: gate.reason };
 }
@@ -459,6 +480,8 @@ export type McpGatewayModuleDeps = {
   resolveDeps?: McpGatewayDeps['resolveDeps'];
   selfTarget?: McpGatewayDeps['selfTarget'];
   residentTools?: McpGatewayDeps['residentTools'];
+  /** AC-303's write-call notification seam; flows straight through to the mount. */
+  writeNotifications?: McpGatewayDeps['writeNotifications'];
   /** The single chat control service every front end shares (AC-233/AC-253). */
   control: McpWriteToolDeps['control'];
   /**

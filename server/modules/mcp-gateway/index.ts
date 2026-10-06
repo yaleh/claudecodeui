@@ -439,3 +439,21 @@ export {
   MCP_AUDIT_ROUTE_MIN_LIMIT,
 } from './mcp-audit-route.js';
 export type { McpAuditReadDeps, McpAuditRouteEntry } from './mcp-audit-route.js';
+
+// The write-call notifications (AC-303). `createMcpWriteNotifier` is the core —
+// the read-only early-return (classified by the one annotations table), the
+// per-caller merge window, and the payload construction, over injected seams;
+// `createMcpWriteNotification` is the production assembly whose default sink
+// rides the EXISTING notification path (`notifyUserIfEnabled`) with no new
+// setting. The transport threads the seam from `McpGatewayDeps.writeNotifications`
+// into the audit wrapper's `ok` branch; `server/index.ts` supplies the
+// production assembly; this module's criterion drives every export directly.
+export { createMcpWriteNotification, createMcpWriteNotifier } from './mcp-write-notification.js';
+export type {
+  McpWriteNotification,
+  McpWriteNotificationDeps,
+  McpWriteNotificationInput,
+  McpWriteNotificationPayload,
+  McpWriteNotifier,
+  McpWriteNotifierDeps,
+} from './mcp-write-notification.js';

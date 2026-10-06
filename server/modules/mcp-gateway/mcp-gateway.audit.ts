@@ -27,6 +27,7 @@ import { mcpAuditLogDb } from '@/modules/database/index.js';
 
 import { MCP_ERROR_CODES, mcpErrorResult, toMcpErrorResult } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
+import type { McpWriteNotification } from './mcp-write-notification.js';
 
 /** The three results a tool call can leave in the audit log. */
 export type McpAuditOutcome = 'ok' | 'denied' | 'error';
@@ -277,8 +278,19 @@ function invalidArgumentResult(tool: string, error: z.ZodError): CallToolResult 
  * `registerTool` verbatim and appear on `tools/list`, but they are metadata only
  * — the `denied`/`ok`/`error` decision below is made from `requiredScopes`
  * alone, so a declaration can never widen or narrow what a token may call.
+ *
+ * An optional second argument threads AC-303's write-notification seam. It is
+ * called ONLY from the `ok` branch, AFTER the audit row is written, and is wrapped
+ * in its own try/catch: a throwing notifier must not change the tool call's
+ * result nor turn the `ok` row into an `error` one. The seam is handed every
+ * registration (read and write alike) and classifies each call itself — a
+ * read-only tool returns without notifying — so the write/read split stays in
+ * one place. Omitting the argument keeps AC-244's behaviour byte-for-byte.
  */
-export function withMcpAudit(registration: McpToolRegistration): McpToolHandler {
+export function withMcpAudit(
+  registration: McpToolRegistration,
+  writeNotifications?: McpWriteNotification,
+): McpToolHandler {
   // Built once per registration, not per call: the declared shape is fixed when
   // the tool is installed.
   const declaredSchema = registration.inputSchema === undefined ? null : z.object(registration.inputSchema);
@@ -364,6 +376,18 @@ export function withMcpAudit(registration: McpToolRegistration): McpToolHandler 
             durationMs: elapsedMs(),
             args,
           });
+          // AC-303: notify the token's owner of a SUCCESSFUL call only. Its own
+          // try/catch keeps a throwing notifier from reaching the outer catch,
+          // which would otherwise write an `error` row and return `isError` for
+          // a call that actually succeeded.
+          if (writeNotifications !== undefined) {
+            try {
+              writeNotifications.notify({ principal, tool: registration.name, args });
+            } catch {
+              // Swallowed by design — the audit row above is already `ok` and the
+              // caller still receives the handler's result.
+            }
+          }
           return registration.outputSchema === undefined
             ? { content: [{ type: 'text', text: toTextContent(result) }] }
             : {

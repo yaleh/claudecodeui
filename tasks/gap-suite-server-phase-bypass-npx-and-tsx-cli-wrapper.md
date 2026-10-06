@@ -2,7 +2,7 @@
 id: gap-suite-server-phase-bypass-npx-and-tsx-cli-wrapper
 title: 服务端阶段每个测试文件经 npx → tsx CLI → node --test → 子进程起 5–6 个进程、约 525 MB：改为 node
   --import tsx --test（2 个进程、约 307 MB），为后续抬并发腾出内存余量
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -35,14 +35,14 @@ extra:
 
 ## AC
 
-- [ ] AC1 调用形态：`grep -vE '^[[:space:]]*#' scripts/test.sh | grep -c 'npx tsx'` 的输出为 `0`；`grep -vE '^[[:space:]]*#' scripts/test.sh | grep -cE 'node --import tsx .*--test "\$f"'` 的输出为 `2`（有无 `timeout` 两个分支）；`grep -vE '^[[:space:]]*#' scripts/test.sh | grep -c 'TSX_TSCONFIG_PATH=server/tsconfig.json'` 的输出 ≥ `1`。
-- [ ] AC2 别名承载点与负控：`env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx -e "import('@/modules/auth/index.js').then(()=>process.exit(0),()=>process.exit(1))"` → 退出码 0；同一命令去掉 `TSX_TSCONFIG_PATH`（`env -u TSX_TSCONFIG_PATH node --import tsx -e "…同上…"`）→ 退出码非 0（证明该环境变量是承重的）。
-- [ ] AC3 经 `test.sh` 位置参数路径端到端：`env -u DATABASE_PATH bash scripts/test.sh --test-concurrency=4 server/modules/assets/tests/image-assets.service.test.ts server/modules/auth/tests/auth.service.test.ts server/modules/cli/tests/cli.service.test.ts server/modules/commands/tests/commands.test.ts server/modules/cli/tests/sandbox.service.test.ts server/modules/database/tests/sessions-name-source.integration.test.ts` → 退出码 0；stdout 恰有 6 行 `__PERFILE__ … passed=true`、无 `passed=false`，且含 `# tests 6` 与 `# fail 0`。
-- [ ] AC4 与旧调用逐文件等价（用例数与通过数不变）：对 AC3 中前 5 个轻量文件各跑一次旧命令（`env -u DATABASE_PATH npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test <文件>`）和一次新命令（`env -u DATABASE_PATH TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --import ./scripts/undici-blocked-ports-preload.mjs --test <文件>`），各取去掉 ANSI 后 `^ℹ (tests|pass|fail|skipped) ` 四行，新旧完全相同；任一文件不同则命令以非 0 退出并打印 `DIFF <文件>`。整体退出码 0。
-- [ ] AC5 超时与杀进程语义不变：`bash scripts/suite-infra-attribution-check.sh` → 退出码 0；`bash scripts/suite-hang-watchdog-check.sh` → 退出码 0（均先在 develop 上读一次基线；若某个在 develop 上本就红，只证明改动前后读数相同）。
-- [ ] AC6 既有契约守卫不退化：`bash scripts/suite-scope-check.sh` → 0；`bash scripts/server-phase-concurrency-check.sh` → 0。
-- [ ] AC7 `npm run typecheck` → 退出码 0，`npm run lint` → 退出码 0。
-- [ ] AC8 范围受控：`git diff --name-only $(git merge-base HEAD develop) HEAD` 的集合 ⊆ `## Touches` 所列；其中不含 `package.json`、`scripts/with-memory-cap.sh`、`vitest.config.ts`、任何 `*.test.ts`。
+- [x] AC1 调用形态：`grep -vE '^[[:space:]]*#' scripts/test.sh | grep -c 'npx tsx'` 的输出为 `0`；`grep -vE '^[[:space:]]*#' scripts/test.sh | grep -cE 'node --import tsx .*--test "\$f"'` 的输出为 `2`（有无 `timeout` 两个分支）；`grep -vE '^[[:space:]]*#' scripts/test.sh | grep -c 'TSX_TSCONFIG_PATH=server/tsconfig.json'` 的输出 ≥ `1`。
+- [x] AC2 别名承载点与负控：`env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx -e "import('@/modules/auth/index.js').then(()=>process.exit(0),()=>process.exit(1))"` → 退出码 0；同一命令去掉 `TSX_TSCONFIG_PATH`（`env -u TSX_TSCONFIG_PATH node --import tsx -e "…同上…"`）→ 退出码非 0（证明该环境变量是承重的）。
+- [x] AC3 经 `test.sh` 位置参数路径端到端：`env -u DATABASE_PATH bash scripts/test.sh --test-concurrency=4 server/modules/assets/tests/image-assets.service.test.ts server/modules/auth/tests/auth.service.test.ts server/modules/cli/tests/cli.service.test.ts server/modules/commands/tests/commands.test.ts server/modules/cli/tests/sandbox.service.test.ts server/modules/database/tests/sessions-name-source.integration.test.ts` → 退出码 0；stdout 恰有 6 行 `__PERFILE__ … passed=true`、无 `passed=false`，且含 `# tests 6` 与 `# fail 0`。
+- [x] AC4 与旧调用逐文件等价（用例数与通过数不变）：对 AC3 中前 5 个轻量文件各跑一次旧命令（`env -u DATABASE_PATH npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test <文件>`）和一次新命令（`env -u DATABASE_PATH TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --import ./scripts/undici-blocked-ports-preload.mjs --test <文件>`），各取去掉 ANSI 后 `^ℹ (tests|pass|fail|skipped) ` 四行，新旧完全相同；任一文件不同则命令以非 0 退出并打印 `DIFF <文件>`。整体退出码 0。
+- [x] AC5 超时与杀进程语义不变：`bash scripts/suite-infra-attribution-check.sh` → 退出码 0；`bash scripts/suite-hang-watchdog-check.sh` → 退出码 0（均先在 develop 上读一次基线；若某个在 develop 上本就红，只证明改动前后读数相同）。
+- [x] AC6 既有契约守卫不退化：`bash scripts/suite-scope-check.sh` → 0；`bash scripts/server-phase-concurrency-check.sh` → 0。
+- [x] AC7 `npm run typecheck` → 退出码 0，`npm run lint` → 退出码 0。
+- [x] AC8 范围受控：`git diff --name-only $(git merge-base HEAD develop) HEAD` 的集合 ⊆ `## Touches` 所列；其中不含 `package.json`、`scripts/with-memory-cap.sh`、`vitest.config.ts`、任何 `*.test.ts`。
 
 ## DoD
 
