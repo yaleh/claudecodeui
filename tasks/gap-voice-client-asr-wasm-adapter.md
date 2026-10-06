@@ -64,17 +64,17 @@ extra:
 
 ## Touches
 
-- shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider.ts
+- shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider.ts (new)
 - shared/asr/asrRegistry.ts
-- src/shared/voiceClientFrontend.ts
+- src/shared/voiceClientFrontend.ts (new)
 - src/shared/voiceConfig.ts
-- src/modules/chat/utils/voiceModelCache.ts
-- src/modules/chat/audio/voiceClientAsrWorker.ts
+- src/modules/chat/utils/voiceModelCache.ts (new)
+- src/modules/chat/audio/voiceClientAsrWorker.ts (new)
 - src/modules/chat/hooks/useVoiceInput.ts
 - src/modules/chat/hooks/useVoiceAvailable.ts
-- src/shared/tests/voiceClientFrontend.test.ts
-- src/modules/chat/utils/tests/voiceModelCache.test.ts
-- src/modules/chat/tests/voiceClientAsrRouting.test.ts
+- src/shared/tests/voiceClientFrontend.test.ts (new)
+- src/modules/chat/utils/tests/voiceModelCache.test.ts (new)
+- src/modules/chat/tests/voiceClientAsrRouting.test.ts (new)
 - src/modules/chat/tests/voiceCaptureTestHarness.ts
 - src/shared/asr/tests/asrContractInvariants.test.ts
 - docs/experiments/2026-10-06-voice-client-asr-probe.md
