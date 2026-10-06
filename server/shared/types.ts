@@ -5,7 +5,12 @@ import type { Readable } from 'node:stream';
 // repository-root shared tree rather than restated here: the whole point of the payload is
 // that it carries the registry's own declaration, so a restatement could drift from it
 // silently. `import type` only — the backend never calls an adapter from this file.
-import type { AsrCapabilities, AsrCredentialFields, AsrErrorCode } from '../../shared/asr/asrRegistry.js';
+import type {
+  AsrCapabilities,
+  AsrCredentialFields,
+  AsrErrorCode,
+  AsrRuntimeStatus,
+} from '../../shared/asr/asrRegistry.js';
 
 //----------------- HTTP RESPONSE SHAPES ------------
 /**
@@ -1584,6 +1589,22 @@ export type VoiceProviderSummary = {
    * the request path read one shape rather than two.
    */
   credentialFields?: AsrCredentialFields;
+  /**
+   * THE ON-HOST ENGINE'S STATE, for a provider that runs one, republished verbatim from
+   * `AsrAdapter.runtime` — the same way `capabilities` and `credentialFields` are.
+   *
+   * ABSENT FOR A PROVIDER THAT DECLARES NO RUNTIME, which today is every provider reached over the
+   * network: their availability is a property of a service the client can reach itself, and this
+   * field would have nothing to say about it. A provider that DOES declare one is a process this
+   * deployment owns, so "is it up, and which build is it" is answerable here and nowhere else — and
+   * `buildId` is the figure that makes a transcript's provenance checkable against the build a
+   * deployment believes it is running.
+   *
+   * `state` is carried as well as `available` because the two are not the same reading for a
+   * provider that is merely not started yet: `stopped` is a healthy engine nothing has asked to
+   * run, and folding it into the unavailable form would report an idle deployment as a broken one.
+   */
+  runtime?: AsrRuntimeStatus;
 };
 
 /**
@@ -1701,7 +1722,53 @@ export type VoiceService = {
    * is the same answer the empty case gives.
    */
   clearVoiceData?(): { deleted: number };
+  /**
+   * Writes the text the user actually sent, and the `听到 → 想说` pairs derived from their edit, onto
+   * the record the transcription already wrote — for `PATCH /api/voice/data/:recordId`.
+   *
+   * WHY A PATCH AND NOT A FIELD ON THE TRANSCRIBE REPLY. The correction does not exist when the
+   * transcription is answered: the user edits the box afterwards, and may send much later or not at
+   * all. The record id returned by `transcribe` is the handle that lets the two moments be joined,
+   * and this is the write that closes the loop.
+   *
+   * A MISS IS THE EXPECTED FAILURE, not an error: the ceiling may have evicted the record, or the
+   * user may have cleared their data, between the two moments. `404` is the honest answer to a
+   * client that asked about a recording that is no longer there, and the client is expected to treat
+   * it as "the label was not kept" rather than as a failed send.
+   *
+   * OPTIONAL LIKE THE STORE ITSELF: the leaf route tests build small doubles that never store
+   * anything, and a caller that wired no store has no records to label — which the route answers as
+   * the same `404` a vanished record gets.
+   */
+  labelVoiceData?(input: {
+    recordId: string;
+    finalText: string;
+    labels: VoiceDataEditLabel[];
+  }): VoiceServiceResult<{ recordId: string }>;
 };
+
+//----------------- VOICE DATA RECORDS ------------
+/**
+ * One `heard → final` pair, as it crosses the wire and as it is persisted.
+ *
+ * DECLARED HERE RATHER THAN ALONGSIDE THE STORE because it is the request body's shape as much as
+ * the record's: the route parses a client's array into exactly this, and the store writes exactly
+ * this back out. The producing module is `src/shared/voiceEditLabels.ts`, whose `VoiceEditLabel` is
+ * this type plus the closed `op` vocabulary; the backend keeps `op` a string deliberately, because a
+ * store that re-judged the client's correction/rewrite call would be a second authority on a
+ * decision made where the segment text and the box were both in hand.
+ */
+export type VoiceDataEditLabel = {
+  /** The ordinal of the speech segment this pair came from. */
+  segmentIndex: number;
+  /** What the recogniser produced, spanning whole tokens. */
+  heard: string;
+  /** What the user left in the box. Empty for a deletion. */
+  final: string;
+  /** Which kind of change it was — `replace`/`merge`/`split`/`delete`, or `rewrite`. */
+  op: string;
+};
+// ---------------------------
 
 /**
  * The persistence contract the Voice settings service writes through.
@@ -1774,6 +1841,18 @@ export type VoiceSettingsService = {
  */
 export type VoiceLogPort = {
   info(message: string): void;
+  /**
+   * Where a failure goes, when the deployment's port keeps the distinction.
+   *
+   * OPTIONAL, and the optionality is the point rather than an oversight. This port is implemented by
+   * `console` and by three test doubles that build a literal with an `info` and stop there; a
+   * REQUIRED `warn` would make every one of them incomplete for the sake of a severity one provider
+   * prefers. What must not be optional is that the sentence SURVIVES — so a consumer that has a
+   * failure to report routes it here when the port keeps a `warn` and through `info` when it does
+   * not (`sensevoice-worker.ts`'s own log adapter is the one that does), and no deployment loses a
+   * line because its port was written before this field existed.
+   */
+  warn?(message: string): void;
 };
 
 // ---------------------------

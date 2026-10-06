@@ -106,13 +106,35 @@ test('AC2: every registered provider is listed with the registry\'s own capabili
   // every provider reached through the deployment's backend still reads as configured. Writing
   // `true` here would assert the opposite of what the payload is supposed to say and would keep
   // passing only while the reading ignored provider declarations.
-  const registry = listProviders().map((adapter) => ({
-    id: adapter.id,
-    label: adapter.id,
-    capabilities: adapter.capabilities,
-    configured: adapter.credentials === undefined,
-    credentialFields: adapter.credentials,
-  }));
+  //
+  // TWO COLUMNS NEED MORE THAN THE CREDENTIAL DECLARATION NOW, and both are restated here in the
+  // payload's own terms rather than read off the service, so a row that drifted from its declaration
+  // still fails this assertion:
+  //
+  //   · `configured` — a recogniser THIS PROCESS RUNS is not configured by an address at all, so it
+  //     reads as configured whenever it declares no credential fields of its own; the remote
+  //     providers keep the reading they have always had. `USER_SETTINGS` above holds a `baseUrl`, so
+  //     the remote rows are configured for the same reason they were before.
+  //   · `runtime` — ASKED of the adapter that declares one, exactly as the payload asks it. A
+  //     provider reached over the network declares none, so its row is built WITHOUT the key
+  //     (absence, not `undefined`), which is the shape the payload produces and the shape the client
+  //     branches on.
+  const registry = listProviders().map((adapter) => {
+    const runtime = adapter.runtime?.();
+    return {
+      id: adapter.id,
+      label: adapter.id,
+      capabilities: adapter.capabilities,
+      configured:
+        adapter.capabilities.locality !== 'remote'
+          ? true
+          : adapter.credentials !== undefined
+            ? false
+            : Boolean(USER_SETTINGS.baseUrl || SERVER_DEFAULTS.baseUrl),
+      credentialFields: adapter.credentials,
+      ...(runtime === undefined ? {} : { runtime }),
+    };
+  });
   assert.deepEqual(health.value.providers, registry);
   assert.deepEqual(
     health.value.providers.map((provider) => provider.id),

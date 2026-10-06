@@ -111,6 +111,7 @@
       "INVALID_BASE_URL": "Ses sağlayıcısının temel adresi geçersiz — ses sağlayıcısı ayarlarından düzeltin.",
       "OVERSIZE": "Kayıt yüklenemeyecek kadar büyük — daha kısa bir bölüm kaydedip yeniden deneyin.",
       "UNSUPPORTED_MIME": "Bu ses biçimi desteklenmiyor — başka bir dosya deneyin veya mikrofonla kaydedin.",
+      "ENGINE_UNAVAILABLE": "Yerel konuşma motoru bu sunucuda kullanılamıyor — kurulu olup olmadığını kontrol edin veya başka bir ses sağlayıcısı seçin.",
       "unknown": "Deşifre başarısız oldu — yeniden deneyin veya ses sağlayıcısı ayarlarını kontrol edin."
     }
   },

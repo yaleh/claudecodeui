@@ -438,6 +438,178 @@ test('a confidence-declaring recogniser writes flagStats; the shipping one does 
   }
 });
 
+test('a send writes finalText and labels onto the record the transcription wrote', async () => {
+  const parent = makeTempParent();
+  try {
+    const { service, directory } = makeService(parent);
+
+    const result = await service.transcribe({
+      audio: { bytes: AUDIO, mimeType: 'audio/wav', fileName: 'segment-1.wav' },
+      overrides: {},
+      settings: { ...EMPTY_SETTINGS, apiKey: SENTINEL_API_KEY },
+    });
+    assert.ok(result.ok && typeof result.value.recordId === 'string');
+    const recordId = result.value.recordId;
+    const recordPath = path.join(directory, `${recordId}.json`);
+    const before = readJson(recordPath);
+
+    const labels = [{ segmentIndex: 0, heard: 'key', final: 'quay', op: 'replace' }];
+    const write = service.labelVoiceData?.({ recordId, finalText: 'send the quay', labels });
+    assert.equal(write?.ok, true, 'the shipping service implements the write-back');
+
+    const after = readJson(recordPath);
+    assert.equal(after.finalText, 'send the quay');
+    assert.deepEqual(after.labels, labels);
+    // The pair is the WHOLE point of the record, so both halves are read back: what the user sent,
+    // and what it was heard as. A write that overwrote `segments` would lose the second half.
+    assert.deepEqual(after.segments, before.segments, 'the recognised text stays beside the sent one');
+    assert.equal(after.ts, before.ts, 'a correction does not make an old recording new');
+
+    // The sentinel credential is nowhere in the rewritten bytes. Re-read rather than assumed,
+    // because this is the one path that rewrites a document the settings could have leaked into.
+    assert.ok(!readFileSync(recordPath, 'utf8').includes(SENTINEL_API_KEY));
+    // The audio the labels are about is untouched, and the document kept its mode through the
+    // rewrite (the write is a fresh inode under this process's umask).
+    assert.equal(filesWith(directory, '.wav').length, 1);
+    assert.equal(statSync(path.join(directory, `${recordId}-0.wav`)).mode & 0o777, 0o600);
+    assert.equal(statSync(recordPath).mode & 0o777, 0o600);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('labelling a record that is not there is a 404, and creates nothing', async () => {
+  const parent = makeTempParent();
+  try {
+    const { service, directory } = makeService(parent);
+    await service.transcribe({
+      audio: { bytes: AUDIO, mimeType: 'audio/wav', fileName: 'segment-1.wav' },
+      overrides: {},
+      settings: EMPTY_SETTINGS,
+    });
+
+    const before = readdirSync(directory).sort();
+    const result = service.labelVoiceData?.({ recordId: 'no-such-record', finalText: 'x', labels: [] });
+    assert.ok(result !== undefined && !result.ok);
+    assert.equal(result.status, 404);
+    // A MISS MUST NOT MANUFACTURE A RECORD. Writing one here would accumulate audio-less documents
+    // for every edit to a listen whose audio the ceiling already evicted.
+    assert.deepEqual(readdirSync(directory).sort(), before);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('a service with no store answers the same 404 rather than failing', () => {
+  // The optional member's own contract: a deployment (or a leaf double) that wired no store has no
+  // records to label, which is the answer a vanished record gets. A throw here would make the
+  // route's fallback unreachable rather than exercised.
+  const service = createVoiceService({
+    defaults,
+    timeoutMs: 1_000,
+    fetchBackend: async () => transcriptionResponse(),
+  });
+
+  const result = service.labelVoiceData?.({ recordId: 'anything', finalText: 'x', labels: [] });
+  assert.ok(result !== undefined && !result.ok);
+  assert.equal(result.status, 404);
+});
+
+test('PATCH /api/voice/data/:recordId writes, 404s an unknown id, and 400s a broken body', async () => {
+  const parent = makeTempParent();
+  try {
+    const { service, directory } = makeService(parent);
+    const transcribed = await service.transcribe({
+      audio: { bytes: AUDIO, mimeType: 'audio/wav', fileName: 'segment-1.wav' },
+      overrides: {},
+      settings: { ...EMPTY_SETTINGS, apiKey: SENTINEL_API_KEY },
+    });
+    // The id is the seam's optional field, so it is asserted rather than assumed: a case that
+    // PATCHes "the record the listen wrote" has to have one, or every assertion below would be
+    // reading an undefined against an undefined.
+    assert.ok(transcribed.ok && typeof transcribed.value.recordId === 'string');
+    const recordId = transcribed.value.recordId;
+
+    const app = express();
+    // The label body is JSON, so the app needs the parser the real composition root mounts. The
+    // DELETE case above does not, which is why this one does not share its app.
+    app.use(express.json());
+    app.use(createVoiceRouter({
+      voiceService: service,
+      voiceSettingsService: createVoiceSettingsService({
+        getSettings: () => EMPTY_SETTINGS,
+        saveSettings: () => undefined,
+      }),
+      lexiconService: {
+        observeSentText: () => undefined,
+        importFromHistory: async () => ({ importedMessages: 0, tokenCount: 0 }),
+        list: () => [],
+        clear: () => undefined,
+      },
+      parseAudioUpload: (_request, _response, next) => next(),
+      parseRawAudioUpload: (_request, _response, next) => next(),
+    }));
+
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const port = (address as { port: number }).port;
+
+    const patch = (id: string, body: unknown): Promise<{ status: number; body: unknown }> => {
+      const payload = JSON.stringify(body);
+      return new Promise((resolve, reject) => {
+        const request = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            path: `/data/${encodeURIComponent(id)}`,
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+          },
+          (response) => {
+            const chunks: Buffer[] = [];
+            response.on('data', (chunk: Buffer) => chunks.push(chunk));
+            response.on('end', () => {
+              const text = Buffer.concat(chunks).toString('utf8');
+              resolve({ status: response.statusCode ?? 0, body: JSON.parse(text) });
+            });
+          },
+        );
+        request.on('error', reject);
+        request.end(payload);
+      });
+    };
+
+    try {
+      const labels = [{ segmentIndex: 0, heard: 'key', final: 'quay', op: 'replace' }];
+      const written = await patch(recordId, { finalText: 'send the quay', labels });
+      assert.equal(written.status, 200);
+      assert.deepEqual(written.body, { recordId });
+
+      const record = readJson(path.join(directory, `${recordId}.json`));
+      assert.equal(record.finalText, 'send the quay');
+      assert.deepEqual(record.labels, labels);
+      assert.ok(!readFileSync(path.join(directory, `${recordId}.json`), 'utf8').includes(SENTINEL_API_KEY));
+
+      const missing = await patch('no-such-record', { finalText: 'x', labels: [] });
+      assert.equal(missing.status, 404, 'an id no record carries is a 404, not a create');
+
+      // The two malformed bodies: no `finalText` at all, and an array whose entry is not a label.
+      // Both are refusals rather than silent partial writes, because what lands on disk is what the
+      // route let through.
+      assert.equal((await patch(recordId, { labels: [] })).status, 400);
+      assert.equal((await patch(recordId, { finalText: 'x', labels: [{ heard: 'a' }] })).status, 400);
+      // And neither refusal touched the record it was aimed at.
+      assert.equal(readJson(path.join(directory, `${recordId}.json`)).finalText, 'send the quay');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test('the store module carries no transport import: nothing here leaves the machine', () => {
   // Read the SHIPPING module's own source and require the transport vocabulary to be absent. This
   // is the "does not leave this machine" half of D1 as a reading rather than a promise, and it is

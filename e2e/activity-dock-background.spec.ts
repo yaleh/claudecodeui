@@ -445,13 +445,23 @@ const NEVER_TASK = 'task-never';
 const BG_TASK = 'task-bg';
 
 /**
- * When the walk emits the stop target's terminal event, in ms from the walk's
- * start. The click has to land before this, which is what makes "the click did
- * not change the row; the event did" a reading rather than a race.
+ * The barrier the click window ends at, and where the control events sit behind
+ * it, in ms from the walk's start.
+ *
+ * These used to be a fixed 12s, chosen to outrun the click window on the hosts
+ * this criterion was written on. That is a race rather than a reading: on a loaded
+ * host the clicks take longer than the offset, the events fire first, and the run
+ * fails the very assertions meant to prove the click was not optimistic. The
+ * barrier replaces the race with a handshake — the walk is held at `RELEASE_AT`
+ * until this spec's own reading window has closed and says so — so "the click did
+ * not change the row; the event did" holds at any host speed. The offsets behind
+ * it are only as far apart as they need to be to order the frames; already due
+ * when the release lands, they fire back to back.
  */
-const STOP_EVENT_AT = 12_000;
-const BG_STARTED_AT = 12_300;
-const BG_UPDATED_AT = 12_600;
+const RELEASE_AT = 1_600;
+const STOP_EVENT_AT = RELEASE_AT + 100;
+const BG_STARTED_AT = RELEASE_AT + 200;
+const BG_UPDATED_AT = RELEASE_AT + 300;
 
 const FOREGROUND_ROW = '[data-foreground-tool-row]';
 const TASK_STOP = '[data-task-stop]';
@@ -466,10 +476,11 @@ const DISABLED_REASON = '[data-control-disabled-reason]';
  * and `TERMINAL_TASK` is settled to `completed` (so the table holds a terminal
  * task the panel never lists — the reading that the list is the live set). A
  * `Bash` call with no paired result is left pending — the running foreground
- * tool the background control addresses. Both control *events* are far down the
- * clock (12s), so the whole click-and-read window happens before either, and the
- * settle is attributable to the event and not to the click. The walk writes
- * twelve rows.
+ * tool the background control addresses. Both control *events* sit behind the
+ * `await-release` barrier, so the whole click-and-read window happens before
+ * either no matter how slow the host is, and the settle is attributable to the
+ * event and not to the click. The barrier itself writes nothing, so the walk
+ * still writes twelve rows.
  */
 const CONTROL_SCENARIO = {
   version: 1,
@@ -487,6 +498,10 @@ const CONTROL_SCENARIO = {
     { at: 1_100, op: 'row', role: 'assistant', text: 'Started the agent.' },
     { at: 1_300, op: 'tool-call', name: 'Bash' },
     { at: 1_500, op: 'row', role: 'assistant', text: 'And a long build in the foreground.' },
+    // The click window ends here: the walk parks until this spec releases it, so
+    // every event below fires after the readings that must precede it — never
+    // before, at any host speed.
+    { at: RELEASE_AT, op: 'await-release' },
     { at: STOP_EVENT_AT, op: 'task-notification', taskId: STOP_TARGET, status: 'stopped', summary: 'stopped from the dock' },
     { at: BG_STARTED_AT, op: 'task-started', taskId: BG_TASK, taskType: 'local_bash', description: 'Backgrounded build' },
     { at: BG_UPDATED_AT, op: 'task-updated', taskId: BG_TASK, status: 'running', isBackgrounded: true },
@@ -494,6 +509,118 @@ const CONTROL_SCENARIO = {
   ],
   expect: { rows: { delta: 12 }, content: { mustContain: [CONTROL_SEED] } },
 };
+
+/**
+ * How long the sidebar's project row is given before a reload is tried, and the
+ * whole bounded preamble that may contain such reloads.
+ *
+ * The probe used to be a single 25s wait. That is a fixed cost that scales with
+ * the host, and it is the one this criterion was red on: a cold Vite dev server
+ * answers the first navigation with a document it then replaces (`full-reload`)
+ * as soon as its dependency optimizer commits, so the sidebar the wait is looking
+ * for never renders on *that* document — and a loaded host makes the wait run its
+ * full length before the declared fallback reload finally tries a document that
+ * stays. Probing for a few seconds and reloading promptly turns a 25s fixed cost
+ * into one of a few seconds, and bounding the whole preamble means a page that is
+ * genuinely broken ends here, in this spec's own words, rather than at a ceiling
+ * that names neither the url nor the status.
+ */
+const STARTUP_PROBE_MS = 4_000;
+const STARTUP_RELOAD_PROBE_MS = 4_000;
+const STARTUP_PROBE_DEADLINE_MS = 15_000;
+/** How long the client is given to answer its own app entry before the startup path gives up. */
+const CLIENT_WARM_DEADLINE_MS = 25_000;
+/** A dependency url the optimizer serves out of this run's private cache, as the entry writes it. */
+const OPTIMIZED_DEP_IN_TEXT = /["'](\/@fs\/[^"']*\/deps\/[^"']+\.js\?v=[0-9a-f]+)["']/;
+
+/** Waits for a locator without throwing, so a caller can decide whether to retry. */
+const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
+  locator.waitFor({ state: 'visible', timeout: timeoutMs }).then(() => true, () => false);
+
+/**
+ * Commits this run's Vite dependency pre-bundle before any browser of this run navigates.
+ *
+ * The optimizer is per-run (a private cache directory under the data dir), so its
+ * first commit always happens *during* a run, and the browser that triggers it
+ * gets its document replaced mid-flight — the exact replacement the bounded probe
+ * above exists to survive. Doing it here instead, over plain HTTP and before
+ * `browser.newContext()`, means the criterion's first navigation meets a document
+ * that stays. The proof is a dependency url current for this run: the hash is the
+ * one its writer committed, so a 200 on that url is "the optimizer has committed",
+ * not "something answered".
+ */
+async function warmClientStartup(clientUrl: string): Promise<number> {
+  const startedAt = Date.now();
+  const deadline = startedAt + CLIENT_WARM_DEADLINE_MS;
+  const fetchWithin = async (url: string): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(1, deadline - Date.now()));
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } catch (error) {
+      throw new Error(
+        `the client did not answer ${url} inside the ${CLIENT_WARM_DEADLINE_MS}ms startup budget `
+        + `(${error instanceof Error ? error.message : String(error)})`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const shellUrl = new URL('/', clientUrl).href;
+  const shell = await fetchWithin(shellUrl);
+  if (!shell.ok) throw new Error(`the client's shell did not load: ${shellUrl} answered HTTP ${shell.status}`);
+  await shell.text();
+
+  const entryUrl = new URL('/src/main.tsx', clientUrl).href;
+  const entry = await fetchWithin(entryUrl);
+  if (!entry.ok) throw new Error(`the app entry did not transform: ${entryUrl} answered HTTP ${entry.status}`);
+  await entry.text();
+
+  let lastAnswer = 'no dependency url was ever served';
+  for (let attempt = 0; attempt < 5 && Date.now() < deadline; attempt += 1) {
+    const specifier = OPTIMIZED_DEP_IN_TEXT.exec(await (await fetchWithin(entryUrl)).text())?.[1];
+    if (!specifier) break;
+    const depUrl = new URL(specifier, clientUrl).href;
+    const dep = await fetchWithin(depUrl);
+    if (dep.ok) {
+      return Date.now() - startedAt;
+    }
+    lastAnswer = `${depUrl} answered HTTP ${dep.status}`;
+    await dep.text().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `this run's dependency pre-bundle never committed, so the criterion cannot drive a document that stays: `
+    + lastAnswer,
+  );
+}
+
+/**
+ * Reloads until the sidebar lists `workspaceName`, bounded by the preamble deadline.
+ *
+ * The account is already registered by the time this runs, so there is no
+ * onboarding screen to wait for here: the sidebar's project row is the app's own
+ * statement that it reached the backend and indexed the armed workspace, which is
+ * what the rest of the case needs before it can open a session.
+ */
+async function awaitWorkspaceInSidebar(page: Page, workspaceName: string): Promise<number> {
+  const startedAt = Date.now();
+  const deadline = startedAt + STARTUP_PROBE_DEADLINE_MS;
+  let listed = await appears(projectRow(page, workspaceName), STARTUP_PROBE_MS);
+  while (!listed && Date.now() < deadline) {
+    await page.reload();
+    listed = await appears(
+      projectRow(page, workspaceName),
+      Math.min(STARTUP_RELOAD_PROBE_MS, Math.max(1, deadline - Date.now())),
+    );
+  }
+  if (!listed) {
+    throw new Error(`the sidebar never listed workspace "${workspaceName}" within the ${STARTUP_PROBE_DEADLINE_MS}ms startup budget`);
+  }
+
+  return Date.now() - startedAt;
+}
 
 /** The app's own chat socket, wherever it is proxied to. */
 const WS_PATTERN = /\/ws(\?.*)?$/;
@@ -554,6 +681,24 @@ function clickInstantVerdict(before: string | null, after: string | null): { gre
   };
 }
 
+/**
+ * Releases the control walk's `await-release` barrier, which is what lets the
+ * scenario's stop and background events fire.
+ *
+ * Called once this case's click window has closed. Until it lands the walk is
+ * parked at the barrier, so the readings that have to come first — "the click did
+ * not change the row", "the background task is not drawn yet" — hold because the
+ * events have not happened, not because a fixed offset happened to outrun the
+ * clicks on this host. A release that fails is reported here rather than left to
+ * the polls below, so a red names the handshake instead of a row that never moved.
+ */
+async function releaseControlWalk(api: APIRequestContext, sessionId: string): Promise<void> {
+  const response = await api.post('/api/debug-agent/release', { data: { sessionId } });
+  const body = (await response.json().catch(() => null)) as { success?: boolean; data?: { woken?: number } } | null;
+  console.log(`release.status=${response.status()} release.body=${JSON.stringify(body).slice(0, 200)}`);
+  expect(response.ok(), `the walk must be released: ${JSON.stringify(body).slice(0, 300)}`).toBe(true);
+}
+
 test.describe('activity dock controls', () => {
   let page: Page;
   let api: APIRequestContext;
@@ -580,6 +725,10 @@ test.describe('activity dock controls', () => {
 
     sessionId = await armScenario(api, workspace, CONTROL_SCENARIO);
 
+    // Before `browser.newContext()`, and therefore before any page of this run exists, so this run's
+    // own optimizer commit happens outside the criterion's first navigation — see the helper.
+    console.log(`[e2e] client warm-up: ${await warmClientStartup(clientUrl)}ms`);
+
     const context = await browser.newContext({ baseURL: clientUrl });
     await context.addInitScript(
       ({ key, value }: { key: string; value: string }) => {
@@ -595,9 +744,7 @@ test.describe('activity dock controls', () => {
     page.on('pageerror', (error) => console.log(`[e2e] pageerror: ${error.message}`));
 
     await page.goto('/');
-    if (!(await projectRow(page, workspaceName).waitFor({ state: 'visible', timeout: 25_000 }).then(() => true, () => false))) {
-      await page.reload();
-    }
+    console.log(`[e2e] sidebar ready: ${await awaitWorkspaceInSidebar(page, workspaceName)}ms`);
     await revealSession(page, workspaceName, sessionId);
   });
 
@@ -610,7 +757,8 @@ test.describe('activity dock controls', () => {
     const runStartedAt = Number(process.env.QUAY_E2E_RUN_STARTED_AT);
 
     // Fire the walk without awaiting it: the click window opens while it is in
-    // flight, and the controls' events are far down its clock.
+    // flight, and the controls' events sit behind the walk's release barrier,
+    // which this case does not state until that window has closed.
     const clock = api
       .post('/api/debug-agent/clock', { data: { sessionId } })
       .then(async (response) => {
@@ -689,11 +837,17 @@ test.describe('activity dock controls', () => {
     const idsAfterClick = await readTaskIds(page);
     expect(idsAfterClick.includes(BG_TASK), 'a background click must not fabricate a task row').toBe(false);
 
-    // --- The two events, far down the clock, are what move the state --------------------------
-    // The stop event (12s) settles the task; the background frames (12.3/12.6s) create the task.
-    // The click was not optimistic (asserted above: the row read `running` on both sides of it), so
-    // the row can only leave the panel because the server's own frame made the task terminal. The
-    // snapshot is read back for the state the panel no longer draws.
+    // --- Release the walk now that the click window has closed ---------------------------------
+    // The walk is parked at its `await-release` barrier until this lands, so neither event below can
+    // have fired before either click-instant reading above — the readings are facts about events
+    // that have not happened, not a fixed offset that had to outrun two clicks.
+    await releaseControlWalk(api, sessionId);
+
+    // --- The two events, behind the barrier, are what move the state ---------------------------
+    // The stop event settles the task; the background frames create the task. The click was not
+    // optimistic (asserted above: the row read `running` on both sides of it), so the row can only
+    // leave the panel because the server's own frame made the task terminal. The snapshot is read
+    // back for the state the panel no longer draws.
     await expect(taskRowOf(page, STOP_TARGET)).toHaveCount(0, { timeout: 20_000 });
     await expect
       .poll(

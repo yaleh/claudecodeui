@@ -11,7 +11,7 @@
  * subject:
  *
  *   · (i) `status-only` — classify from the status alone, never reading the answer's own error code.
- *     Every code in the vocabulary still exists and the table still has thirteen rows; a `403`
+ *     Every code in the vocabulary still exists and the table still has fourteen rows; a `403`
  *     `AccessDenied.Unpurchased` and a `403` with no code collapse onto one answer, which is the
  *     single thing this task exists to stop. If this case passes, AC2's `matched` and AC3's
  *     `distinct400` are not measuring that the BODY decides.
@@ -321,8 +321,8 @@ const CASES: readonly MutationCase[] = [
       },
       {
         reading: /^AC4 /,
-        token: 'source=12',
-        meaning: 'the parsed table is a row short of the thirteen the vocabulary declares',
+        token: 'source=13',
+        meaning: 'the parsed table is a row short of the fourteen the vocabulary declares',
       },
     ],
     why: 'a code the vocabulary declares has no status, so a failure carrying it has no answer',
@@ -343,8 +343,8 @@ const CASES: readonly MutationCase[] = [
       },
       {
         reading: /^AC4 /,
-        token: 'source=14',
-        meaning: 'the parsed table is a row longer than the thirteen the vocabulary declares',
+        token: 'source=15',
+        meaning: 'the parsed table is a row longer than the fourteen the vocabulary declares',
       },
     ],
     why: 'the table is written against the vocabulary this task replaced, which is the drift it exists to end',

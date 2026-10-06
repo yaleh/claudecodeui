@@ -3,7 +3,7 @@ id: gap-npm-test-server-scripts-bounded-concurrency-and-memory-scope
 title: 会话里跑服务端测试会撞 8G 会话上限被 OOM 杀掉：npm run test:server / test:scripts 默认走
   with-memory-cap.sh 并限并发，AGENTS.md 加一条指向分层表的短规则，并记录 test.sh 服务端阶段入 scope
   的评估结论（暂不做）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -36,16 +36,16 @@ extra:
 
 ## AC
 
-- [ ] AC1 `test:server` 形态：`node -e "const s=require('./package.json').scripts['test:server'];process.exit(/^bash scripts\/with-memory-cap\.sh tsx /.test(s)&&s.includes('--test-concurrency=16')&&s.includes('--import ./scripts/undici-blocked-ports-preload.mjs')&&s.includes('\"server/**/*.test.ts\"')&&s.includes('\"server/**/*.test.js\"')?0:1)"` → 退出码 0。
-- [ ] AC2 `test:scripts` 形态：`node -e "const s=require('./package.json').scripts['test:scripts'];process.exit(s.startsWith('node scripts/list-script-tests.mjs && bash scripts/with-memory-cap.sh node --test --test-concurrency=16 ')&&s.includes('\"scripts/**/*.test.mjs\"')?0:1)"` → 退出码 0。
-- [ ] AC3 `package.json` 只动了这两行：`git diff --unified=0 $(git merge-base HEAD develop) HEAD -- package.json | grep -E '^[+-][^+-]' | grep -vcE '"test:(server|scripts)"'` 的输出为 `0`。
-- [ ] AC4 改后的命令链真能跑（单个轻量文件，证明 `with-memory-cap.sh`、`tsx`、`--test-concurrency` 与 preload 的组合被接受）：`bash scripts/with-memory-cap.sh tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test --test-concurrency=16 server/modules/auth/tests/auth.service.test.ts` → 退出码 0 且输出含 `ℹ fail 0`；`bash scripts/with-memory-cap.sh node --test --test-concurrency=16 scripts/undici-blocked-ports-preload.test.mjs` → 退出码 0。
-- [ ] AC5 被包住的命令确实不在调用者的 cgroup 里：`[ "$(bash scripts/with-memory-cap.sh sed -n 's/^0:://p' /proc/self/cgroup)" != "$(sed -n 's/^0:://p' /proc/self/cgroup)" ]` → 退出码 0。
-- [ ] AC6 运维文档：`grep -c '^## Running tests from a Claude session' docs/operations/process-isolation-and-memory-caps.md` 为 `1`；该小节内有至少 4 行以 `|` 开头的表格行，且同时出现 `with-memory-cap.sh` 与 `--test-concurrency`；「Wired in at」清单里出现 `npm run test:server` 与 `npm run test:scripts`。
-- [ ] AC7 评估结论已记录：同一文档含子节 `### Not done: scripts/test.sh scopes its own server phase`，其中分别 `grep -c` 到 `QUAY_MEMORY_SLICE`、`gap-suite-server-dispatch-longest-first-and-parallel-static-stages`、`oom-kill`（复评触发条件）各至少 1 处。
-- [ ] AC8 `AGENTS.md`：含 `## Running tests`；`awk '/^## Running tests/{f=1;next} /^## /{f=0} f&&NF' AGENTS.md | wc -l` 的结果在 3 到 8 之间；该小节含 `docs/operations/process-isolation-and-memory-caps.md`；既有两节未被改动：`git diff --numstat $(git merge-base HEAD develop) HEAD -- AGENTS.md` 的删除列为 `0`。
-- [ ] AC9 范围受控：`git diff --name-only $(git merge-base HEAD develop) HEAD` 的集合 ⊆ `## Touches` 所列，且不含 `scripts/with-memory-cap.sh`、`scripts/test.sh`、`vitest.config.ts`。
-- [ ] AC10 既有守卫与卫生：`bash scripts/vitest-heap-limit-check.sh` → 退出码 0（动手前先读一次基线；若它在 develop 上本就红，只证明改动前后读数相同）；`npm run typecheck` → 退出码 0；`npm run lint` → 退出码 0。
+- [x] AC1 `test:server` 形态：`node -e "const s=require('./package.json').scripts['test:server'];process.exit(/^bash scripts\/with-memory-cap\.sh tsx /.test(s)&&s.includes('--test-concurrency=16')&&s.includes('--import ./scripts/undici-blocked-ports-preload.mjs')&&s.includes('\"server/**/*.test.ts\"')&&s.includes('\"server/**/*.test.js\"')?0:1)"` → 退出码 0。
+- [x] AC2 `test:scripts` 形态：`node -e "const s=require('./package.json').scripts['test:scripts'];process.exit(s.startsWith('node scripts/list-script-tests.mjs && bash scripts/with-memory-cap.sh node --test --test-concurrency=16 ')&&s.includes('\"scripts/**/*.test.mjs\"')?0:1)"` → 退出码 0。
+- [x] AC3 `package.json` 只动了这两行：`git diff --unified=0 $(git merge-base HEAD develop) HEAD -- package.json | grep -E '^[+-][^+-]' | grep -vcE '"test:(server|scripts)"'` 的输出为 `0`。
+- [x] AC4 改后的命令链真能跑（单个轻量文件，证明 `with-memory-cap.sh`、`tsx`、`--test-concurrency` 与 preload 的组合被接受）：`bash scripts/with-memory-cap.sh tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test --test-concurrency=16 server/modules/auth/tests/auth.service.test.ts` → 退出码 0 且输出含 `ℹ fail 0`；`bash scripts/with-memory-cap.sh node --test --test-concurrency=16 scripts/undici-blocked-ports-preload.test.mjs` → 退出码 0。
+- [x] AC5 被包住的命令确实不在调用者的 cgroup 里：`[ "$(bash scripts/with-memory-cap.sh sed -n 's/^0:://p' /proc/self/cgroup)" != "$(sed -n 's/^0:://p' /proc/self/cgroup)" ]` → 退出码 0。
+- [x] AC6 运维文档：`grep -c '^## Running tests from a Claude session' docs/operations/process-isolation-and-memory-caps.md` 为 `1`；该小节内有至少 4 行以 `|` 开头的表格行，且同时出现 `with-memory-cap.sh` 与 `--test-concurrency`；「Wired in at」清单里出现 `npm run test:server` 与 `npm run test:scripts`。
+- [x] AC7 评估结论已记录：同一文档含子节 `### Not done: scripts/test.sh scopes its own server phase`，其中分别 `grep -c` 到 `QUAY_MEMORY_SLICE`、`gap-suite-server-dispatch-longest-first-and-parallel-static-stages`、`oom-kill`（复评触发条件）各至少 1 处。
+- [x] AC8 `AGENTS.md`：含 `## Running tests`；`awk '/^## Running tests/{f=1;next} /^## /{f=0} f&&NF' AGENTS.md | wc -l` 的结果在 3 到 8 之间；该小节含 `docs/operations/process-isolation-and-memory-caps.md`；既有两节未被改动：`git diff --numstat $(git merge-base HEAD develop) HEAD -- AGENTS.md` 的删除列为 `0`。
+- [x] AC9 范围受控：`git diff --name-only $(git merge-base HEAD develop) HEAD` 的集合 ⊆ `## Touches` 所列，且不含 `scripts/with-memory-cap.sh`、`scripts/test.sh`、`vitest.config.ts`。
+- [x] AC10 既有守卫与卫生：`bash scripts/vitest-heap-limit-check.sh` → 退出码 0（动手前先读一次基线；若它在 develop 上本就红，只证明改动前后读数相同）；`npm run typecheck` → 退出码 0；`npm run lint` → 退出码 0。
 
 ## DoD
 

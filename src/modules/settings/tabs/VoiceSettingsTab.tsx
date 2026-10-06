@@ -115,7 +115,7 @@ export default function VoiceSettingsTab() {
   const selected = providers.find((provider) => provider.id === selectedId) ?? null;
   const options = providers.length > 0
     ? providers
-    : (selectedId ? [{ id: selectedId, label: selectedId, configured: false, credentialFields: null }] : []);
+    : (selectedId ? [{ id: selectedId, label: selectedId, configured: false, credentialFields: null, runtime: null }] : []);
 
   const declaration = selected?.credentialFields ?? null;
   const declared = declaration ? declaredEntries(declaration) : [];
@@ -154,6 +154,32 @@ export default function VoiceSettingsTab() {
               </select>
               <span className="block text-xs text-muted-foreground">{t('voiceSettings.providerDescription')}</span>
             </label>
+
+            {/* WHAT THIS PROVIDER IS, for the ones that answer, and whether it can run.
+                The rows above and below are all about something the user types; this block is the
+                only place the form says anything about the deployment. It is rendered for exactly
+                the providers that carry a runtime reading — the ones that run on the machine hosting
+                this server — and it is where a user learns that the credential boxes below are not
+                theirs to fill in, and where an operator learns why the selection cannot serve a
+                request right now. A provider that declares no runtime renders nothing here, so the
+                page for every remote recogniser is the page it always was. */}
+            {selected?.runtime && (
+              <div className="space-y-1 rounded-lg border border-border p-3" data-testid="voice-provider-runtime">
+                <div className="text-sm font-medium text-foreground">
+                  {t('voiceSettings.providerLocalTitle', { provider: providerLabel })}
+                </div>
+                <p className="text-xs text-muted-foreground">{t('voiceSettings.providerLocalNotice')}</p>
+                {selected.runtime.available ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t('voiceSettings.providerBuild', { buildId: selected.runtime.buildId })}
+                  </p>
+                ) : (
+                  <p className="text-xs text-destructive">
+                    {t('voiceSettings.providerUnavailable', { reason: selected.runtime.reason })}
+                  </p>
+                )}
+              </div>
+            )}
 
             {declared.length > 0 && (
               <div className="space-y-4 rounded-lg border border-border p-3" data-testid="voice-provider-fields">

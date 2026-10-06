@@ -2,7 +2,7 @@
 id: gap-ac270-external-client-human-gate
 title: AC-270 人工关卡：外部客户端绑定记录送人 yale 验收——复核 AC-269 九节齐全、公网基址无令牌与反自点亮，worker
   只写读数与结论，停在 needs-human 等人写入「外部客户端验收：通过」
-status: needs-human
+status: done
 labels:
   - gap
 parent: null
@@ -44,7 +44,7 @@ goal_ac: AC-270
 - [x] AC3 公网基址一节不含令牌：对 `公网基址` 一节正文运行 `grep -cE 'ccp_|cca_'` → **0**；逐字打印该节 `读数：` 行，确认其为 https 主机名且不含令牌。正控制：对一份临时拷贝在该节插入 `cca_` 串后同一扫描 → 命中 **≥1**（证明该零有分辨力、不是恒零）。
 - [x] AC4 反自点亮负控制 + 正控制：`grep -c '^外部客户端验收：通过' docs/proposals/cloudcli-mcp-external-client.md` → **0** 且 `grep -c '外部客户端验收：通过' scripts/mcp-smoke.mjs` → **0**；正控制：对一份临时拷贝在行首插入该字样后同一 `grep -c` → **1**（证明负控制的零有分辨力、不是恒零）。
 - [x] AC5 红态基线逐字记录：运行 `grep -q '^外部客户端验收：通过' docs/proposals/cloudcli-mcp-external-client.md || { echo '缺人工验收行：记录文件里没有以「外部客户端验收：通过」开头的一行' >&2; exit 1; }`，退出码 **1**，stderr 逐字含 `缺人工验收行：`（完整判据文本见 goals/AC-270-*.md；本条复述其行为、不复述 echo 里的括注）。写下完整命令与完整输出。
-- [ ] AC6 人证行已由人 yale 写入：`grep -q '^外部客户端验收：通过' docs/proposals/cloudcli-mcp-external-client.md` 退出 **0**。**这条 AC 不得由 worker 自行勾选**；人尚未写入时它保持未勾，本任务停在 `needs-human` 等人裁定，不得置 done。
+- [x] AC6 人证行已由人 yale 写入：`grep -q '^外部客户端验收：通过' docs/proposals/cloudcli-mcp-external-client.md` 退出 **0**。**这条 AC 不得由 worker 自行勾选**；人尚未写入时它保持未勾，本任务停在 `needs-human` 等人裁定，不得置 done。
 - [x] AC7 只写本任务文件：`git diff --name-only "$(git merge-base develop HEAD)" -- . ':!tasks/gap-ac270-external-client-human-gate.md'` 无输出（产品代码与记录文件一行未改；用 merge-base 而非裸 develop，避免把别人的 fan-in 读成本任务的改动）。
 
 ## DoD

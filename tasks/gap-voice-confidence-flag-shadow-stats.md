@@ -1,7 +1,7 @@
 ---
 id: gap-voice-confidence-flag-shadow-stats
 title: 置信度标记的影子统计：按 θ 扫描「本来会画几条下划线」，写进语音数据记录（纯函数，与离线实验口径逐条一致，不出任何 UI）
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -53,15 +53,13 @@ depends_on:
 
 ## Notes
 
-**AC5（MCP 浏览器验证）阻塞，因此转 `needs-human`。** 三个必要条件本次都不成立：
+**AC5（MCP 浏览器验证）2026-10-06 二次判定：阻塞已解除，改判可做。** 原先记的三条理由里第 1 条已不成立，第 2、3 条已有**经记录的替代做法**（同门任务先例）：
 
-1. `sensevoice-local` 在 develop 上**不存在**——只登记在 `gap-voice-sensevoice-server-adapter` 一支（该任务停在 `needs-human`、未合并）。没有它就无法「识别器选 `sensevoice-local`」转写，也就产不出任何真实 SenseVoice 记录与 `flagStats`。
-2. 本会话**没有挂 playwright MCP**（可用 MCP 只有 archguard / meta-cc / quay）。Playwright 浏览器二进制本机已安装，缺的是 MCP 入口。
-3. `localhost:3001` 上是主检出（`/data/home/yale/work/claudecodeui`）的 `dist-server/server/index.js`：既无 `sensevoice-local`，也无本任务改动；该进程由另一会话托管，本会话不能重启它。
+1. ~~`sensevoice-local` 在 develop 上不存在~~ —— **已不成立**：`gap-voice-sensevoice-server-adapter` 已 done，`sensevoice-local` 已并入 develop（`server/modules/voice/sensevoice-worker.ts`、`voice.module.ts`）。
+2. ~~本会话没有挂 playwright MCP~~ —— **有替代且已有先例**：同门任务 `gap-voice-sensevoice-server-adapter` 的 AC6 记录了同一条偏差，改用**仓库自身的 Playwright harness**（真 Chromium + 真后端 + 真 Vite），用一次性 spec 驱动同一套栈，读完即删、不入库。
+3. ~~3001 被别的会话托管且服务冻结的 dist~~ —— **有替代**：同上，用 harness 内核分配的端口而不是 3001。本仓 `playwright.config.ts` 的 webServer 把 `process.env` 合进被测进程，故 `SENSEVOICE_MODEL_DIR` 之类变量不必在 spec 文件里冒充识别器。
 
-把本改动临时嫁接到那条未合并分支上可以造出浏览器证据，但读的是另一支的构建、并把未合并任务的产品拖进本任务范围，故不做。
-
-**解除阻塞后 AC5 的补法**：`sensevoice-local` 合并进 develop 且本改动构建进 3001 所服务的进程后，用 `?voiceDebug=1` 上传一 wav（识别器 `sensevoice-local`），读 `~/.cloudcli/voice-data/` 记录的 `flagStats`，把四个 θ 的 `flagsPer100Chars` 填进 `## Evidence` 并勾选本行；DoD 的「真实 SenseVoice 与离线脚本同尺」判据随之成立。
+**AC5 的补法**（照上述先例）：在 worktree 里起一次性 spec，用 `?voiceDebug=1` 的上传入口转写一个 wav、识别器选 `sensevoice-local`；读 `~/.cloudcli/voice-data/` 下该次记录的 `flagStats`，把四个 θ 的 `flagsPer100Chars` 填进 `## Evidence` 并勾选本行；**逐字记录实际用的端口、以及为何不是 3001**。判据的实质是 DoD 那条「真实 SenseVoice 转写产生真实 `flagStats`」，不是端口号本身。
 
 ## DoD
 

@@ -111,6 +111,7 @@
       "INVALID_BASE_URL": "Die Basis-URL des Sprachanbieters ist ungültig — korrigieren Sie sie in den Einstellungen des Sprachanbieters.",
       "OVERSIZE": "Die Aufnahme ist zu groß für den Upload — nehmen Sie einen kürzeren Ausschnitt auf und versuchen Sie es erneut.",
       "UNSUPPORTED_MIME": "Dieses Audioformat wird nicht unterstützt — verwenden Sie eine andere Datei oder nehmen Sie über das Mikrofon auf.",
+      "ENGINE_UNAVAILABLE": "Die lokale Spracherkennung ist auf diesem Server nicht verfügbar — prüfen Sie, ob sie installiert ist, oder wählen Sie einen anderen Sprachanbieter.",
       "unknown": "Die Transkription ist fehlgeschlagen — versuchen Sie es erneut oder prüfen Sie die Einstellungen des Sprachanbieters."
     }
   },

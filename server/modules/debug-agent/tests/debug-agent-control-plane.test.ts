@@ -140,8 +140,49 @@ const SCENARIO: DebugAgentScenario = {
   },
 };
 
+/**
+ * The scenario the release action is read against: a walk that parks at
+ * `await-release` and does not write the row behind it until it is released.
+ *
+ * The barrier is deliberately NOT the last step and the one in front of it is a
+ * plain row, so the artifact says which side of the barrier the walk got to: a
+ * build where `await-release` was a no-op would write both rows without anyone
+ * releasing anything, and its `expect.rows.delta` (two) would still be met — which
+ * is why the reading below is taken while the walk is parked, on the row count,
+ * and not on the run's own verdict.
+ */
+const RELEASE_SCENARIO: DebugAgentScenario = {
+  version: 1,
+  dialect: 'claude',
+  home: 'gate',
+  transcript: { mode: 'per-row-jsonl' },
+  seed: {
+    title: 'debug agent release-barrier fixture',
+    userText: 'park at the barrier until the control plane releases it',
+  },
+  steps: [
+    { at: 10, op: 'row', role: 'assistant', text: 'before the barrier' },
+    { at: 20, op: 'await-release' },
+    { at: 30, op: 'row', role: 'assistant', text: 'after the barrier' },
+  ],
+  expect: {
+    rows: { delta: 2 },
+    content: { mustContain: ['before the barrier', 'after the barrier'] },
+  },
+};
+
 /** Written by this file, never by the control plane — see the artifact criterion. */
 const OUT_OF_BAND_TEXT = 'a row nobody asked the control plane to write';
+
+/**
+ * How long the parked-walk reading waits before it believes the barrier held.
+ *
+ * The walk's last step before the barrier is at 10ms, so a run that never parked
+ * would have written both rows long before this. Long enough that a slow host
+ * cannot make the reading vacuous, short enough that the child's own startup
+ * budget is untouched.
+ */
+const PARKED_SETTLE_MS = 400;
 
 type ChildMode = 'open' | 'closed' | 'closed-forced-mount';
 
@@ -202,6 +243,23 @@ type ControlPlaneReading = {
     armed: { sessionId: string; providerSessionId: string; transcriptPath: string; seedRows: number } | null;
     frames: number | null;
     steps: number | null;
+    /** The release action, read on both sides of its barrier and on an unarmed session. */
+    release: {
+      /** The clock request for the parked walk, taken while the walk is still parked. */
+      parkedClockRows: number;
+      /** The same transcript's row count once the release has been stated. */
+      releasedRows: number;
+      /** How many waiters the release reported waking. */
+      woken: number | null;
+      /** The parked walk's own clock request, which only answers once it is released. */
+      clock: HttpReading;
+      /** The release stated again, on a run that has already finished. */
+      again: HttpReading;
+      /** The release stated for a session with no armed scenario. */
+      unarmed: HttpReading;
+      /** The release stated with no credential. */
+      noCredential: HttpReading;
+    };
   } | null;
   /** The self-check before and after an out-of-band append, with the file's own counts. */
   artifact: {
@@ -492,6 +550,54 @@ async function probe(baseUrl: string, mode: ChildMode, mounted: boolean): Promis
     { label: 'self-check (no record)', token },
   );
 
+  // ---- the release action, read on the run it releases --------------------------
+  // A second armed scenario whose walk parks at `await-release`, driven by a clock
+  // request that is deliberately NOT awaited: the walk is in flight and blocked,
+  // which is the only state the action exists for. The reading is the artifact —
+  // one row count while parked, another once released — because a build where the
+  // barrier was a no-op would write both rows with nobody releasing anything and
+  // its own verdict (`expect.rows.delta`) would still hold.
+  const barrierArm = await request(baseUrl, 'POST', `${DEBUG_AGENT_CONTROL_PLANE_PATH}/scenarios`, {
+    label: 'arm (await-release)',
+    token,
+    body: { projectPath, scenario: RELEASE_SCENARIO },
+  });
+  const barrierArmed = readData<{ sessionId: string; transcriptPath: string }>(barrierArm.body);
+  const barrierSessionId = barrierArmed?.sessionId ?? '';
+  const parkedClock = request(baseUrl, 'POST', `${DEBUG_AGENT_CONTROL_PLANE_PATH}/clock`, {
+    label: 'advance the clock (walk parked at await-release)',
+    token,
+    body: { sessionId: barrierSessionId },
+  });
+  await new Promise((resolve) => setTimeout(resolve, PARKED_SETTLE_MS));
+  const parkedClockRows = barrierArmed ? countLines(barrierArmed.transcriptPath) : -1;
+
+  const release = await request(baseUrl, 'POST', `${DEBUG_AGENT_CONTROL_PLANE_PATH}/release`, {
+    label: 'release (walk parked)',
+    token,
+    body: { sessionId: barrierSessionId },
+  });
+  const releaseBody = readData<{ released: boolean; woken: number }>(release.body);
+  // The walks finish before their clock requests answer, so this is not a race
+  // against the row the release unblocked.
+  const parkedClockExchange = await parkedClock;
+  const releasedRows = barrierArmed ? countLines(barrierArmed.transcriptPath) : -1;
+
+  const releaseAgain = await request(baseUrl, 'POST', `${DEBUG_AGENT_CONTROL_PLANE_PATH}/release`, {
+    label: 'release (run already ended)',
+    token,
+    body: { sessionId: barrierSessionId },
+  });
+  const releaseUnarmed = await request(baseUrl, 'POST', `${DEBUG_AGENT_CONTROL_PLANE_PATH}/release`, {
+    label: 'release (unarmed session)',
+    token,
+    body: { sessionId: 'not-a-session' },
+  });
+  const releaseNoCredential = await request(baseUrl, 'POST', `${DEBUG_AGENT_CONTROL_PLANE_PATH}/release`, {
+    label: 'release (no credential)',
+    body: { sessionId: barrierSessionId },
+  });
+
   reading.open = {
     arm: arm.reading,
     armNoCredential: armNoCredential.reading,
@@ -510,6 +616,15 @@ async function probe(baseUrl: string, mode: ChildMode, mounted: boolean): Promis
       : null,
     frames: clockBody?.frames ?? null,
     steps: clockBody?.reading?.steps?.length ?? null,
+    release: {
+      parkedClockRows,
+      releasedRows,
+      woken: releaseBody ? releaseBody.woken : null,
+      clock: parkedClockExchange.reading,
+      again: releaseAgain.reading,
+      unarmed: releaseUnarmed.reading,
+      noCredential: releaseNoCredential.reading,
+    },
   };
 
   if (armed) {
@@ -759,6 +874,12 @@ function registerCriteria(): void {
           describeHttp(controlPlane.clockUnknownSession),
           describeHttp(controlPlane.armNoCredential),
           describeHttp(controlPlane.armOutsideFixtureHome),
+          '--- the release barrier ---',
+          `[release] parked rows=${controlPlane.release.parkedClockRows} released rows=${controlPlane.release.releasedRows} woken=${controlPlane.release.woken}`,
+          describeHttp(controlPlane.release.clock),
+          describeHttp(controlPlane.release.again),
+          describeHttp(controlPlane.release.unarmed),
+          describeHttp(controlPlane.release.noCredential),
           '--- gate closed: the same path, both credentials ---',
           `[gate] ${closed.gate.enabled ? 'OPEN' : 'CLOSED'} (${closed.gate.reason})`,
           describeHttp(closed.closed.withToken),
@@ -839,6 +960,48 @@ function registerCriteria(): void {
         controlPlane.armOutsideFixtureHome.errorCode,
         'the two refusals must not share a code either',
       );
+
+      // ---- the release barrier: the walk is held, and the release is what lets it go ----
+      assert.equal(
+        controlPlane.release.parkedClockRows,
+        controlPlane.armed.seedRows + 1,
+        `while the walk is parked its barrier must hold the row behind it back: ${controlPlane.release.parkedClockRows} line(s) on disk`,
+      );
+      assert.equal(
+        controlPlane.release.woken,
+        1,
+        'the release must report waking the one waiter the parked barrier registered',
+      );
+      assert.equal(
+        controlPlane.release.releasedRows,
+        controlPlane.armed.seedRows + 2,
+        `once released, the walk must write the row behind the barrier: ${controlPlane.release.releasedRows} line(s) on disk`,
+      );
+      assert.equal(
+        controlPlane.release.clock.status,
+        200,
+        `the parked walk must finish once it is released: ${describeHttp(controlPlane.release.clock)}`,
+      );
+      assert.equal(controlPlane.release.clock.errorCode, null, 'a released walk is a success, not a refusal');
+
+      // ---- releasing is an answer, not a failure, when there is nothing to release ----
+      assert.equal(
+        controlPlane.release.again.status,
+        200,
+        `releasing a run that has already finished must answer: ${describeHttp(controlPlane.release.again)}`,
+      );
+      assert.equal(
+        controlPlane.release.unarmed.status,
+        404,
+        `an unarmed session must be refused the way the clock refuses it: ${describeHttp(controlPlane.release.unarmed)}`,
+      );
+      assert.equal(controlPlane.release.unarmed.errorCode, 'DEBUG_AGENT_SCENARIO_NOT_ARMED');
+      assert.equal(
+        controlPlane.release.noCredential.status,
+        401,
+        `the release must be behind the same credential as every other action: ${describeHttp(controlPlane.release.noCredential)}`,
+      );
+      assert.equal(controlPlane.release.noCredential.errorCode, 'AUTH_TOKEN_INVALID');
 
       // ---- the closed gate: measured as an ABSENT face, never as a status ----
       assert.equal(closed.gate.enabled, false, 'the closed arm must have the gate closed');

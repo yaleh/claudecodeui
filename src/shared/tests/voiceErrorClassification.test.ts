@@ -372,24 +372,70 @@ function openDoors(): string[] {
 }
 
 /**
- * A recursive `path -> mtime:size` reading of the worktree, for the "no residue" half of `AC1`.
+ * A recursive `path -> size` reading of the worktree, for the "no residue" half of `AC1`.
  *
- * `git status --porcelain` is the mechanism `AC1` names; this reads the same fact — nothing this run
+ * `git status --porcelain` is the mechanism `AC1` names; this reads the same fact — nothing THIS run
  * could have written is changed — without a child process, because `AC1` also requires the criterion
- * to be subprocess-free and the two clauses cannot both hold literally. `.git` and `node_modules`
- * are skipped (the latter is a symlink to the shared install), and so are the build directories,
- * which vitest and vite write on their own.
+ * to be subprocess-free and the two clauses cannot both hold literally. The entry keeps the path and
+ * its SIZE, the content dimension `git status` compares: a path that appears, or whose size changes,
+ * is residue; a path merely `touch`ed is not — so a concurrent writer that only bumps an mtime can
+ * no longer red a reading that claims to report content.
  *
- * `.quay` is skipped on the same discipline — it is a directory somebody else writes. It holds
- * quay's own runtime state, which the driver rewrites while this criterion runs (`.quay/anchor.json`
- * is a heartbeat file, `.quay/per-file-cpu-*` are its per-file account files), and it is exactly the
- * surface `git status --porcelain` cannot see: `.gitignore` ignores `.quay/*`, re-including only the
- * tracked `config.yml` and `profiles.yml`. Counting the driver's own writes as this run's residue
- * reddened `AC1` on roughly one reading in five without any classifier reading ever failing; every
- * path git can actually report is still covered by the diff below.
+ * A path is skipped on ONE discipline — it belongs to some OTHER process that writes the worktree
+ * while this criterion runs — and each class names its writer:
+ *
+ *   `.git`                        the repository's own metadata.
+ *   `node_modules`                the shared install (a symlink to the main checkout).
+ *   `dist`, `coverage`, `artifacts`, `.vite`   the build/test toolchain (vitest, vite).
+ *   `test-results`, `playwright-report`        Playwright's own run outputs.
+ *   `.playwright-mcp`             the Playwright MCP server appends its console/network logs for as
+ *                                 long as a browser session is open; `.gitignore` names it (`:172`).
+ *   `.quay`                       quay's runtime state: `.quay/anchor.json` is the driver's heartbeat
+ *                                 and `.quay/per-file-cpu-*` its per-file accounts, rewritten every
+ *                                 tick. `.gitignore` ignores `.quay/*`, re-including only the tracked
+ *                                 `config.yml`/`profiles.yml`.
+ *   `.workflow-events`, `orchestration`, `milestones`, `.quay-parse-cache.json`
+ *                                 quay's tick ledgers and telemetry — the paths
+ *                                 `plugin/scripts/quay-runtime-artifacts.txt` (the manifest
+ *                                 `.gitignore:158` names) declares as quay's own runtime artifacts.
+ *   `tasks`, `goals`              the driver's task and goal STORES. TRACKED by git, so
+ *                                 `git status --porcelain` DOES see them — but the driver rewrites
+ *                                 them mid-run, the one class a `git`-visible framing cannot exclude.
+ *
+ * `.gitignore` and `git status --porcelain` are the same fact seen from two sides: both are blind to
+ * everything here except `tasks/` and `goals/`. That is why the reading cannot BE `git status` and
+ * cannot be keyed on `mtime`. The `.gitignore`-derived tail keeps the class list from going stale as
+ * the loop grows new runtime directories, while the named entries above state the classes that
+ * `git check-ignore` / `git status` do NOT report.
  */
+function gitignoredTopLevelDirs(): string[] {
+  let text: string;
+  try {
+    text = readFileSync(join(REPO_ROOT, '.gitignore'), 'utf8');
+  } catch {
+    return [];
+  }
+  const names = new Set<string>();
+  for (const raw of text.split('\n')) {
+    const line = raw.trim().replace(/^\//, '');
+    if (line === '' || line.startsWith('#') || line.startsWith('!')) continue;
+    // Only whole-directory rules (`x/`, `x/*`, `x/**`) name a tree this walk can descend into; a
+    // rule that ignores one file inside a real source directory must not hide that directory.
+    const wholeDir = /^([^/*]+)\/$/.exec(line) ?? /^([^/*]+)\/\*\*?$/.exec(line);
+    if (wholeDir?.[1] !== undefined) names.add(wholeDir[1]);
+  }
+  return [...names];
+}
+
 function treeSnapshot(): string[] {
-  const skip = new Set(['.git', 'node_modules', 'dist', 'coverage', 'artifacts', '.vite', '.quay']);
+  const skip = new Set([
+    '.git', 'node_modules', 'dist', 'coverage', 'artifacts', '.vite',
+    'test-results', 'playwright-report',
+    '.playwright-mcp', '.quay', '.workflow-events', 'orchestration', 'milestones',
+    '.quay-parse-cache.json',
+    'tasks', 'goals',
+    ...gitignoredTopLevelDirs(),
+  ]);
   const entries: string[] = [];
   const walk = (dir: string): void => {
     let children: string[];
@@ -410,7 +456,7 @@ function treeSnapshot(): string[] {
       if (stat.isDirectory()) {
         walk(path);
       } else if (stat.isFile()) {
-        entries.push(`${path.replace(REPO_ROOT, '')}:${stat.mtimeMs}:${stat.size}`);
+        entries.push(`${path.replace(REPO_ROOT, '')}:${stat.size}`);
       }
     }
   };
