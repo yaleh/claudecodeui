@@ -72,6 +72,8 @@ import {
   parseOnnxMetadata,
   parseWav,
 } from '@/shared/voiceClientFrontend';
+import type { VoiceClientAssetPaths, VoiceClientReadiness } from '@/shared/types';
+import { voiceClientAssetPaths } from '@/shared/utils';
 
 // ── the pinned artifacts ─────────────────────────────────────────────────────────────────────
 
@@ -130,92 +132,95 @@ export function voiceClientAsrBuildId(ortVersion: string = VOICE_CLIENT_ORT_VERS
 // ── deployment configuration ─────────────────────────────────────────────────────────────────
 
 /**
- * Where the four files come from, read from the build environment.
+ * The same-origin URLs the model, the token list and the runtime are fetched from.
  *
- * WHY THESE ARE ENVIRONMENT VARIABLES AND NOT CONSTANTS. `npm run build` produces one bundle for every
- * deployment, and none of these is ours to host: the runtime is a vendored ort-web distribution (which
- * must be served beside its own `.wasm` and worker files), the model and the token list are the
- * checkpoint's own files. Baking a path in would make the bundle wrong for everyone who serves them
- * somewhere else, and would put a URL in the tree that nothing in this repo can verify.
- * `import.meta.env` is the channel this front end already uses for exactly this kind of
- * deployment-time value (`src/shared/utils.ts`, `sendDelivery.ts`).
- *
- * MISSING CONFIGURATION IS NOT AN ERROR, IT IS A READING: a deployment that has not set these has no
- * on-device recogniser, the adapter answers `ENGINE_UNAVAILABLE` with a sentence naming the missing
- * variables, and the caller's routing takes the audio to the server it would have used anyway. That is
- * the same fail-closed shape the server's `SENSEVOICE_MODEL_DIR` has, one level down.
+ * WHY THERE IS NOTHING TO CONFIGURE. `onnxruntime-web` is a pinned dependency of this repository
+ * (1.30.0) and the server serves its three shipped files from `/voice-client/ort`; the model and
+ * `tokens.txt` live in ONE directory the deployment names with `VOICE_CLIENT_MODEL_DIR` (falling back
+ * to `SENSEVOICE_MODEL_DIR`) and the server serves from `/voice-client/model`. So this front end asks
+ * the origin it was served from, and `voiceClientAssetPaths` — one function, under `BASE_URL` so a
+ * sub-path deployment works — is the only place those paths are spelled. An earlier revision made them
+ * four build-time `VITE_*` URLs; the delivery is a directory now, and there is deliberately no
+ * compatibility branch for the old variables.
  */
-export const VOICE_CLIENT_MODEL_URL_ENV = 'VITE_VOICE_CLIENT_MODEL_URL';
-export const VOICE_CLIENT_TOKENS_URL_ENV = 'VITE_VOICE_CLIENT_TOKENS_URL';
-export const VOICE_CLIENT_ORT_SCRIPT_URL_ENV = 'VITE_VOICE_CLIENT_ORT_SCRIPT_URL';
-export const VOICE_CLIENT_ORT_WASM_PATHS_ENV = 'VITE_VOICE_CLIENT_ORT_WASM_PATHS';
-
-/** The four resolved URLs, or the names of the variables that are still unset. */
-export type VoiceClientAsrConfig =
-  | {
-      ready: true;
-      modelUrl: string;
-      tokensUrl: string;
-      ortScriptUrl: string;
-      ortWasmPaths: string;
-    }
-  | { ready: false; missing: string[] };
-
-/** Reads one build-time variable, or null when it is absent or blank. */
-function readEnv(name: string): string | null {
-  const raw = import.meta.env?.[name];
-  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
-}
-
-/**
- * Resolves the deployment's configuration.
- *
- * ALL FOUR OR NOTHING. A deployment that set the model URL and forgot the runtime script has not
- * half-enabled the feature; it has a path that would fetch 239 MB and then fail to run it, which is
- * worse for the user than not offering the mode. Every missing name is collected, so the sentence the
- * user sees is a checklist rather than a first failure.
- *
- * The values are read per call and never cached in a module constant, so a test can drive both
- * branches by stubbing `import.meta.env` without reloading the module.
- */
-export function readVoiceClientAsrConfig(): VoiceClientAsrConfig {
-  const modelUrl = readEnv(VOICE_CLIENT_MODEL_URL_ENV);
-  const tokensUrl = readEnv(VOICE_CLIENT_TOKENS_URL_ENV);
-  const ortScriptUrl = readEnv(VOICE_CLIENT_ORT_SCRIPT_URL_ENV);
-  const ortWasmPaths = readEnv(VOICE_CLIENT_ORT_WASM_PATHS_ENV);
-
-  const missing: string[] = [];
-  if (modelUrl === null) missing.push(VOICE_CLIENT_MODEL_URL_ENV);
-  if (tokensUrl === null) missing.push(VOICE_CLIENT_TOKENS_URL_ENV);
-  if (ortScriptUrl === null) missing.push(VOICE_CLIENT_ORT_SCRIPT_URL_ENV);
-  if (ortWasmPaths === null) missing.push(VOICE_CLIENT_ORT_WASM_PATHS_ENV);
-  if (missing.length > 0) return { ready: false, missing };
-
-  return {
-    ready: true,
-    modelUrl: modelUrl as string,
-    tokensUrl: tokensUrl as string,
-    ortScriptUrl: ortScriptUrl as string,
-    ortWasmPaths: ortWasmPaths as string,
-  };
-}
-
-/** The sentence owed a deployment whose configuration is incomplete, naming every missing variable. */
-export function missingConfigReason(missing: readonly string[]): string {
-  return (
-    'this deployment has no on-device recogniser configured; set '
-    + `${missing.join(', ')} to the files' URLs.`
-  );
+function voiceClientPaths(): VoiceClientAssetPaths {
+  return voiceClientAssetPaths(import.meta.env?.BASE_URL);
 }
 
 /** The spec the cache module is handed: the pinned URL plus the facts the download must match. */
-function modelSpec(config: Extract<VoiceClientAsrConfig, { ready: true }>): VoiceClientModelSpec {
+function modelSpec(paths: VoiceClientAssetPaths): VoiceClientModelSpec {
   return {
-    url: config.modelUrl,
+    url: paths.modelUrl,
     sha256: VOICE_CLIENT_MODEL_SHA256,
     bytes: VOICE_CLIENT_MODEL_BYTES,
     buildId: voiceClientAsrBuildId(),
   };
+}
+
+/**
+ * The sentence a deployment that is not provisioned owes the user: what is missing, which directory
+ * variable to point at, and where the download links live.
+ *
+ * Every refusal from the readiness gate goes through here, so the operator sees the same actionable
+ * words whichever file is absent — and so the reason can be checked for those two tokens without
+ * depending on which refusal produced it. A `null` reading is the server that could not answer: the
+ * remedy is unchanged, so only the parenthetical detail differs.
+ */
+function voiceClientUnavailableReason(reading: VoiceClientReadiness | null): string {
+  const detail =
+    reading === null
+      ? 'the server could not report its client-asset reading'
+      : !reading.configured
+        ? 'no model directory is configured'
+        : !reading.model.present
+          ? `${reading.model.name} is missing`
+          : !reading.tokens.present
+            ? `${reading.tokens.name} is missing`
+            : `${reading.model.name} is ${reading.model.bytes ?? 0} bytes, expected ${reading.model.expectedBytes ?? 0}`;
+  return (
+    `the on-device recogniser is not provisioned on this server (${detail}). `
+    + 'Add model.int8.onnx and tokens.txt to the directory named by VOICE_CLIENT_MODEL_DIR '
+    + '(or SENSEVOICE_MODEL_DIR); download links and checksums are in '
+    + 'docs/operations/voice-client-asr-deployment.md.'
+  );
+}
+
+/**
+ * The server's client-asset reading, asked at most once per page.
+ *
+ * Shared by `useVoiceAvailable` (which reads `ready` to decide whether to offer the microphone) and by
+ * the installed engine (which reads it to refuse BEFORE downloading). A failure to ask is `null`, not
+ * a throw: the caller's answer is the same fail-closed one either way, and the reason sentence still
+ * names the directory variable and the documentation.
+ */
+export function voiceClientAsrReadiness(): Promise<VoiceClientReadiness | null> {
+  if (readinessRequest === null) {
+    readinessRequest = readClientAssetReading();
+  }
+  return readinessRequest;
+}
+
+let readinessRequest: Promise<VoiceClientReadiness | null> | null = null;
+
+/** The probe the engine uses when a caller injects none: the shared, memoised server reading. */
+const defaultReadinessProbe: () => Promise<VoiceClientReadiness | null> = voiceClientAsrReadiness;
+
+/**
+ * Asks `GET /api/voice/client-assets`.
+ *
+ * The API module is imported lazily for the reason the probe is injectable at all: this file is also
+ * the worker's body, and a worker that pulled the page's API client into its bundle for a call its
+ * half never makes would be carrying dead weight into the one bundle that must stay small.
+ */
+async function readClientAssetReading(): Promise<VoiceClientReadiness | null> {
+  try {
+    const { api } = await import('@/shared/api');
+    const response = await api.voice.clientAssets();
+    if (!response.ok) return null;
+    return (await response.json()) as VoiceClientReadiness;
+  } catch {
+    return null;
+  }
 }
 
 // ── the onnxruntime-web slice this engine uses ───────────────────────────────────────────────
@@ -223,13 +228,15 @@ function modelSpec(config: Extract<VoiceClientAsrConfig, { ready: true }>): Voic
 /**
  * The slice of onnxruntime-web's surface this engine touches, written out here.
  *
- * WHY A HAND-WRITTEN TYPE AND A DYNAMIC IMPORT. `onnxruntime-web` is deliberately NOT a dependency of
- * this repo: the runtime is a deployment artifact (see the configuration block), it is megabytes of
- * WASM glue that must be served beside its own `.wasm` and worker files, and a deployment that does
- * not ship the client recogniser should not carry it. So the module is loaded by URL at run time, with
- * `@vite-ignore` because the URL is a value Vite cannot analyse. The cost is that there is no import
- * to hang types on, and the answer is this declaration of what is used — which has the side benefit of
- * making the coupling visible: needing more of the runtime's surface means growing this type.
+ * WHY A HAND-WRITTEN TYPE AND A DYNAMIC IMPORT, NOW THAT IT IS A DEPENDENCY. `onnxruntime-web` IS a
+ * pinned dependency of this repo (1.30.0), so the exact build — and the three files the server serves
+ * same-origin from `/voice-client/ort` — are known and versioned with the app. It is still loaded by
+ * URL at run time rather than imported as a module: the worker needs the runtime's ESM entry as a
+ * fetchable URL so that entry resolves its own `.wasm` and worker assets beside itself, and a bundled
+ * import would leave those assets for Vite to relocate. `@vite-ignore` is therefore still required and
+ * correct — the specifier is a value, not a literal. The cost is that there is no import to hang types
+ * on, and the answer is this declaration of what is used — which has the side benefit of making the
+ * coupling visible: needing more of the runtime's surface means growing this type.
  */
 type OrtTensor = { data: Float32Array | Int32Array; dims: readonly number[] };
 
@@ -415,13 +422,13 @@ function workerCacheEnv(): VoiceModelCacheEnv {
  * would produce wrong text rather than an error, which is the one outcome this path must never have.
  */
 export function createVoiceClientEngine(
-  config: Extract<VoiceClientAsrConfig, { ready: true }>,
+  paths: VoiceClientAssetPaths,
   deps: VoiceClientEngineDeps = {},
   onNotice?: (message: string) => void,
 ): VoiceClientEngine {
   const loadOrt = deps.loadOrt ?? importOrt;
   const env: VoiceModelCacheEnv = { ...workerCacheEnv(), ...deps.cacheEnv };
-  const spec = modelSpec(config);
+  const spec = modelSpec(paths);
   const buildId = spec.buildId;
 
   let state: EngineState = { kind: 'unloaded' };
@@ -442,12 +449,12 @@ export function createVoiceClientEngine(
 
     const negMean = Float32Array.from((meta.neg_mean as string).split(',').map(Number));
     const invStddev = Float32Array.from((meta.inv_stddev as string).split(',').map(Number));
-    const tokens = await loadTokens(config, env);
+    const tokens = await loadTokens(paths, env);
 
-    const ort = await loadOrt(config.ortScriptUrl);
+    const ort = await loadOrt(paths.ortScriptUrl);
     ort.env.wasm.numThreads = wasmThreadCount();
     ort.env.wasm.simd = true;
-    ort.env.wasm.wasmPaths = config.ortWasmPaths;
+    ort.env.wasm.wasmPaths = paths.ortWasmPaths;
 
     const session = await ort.InferenceSession.create(new Uint8Array(model.modelBytes), {
       executionProviders: ['wasm'],
@@ -686,10 +693,10 @@ function metadataMismatch(meta: Record<string, string | null>): string | null {
  * a bare space, and taking the first space would truncate every one of them.
  */
 async function loadTokens(
-  config: Extract<VoiceClientAsrConfig, { ready: true }>,
+  paths: VoiceClientAssetPaths,
   env: VoiceModelCacheEnv,
 ): Promise<string[]> {
-  const text = (await readCachedTokens(config.tokensUrl, env)) ?? (await fetchTokens(config.tokensUrl, env));
+  const text = (await readCachedTokens(paths.tokensUrl, env)) ?? (await fetchTokens(paths.tokensUrl, env));
   const tokens = parseTokens(text);
   if (tokens.length === 0) throw new Error('the token list is empty');
   return tokens;
@@ -759,31 +766,19 @@ export function startVoiceClientAsrWorker(
   scope: VoiceClientWorkerScope,
   deps: VoiceClientEngineDeps = {},
 ): void {
-  const config = readVoiceClientAsrConfig();
-  const missing = config.ready ? null : config.missing;
-  const engine: VoiceClientEngine | null = config.ready
-    ? createVoiceClientEngine(config, deps, (message) => {
-        // Notices are posted against the request in flight; `0` is the "no particular request" id,
-        // which the main thread's handler routes to `onNotice`. A degradation during a `run` is still
-        // about the engine, so it is not worth a correlation to deliver it.
-        scope.postMessage({ kind: 'notice', requestId: 0, message });
-      })
-    : null;
+  // The main thread refuses an unprovisioned deployment BEFORE it spawns this worker (see
+  // `createVoiceClientAsrEngine`), so by the time this body runs the fixed same-origin paths are the
+  // only thing the engine needs — there is no missing-configuration branch on this side any more.
+  const engine = createVoiceClientEngine(voiceClientPaths(), deps, (message) => {
+    // Notices are posted against the request in flight; `0` is the "no particular request" id,
+    // which the main thread's handler routes to `onNotice`. A degradation during a `run` is still
+    // about the engine, so it is not worth a correlation to deliver it.
+    scope.postMessage({ kind: 'notice', requestId: 0, message });
+  });
 
   scope.addEventListener('message', (event) => {
     const request = event.data;
     void (async () => {
-      if (missing !== null) {
-        const reason = missingConfigReason(missing);
-        scope.postMessage(
-          request.kind === 'status'
-            ? { kind: 'status', requestId: request.requestId, status: { available: false, state: 'unavailable', reason } }
-            : { kind: 'answer', requestId: request.requestId, answer: { ok: false, code: 'ENGINE_UNAVAILABLE', message: reason } },
-        );
-        return;
-      }
-      if (engine === null) return;
-
       if (request.kind === 'status') {
         scope.postMessage({ kind: 'status', requestId: request.requestId, status: engine.status() });
         return;
@@ -905,8 +900,8 @@ export type VoiceClientEngineOptions = {
   onNotice?: (message: string) => void;
   /** Receives model-download progress, for the panel that shows it. */
   onProgress?: (progress: VoiceModelProgress) => void;
-  /** Reads the deployment configuration; defaults to `readVoiceClientAsrConfig`. */
-  readConfig?: () => VoiceClientAsrConfig;
+  /** Reads the server's client-asset reading; defaults to the shared `voiceClientAsrReadiness`. */
+  probe?: () => Promise<VoiceClientReadiness | null>;
   /** Prepares the audio for the worker; defaults to `prepareSixteenKhzWav`. */
   prepare?: (blob: Blob) => Promise<WasmEngineAnswer | ArrayBuffer>;
 };
@@ -944,16 +939,9 @@ type PendingRun = {
 export function createVoiceClientAsrEngine(
   options: VoiceClientEngineOptions = {},
 ): WasmEnginePort & { observers: Observers } {
-  const readConfig = options.readConfig ?? readVoiceClientAsrConfig;
+  const probe = options.probe ?? defaultReadinessProbe;
   const prepare = options.prepare ?? prepareSixteenKhzWav;
   const observers: Observers = { onProgress: options.onProgress, onNotice: options.onNotice };
-  const config = readConfig();
-
-  if (!config.ready) {
-    // The unconfigured port is observed by nobody: there is no download to report and its one answer
-    // is the same sentence every time.
-    return { ...unavailableEngine(missingConfigReason(config.missing)), observers };
-  }
 
   const buildId = voiceClientAsrBuildId();
   const spawn = options.spawn ?? spawnVoiceClientAsrWorker;
@@ -962,6 +950,24 @@ export function createVoiceClientAsrEngine(
   let nextRequestId = 1;
   const runs = new Map<number, PendingRun>();
   const statusWaiters = new Map<number, () => void>();
+
+  /**
+   * The readiness gate every request passes before any work.
+   *
+   * THE SERVER ANSWERS THIS, NOT A DOWNLOAD. A deployment whose model directory is absent or incomplete
+   * used to be discovered only after 239 MB had been fetched and failed to run; now the reading is a
+   * tiny same-origin JSON call, and a request against an unready deployment is refused with the
+   * actionable sentence (directory variable + documentation) and NO fetch of `/voice-client/model/`.
+   * The reading is asked per refusal and not cached by the engine, because the shared default probe is
+   * already memoised for the page.
+   */
+  const refusalReason = async (): Promise<string | null> => {
+    const reading = await probe();
+    if (reading !== null && reading.ready) return null;
+    const reason = voiceClientUnavailableReason(reading);
+    state = { available: false, state: 'unavailable', reason };
+    return reason;
+  };
 
   const ensureWorker = (): VoiceClientWorkerHandle => {
     if (worker !== null) return worker;
@@ -997,6 +1003,8 @@ export function createVoiceClientAsrEngine(
 
     ensureReady(): Promise<AsrRuntimeStatus> {
       return (async () => {
+        const refusal = await refusalReason();
+        if (refusal !== null) return { available: false, state: 'unavailable', reason: refusal };
         const target = ensureWorker();
         state = { available: true, state: 'starting', buildId };
         const requestId = nextRequestId++;
@@ -1013,6 +1021,13 @@ export function createVoiceClientAsrEngine(
 
     transcribe(request: WasmEngineRequest): Promise<WasmEngineAnswer> {
       return (async () => {
+        // The gate runs BEFORE the audio is prepared and before the worker is spawned, so an
+        // unprovisioned deployment costs one small JSON call and no model download at all.
+        const refusal = await refusalReason();
+        if (refusal !== null) {
+          return { ok: false, code: 'ENGINE_UNAVAILABLE', message: refusal };
+        }
+
         // Copied for the same reason the worker copies the clip: a `Blob` part must be backed by a
         // plain `ArrayBuffer`, and the port's view does not promise one.
         const blob = new Blob([new Uint8Array(request.bytes)], { type: request.mimeType });
@@ -1061,16 +1076,6 @@ export function createVoiceClientAsrEngine(
     },
 
     observers,
-  };
-}
-
-/** A port for a tab that cannot run the model: every answer is the same fail-closed sentence. */
-function unavailableEngine(reason: string): WasmEnginePort {
-  const status: AsrRuntimeStatus = { available: false, state: 'unavailable', reason };
-  return {
-    status: () => status,
-    ensureReady: async () => status,
-    transcribe: async () => ({ ok: false, code: 'ENGINE_UNAVAILABLE', message: reason }),
   };
 }
 

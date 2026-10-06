@@ -1768,6 +1768,76 @@ export type VoiceDataEditLabel = {
   /** Which kind of change it was — `replace`/`merge`/`split`/`delete`, or `rewrite`. */
   op: string;
 };
+//----------------- VOICE CLIENT ASSETS ------------
+
+/**
+ * One artifact the browser-side recogniser needs, as the server's readiness reading reports it.
+ *
+ * `bytes` is `null` until the file is there: an absent file has no length, and writing `0` would
+ * collapse "missing" and "empty" into the same reading. `expectedBytes` is the pinned length for the
+ * one artifact whose size is part of the contract — the 239 MB checkpoint — and `null` for a file
+ * the deployment does not size-check.
+ */
+export type VoiceClientAssetFile = {
+  /** The file name as it must appear in the resolved directory. */
+  name: string;
+  /** Whether a regular file of this name is present in the resolved directory. */
+  present: boolean;
+  /** The file's length in bytes, or `null` when it is not there. */
+  bytes: number | null;
+  /** The length this deployment requires, or `null` when the file has no required length. */
+  expectedBytes: number | null;
+};
+
+/**
+ * The server's reading of the on-device recogniser's provisioning, for `GET /api/voice/client-assets`.
+ *
+ * It exists so a browser can learn that the checkpoint is absent BEFORE it downloads anything: the
+ * client path's failure mode is a first recognition that fetches a quarter of a gigabyte and then
+ * cannot run it, and this reading turns that into a sentence naming the file and the directory.
+ * `configured` is about the DIRECTORY VARIABLE, `source` names which one supplied the directory, and
+ * `ready` is about the FILES inside it — so "no directory at all" and "a directory missing a file"
+ * stay distinguishable to whoever has to fix it.
+ */
+export type VoiceClientAssetsReading = {
+  /** Whether a directory variable supplied a directory at all. */
+  configured: boolean;
+  /** The resolved directory, or `null` when neither variable is set. */
+  directory: string | null;
+  /** Which variable supplied the directory, or `null` when none did. */
+  source: 'VOICE_CLIENT_MODEL_DIR' | 'SENSEVOICE_MODEL_DIR' | null;
+  /** The checkpoint's reading. */
+  model: VoiceClientAssetFile;
+  /** The token list's reading. */
+  tokens: VoiceClientAssetFile;
+  /** Whether this deployment can serve a browser-side recogniser right now. */
+  ready: boolean;
+};
+
+/** A servable artifact: the path the route streams, and the number of bytes it holds. */
+export type VoiceClientAssetFileRef = {
+  path: string;
+  size: number;
+};
+
+/**
+ * The application-service surface behind the client-asset routes.
+ *
+ * ONE SERVICE FOR THE READING AND THE BYTES, because both are answered from one resolved directory:
+ * the readiness route reports what `readiness()` reads, and the two serving routes stream what
+ * `resolveModelFile`/`resolveOrtFile` whitelist. Both resolvers answer `null` for a name that is not
+ * one of the pinned artifacts, which is what turns directory traversal into a plain 404 instead of a
+ * path some later layer would have to sanitise.
+ */
+export type VoiceClientAssetsService = {
+  /** The provisioning reading the authenticated readiness route republishes. */
+  readiness(): VoiceClientAssetsReading;
+  /** The model directory's file of this name, or `null` when it is not one of the two whitelisted. */
+  resolveModelFile(name: string): VoiceClientAssetFileRef | null;
+  /** The runtime distribution's file of this name, or `null` when it is not whitelisted. */
+  resolveOrtFile(name: string): VoiceClientAssetFileRef | null;
+};
+
 // ---------------------------
 
 /**

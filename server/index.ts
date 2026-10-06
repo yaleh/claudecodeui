@@ -66,7 +66,7 @@ import {
     stopAllPlugins,
 } from './modules/plugins/index.js';
 import providerRoutes from './modules/providers/provider.routes.js';
-import { voiceRoutes } from './modules/voice/index.js';
+import { voiceClientAssetRoutes, voiceRoutes } from './modules/voice/index.js';
 import {
     closeScheduledMessageDispatcher,
     initializeScheduledMessageDispatcher,
@@ -395,6 +395,12 @@ app.use('/api/session-hosts', authenticateToken, createSessionHostsRouter({
 app.use('/api/sessions', authenticateToken, createActivityRouter({ activityStore }));
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
+
+// The browser recogniser's runtime and model files, served same-origin. UNPROTECTED on purpose (the
+// artifacts are public and carry no user data) and mounted BEFORE the static/SPA layer below, so
+// `/voice-client/…` reaches real files instead of the SPA catch-all's HTML. The router whitelists
+// every name it will serve; see `voice.routes.ts`.
+app.use('/voice-client', voiceClientAssetRoutes);
 
 /**
  * A writer that hands every frame to both sinks.

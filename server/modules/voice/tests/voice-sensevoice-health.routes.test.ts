@@ -35,9 +35,10 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Writable } from 'node:stream';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -51,7 +52,7 @@ import {
   installSensevoiceEngine,
   type SensevoiceEnginePort,
 } from '../../../../shared/asr/list/sensevoice-local/sensevoice-local.asr-provider.js';
-import type { VoiceSettings, VoiceSettingsService } from '../../../shared/types.js';
+import type { VoiceClientAssetsService, VoiceSettings, VoiceSettingsService } from '../../../shared/types.js';
 import {
   createSensevoiceWorker,
   nodeSensevoiceSpawn,
@@ -60,8 +61,15 @@ import {
   type SensevoiceManifest,
   type SensevoiceWorkerOptions,
 } from '../sensevoice-worker.js';
-import { createVoiceRouter } from '../voice.routes.js';
-import { createVoiceService, PROVIDER_ERROR_STATUS } from '../voice.service.js';
+import { createVoiceClientAssetsRouter, createVoiceRouter } from '../voice.routes.js';
+import {
+  createVoiceClientAssetsService,
+  createVoiceService,
+  PROVIDER_ERROR_STATUS,
+  VOICE_CLIENT_MODEL_BYTES,
+  VOICE_CLIENT_MODEL_FILE_NAME,
+  VOICE_CLIENT_TOKENS_FILE_NAME,
+} from '../voice.service.js';
 
 // ── where things are ──────────────────────────────────────────────────────────────────────────
 
@@ -143,11 +151,17 @@ type HealthBody = { configured?: unknown; provider?: unknown; providers?: Provid
 type Outcome = { status: number; body: HealthBody };
 
 /**
+ * The upload parser every route in this file is built with. None of them read an upload — `/health`
+ * and `/client-assets` take a GET, and the asset routes stream a file out — but the dependency type
+ * requires one, and a test that reached the route through a cast would stop being a reading of the
+ * shape the composition root actually builds.
+ */
+const inertParser = (_request: unknown, _response: unknown, callback: (error?: unknown) => void) => {
+  callback(undefined);
+};
+
+/**
  * One `GET /health` through the shipping router.
- *
- * The parser stubs are inert — `/health` never reads an upload — but they are passed rather than
- * omitted because the dependency type requires them, and a test that reached the route through a
- * cast would stop being a reading of the shape the composition root actually builds.
  */
 function callHealth(settings: VoiceSettings): Promise<Outcome> {
   const service = createVoiceService({
@@ -162,10 +176,6 @@ function callHealth(settings: VoiceSettings): Promise<Outcome> {
     getSettings: () => settings,
     saveSettings: () => ({ ok: false, status: 400, error: 'unused' }),
     maskForReadback: (document) => document,
-  };
-
-  const inertParser = (_request: unknown, _response: unknown, callback: (error?: unknown) => void) => {
-    callback(undefined);
   };
 
   const router = createVoiceRouter({
@@ -379,4 +389,274 @@ test('AC3 control: the interpreter this deployment names really is absent, so `s
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+// ── the browser recogniser's same-origin assets ─────────────────────────────────────────────────
+//
+// S0 of `gap-voice-client-asr-same-origin-delivery`. Two routes are read here. `GET
+// /api/voice/client-assets` reports what the SERVER can see on its own disk, so the browser can
+// refuse before it downloads a 239 MB model it will not be able to use; `GET /voice-client/{model,ort}/:file`
+// serves the artifact itself. Both are read through the shipping factories, for the reason the rest of
+// this file already gives: a bound port on a shared host reports the platform's ephemeral-port lottery
+// on the runs where it goes red.
+
+/** The runtime files this repository actually ships, resolved the way the composition root resolves them. */
+const ORT_DIST = path.join(REPO_ROOT, 'node_modules', 'onnxruntime-web', 'dist');
+
+/** The readiness payload as these cases read it, in the fields the browser branches on. */
+type AssetReading = {
+  configured?: unknown;
+  directory?: unknown;
+  source?: unknown;
+  ready?: unknown;
+  model?: { present?: unknown; bytes?: unknown; expectedBytes?: unknown };
+  tokens?: { present?: unknown; bytes?: unknown };
+};
+
+/** A file of exactly `bytes` length, created SPARSE — the 239 MB model is a size reading, never written out. */
+function writeSizedFile(filePath: string, bytes: number): void {
+  const descriptor = openSync(filePath, 'w');
+  try {
+    ftruncateSync(descriptor, bytes);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+/** A model directory holding a `model.int8.onnx` of a chosen size and, unless suppressed, a `tokens.txt`. */
+function modelDirectory(options: { modelBytes?: number | null; tokens?: boolean } = {}): string {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'voice-client-assets-'));
+  const modelBytes = options.modelBytes === undefined ? VOICE_CLIENT_MODEL_BYTES : options.modelBytes;
+  if (modelBytes !== null) {
+    writeSizedFile(path.join(directory, VOICE_CLIENT_MODEL_FILE_NAME), modelBytes);
+  }
+  if (options.tokens !== false) {
+    writeFileSync(path.join(directory, VOICE_CLIENT_TOKENS_FILE_NAME), 'the 0\n');
+  }
+  return directory;
+}
+
+/** One `GET /client-assets` through the shipping router, over the shipping assets service. */
+function callClientAssets(options: {
+  voiceClientModelDir?: string;
+  sensevoiceModelDir?: string;
+  ortDistDir?: string;
+}): Promise<{ status: number; body: AssetReading }> {
+  const voiceClientAssets = createVoiceClientAssetsService({
+    ...options,
+    ortDistDir: options.ortDistDir ?? ORT_DIST,
+  });
+
+  const router = createVoiceRouter({
+    voiceService: createVoiceService({
+      defaults: { ...DEFAULTS },
+      timeoutMs: 1_000,
+      fetchBackend: async () => {
+        throw new Error('the client-asset reading must not call anything');
+      },
+    }),
+    voiceSettingsService: {
+      getSettings: () => settingsFor(''),
+      saveSettings: () => ({ ok: false, status: 400, error: 'unused' }),
+      maskForReadback: (document) => document,
+    },
+    lexiconService: {
+      observeSentText: () => {},
+      importFromHistory: async () => ({ importedMessages: 0, tokenCount: 0 }),
+      list: () => [],
+      clear: () => {},
+    },
+    parseAudioUpload: inertParser,
+    parseRawAudioUpload: inertParser,
+    voiceClientAssets,
+  });
+
+  return new Promise<{ status: number; body: AssetReading }>((resolve, reject) => {
+    let status = 200;
+    const request = { method: 'GET', url: '/client-assets', headers: {}, user: { id: 1 } };
+    const response = {
+      status(code: number) {
+        status = code;
+        return this;
+      },
+      json(payload: AssetReading) {
+        resolve({ status, body: payload });
+        return this;
+      },
+      setHeader() {
+        return this;
+      },
+      end() {
+        resolve({ status, body: {} });
+      },
+    };
+    router(
+      request as never,
+      response as never,
+      (error?: unknown) => reject(error instanceof Error ? error : new Error(String(error))),
+    );
+  });
+}
+
+type AssetOutcome = { status: number; headers: Record<string, string>; body: Buffer };
+
+/**
+ * One `GET` through the asset router.
+ *
+ * The response is a real `Writable`, so the bytes that `pipe` into it are the bytes this reading
+ * compares — `res.sendFile` would have hidden them behind the framework's own file layer, and the
+ * Range handling is the layer being read.
+ */
+function callAsset(
+  voiceClientAssets: VoiceClientAssetsService,
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<AssetOutcome> {
+  const router = createVoiceClientAssetsRouter({ voiceClientAssets });
+  return new Promise<AssetOutcome>((resolve, reject) => {
+    let status = 200;
+    const outHeaders: Record<string, string> = {};
+    const chunks: Buffer[] = [];
+    const response = new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        chunks.push(Buffer.from(chunk));
+        callback();
+      },
+    }) as Writable & {
+      status(code: number): unknown;
+      setHeader(name: string, value: string): unknown;
+      json(payload: unknown): unknown;
+    };
+    response.status = (code: number) => {
+      status = code;
+      return response;
+    };
+    response.setHeader = (name: string, value: string) => {
+      outHeaders[name.toLowerCase()] = value;
+      return response;
+    };
+    response.json = (payload: unknown) => {
+      resolve({ status, headers: outHeaders, body: Buffer.from(JSON.stringify(payload)) });
+      return response;
+    };
+    response.on('finish', () => resolve({ status, headers: outHeaders, body: Buffer.concat(chunks) }));
+    router(
+      { method: 'GET', url, headers } as never,
+      response as never,
+      (error?: unknown) => reject(error instanceof Error ? error : new Error(String(error))),
+    );
+  });
+}
+
+test('S0 with no model directory configured the reading is not-ready and names no directory', async () => {
+  const outcome = await callClientAssets({});
+  assert.equal(outcome.status, 200, 'an unconfigured deployment is a state, not a route failure');
+  assert.equal(outcome.body.configured, false);
+  assert.equal(outcome.body.directory, null);
+  assert.equal(outcome.body.source, null);
+  assert.equal(outcome.body.ready, false);
+  assert.equal(outcome.body.model?.present, false);
+  assert.equal(outcome.body.model?.expectedBytes, VOICE_CLIENT_MODEL_BYTES, 'the expected size travels even when nothing is there');
+  assert.equal(outcome.body.tokens?.present, false);
+});
+
+test('S0 SENSEVOICE_MODEL_DIR is the fallback, and a complete directory reads ready', async () => {
+  const directory = modelDirectory();
+  try {
+    const outcome = await callClientAssets({ sensevoiceModelDir: directory });
+    assert.equal(outcome.body.configured, true);
+    assert.equal(outcome.body.source, 'SENSEVOICE_MODEL_DIR', 'the on-host recogniser\'s directory is the fallback');
+    assert.equal(outcome.body.directory, directory);
+    assert.equal(outcome.body.model?.present, true);
+    assert.equal(outcome.body.model?.bytes, VOICE_CLIENT_MODEL_BYTES);
+    assert.equal(outcome.body.tokens?.present, true);
+    assert.equal(outcome.body.ready, true, 'an exact model size plus tokens is the ready state');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('S0 a directory missing either artifact is not ready, and the reading says which one', async () => {
+  const withoutModel = modelDirectory({ modelBytes: null });
+  const withoutTokens = modelDirectory({ tokens: false });
+  try {
+    const modelAbsent = await callClientAssets({ voiceClientModelDir: withoutModel });
+    assert.equal(modelAbsent.body.configured, true, 'a configured-but-incomplete directory is still configured');
+    assert.equal(modelAbsent.body.model?.present, false);
+    assert.equal(modelAbsent.body.tokens?.present, true);
+    assert.equal(modelAbsent.body.ready, false);
+
+    const tokensAbsent = await callClientAssets({ voiceClientModelDir: withoutTokens });
+    assert.equal(tokensAbsent.body.model?.present, true);
+    assert.equal(tokensAbsent.body.tokens?.present, false);
+    assert.equal(tokensAbsent.body.ready, false);
+  } finally {
+    rmSync(withoutModel, { recursive: true, force: true });
+    rmSync(withoutTokens, { recursive: true, force: true });
+  }
+});
+
+test('S0 a size-mismatched model is not ready, and the reading says how short it fell', async () => {
+  const directory = modelDirectory({ modelBytes: 1_024 });
+  try {
+    const outcome = await callClientAssets({ voiceClientModelDir: directory });
+    assert.equal(outcome.body.model?.present, true);
+    assert.equal(outcome.body.model?.bytes, 1_024);
+    assert.equal(outcome.body.model?.expectedBytes, VOICE_CLIENT_MODEL_BYTES);
+    assert.equal(outcome.body.ready, false, 'a truncated download is not a ready model');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('S0 the asset route serves the whitelisted name and refuses a traversal that reaches it', async () => {
+  const directory = modelDirectory({ modelBytes: 16 });
+  // A file that exists in the directory but is not on the whitelist: if the route served by existence
+  // rather than by name, this is what would leak.
+  writeFileSync(path.join(directory, 'notes.txt'), 'not an artifact');
+  try {
+    const assets = createVoiceClientAssetsService({ voiceClientModelDir: directory, ortDistDir: ORT_DIST });
+
+    // The positive control: the whitelisted name really is served, so the refusals below are about the
+    // NAME rather than a route that answers 404 for everything.
+    const served = await callAsset(assets, `/model/${VOICE_CLIENT_MODEL_FILE_NAME}`);
+    assert.equal(served.status, 200, 'the whitelisted model name is served');
+    assert.equal(served.body.length, 16);
+
+    for (const attempted of ['..%2f..%2fpackage.json', '%2e%2e%2f%2e%2e%2fpackage.json', 'notes.txt']) {
+      const refused = await callAsset(assets, `/model/${attempted}`);
+      assert.equal(refused.status, 404, `'${attempted}' must not resolve: it is not a whitelisted artifact`);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('S0 a Range request answers 206 with that exact slice, and the wasm carries the runtime content type', async () => {
+  const assets = createVoiceClientAssetsService({ ortDistDir: ORT_DIST });
+  const wasmName = 'ort-wasm-simd-threaded.wasm';
+  const size = statSync(path.join(ORT_DIST, wasmName)).size;
+
+  const whole = await callAsset(assets, `/ort/${wasmName}`);
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers['content-type'], 'application/wasm');
+  assert.equal(whole.headers['accept-ranges'], 'bytes');
+  assert.equal(whole.headers['content-length'], String(size));
+  assert.equal(whole.body.length, size);
+
+  const ranged = await callAsset(assets, `/ort/${wasmName}`, { range: 'bytes=0-3' });
+  assert.equal(ranged.status, 206);
+  assert.equal(ranged.headers['content-range'], `bytes 0-3/${size}`);
+  assert.equal(ranged.headers['content-length'], '4');
+  // The first four bytes of the shipped file, read back: a WebAssembly module's magic number. This is
+  // the assertion that the slice is the RANGE's, not the whole file with a header claiming otherwise.
+  assert.deepEqual([...ranged.body], [0x00, 0x61, 0x73, 0x6d]);
+
+  const suffix = await callAsset(assets, `/ort/${wasmName}`, { range: 'bytes=-2' });
+  assert.equal(suffix.status, 206);
+  assert.equal(suffix.headers['content-range'], `bytes ${size - 2}-${size - 1}/${size}`);
+  assert.equal(suffix.body.length, 2);
+
+  const refused = await callAsset(assets, '/ort/package.json');
+  assert.equal(refused.status, 404, 'only the three shipped runtime files are on the whitelist');
 });

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import type { AsrCapabilities } from '@shared/asr/asrRegistry';
 
-import { installVoiceClientAsrEngine } from '@/modules/chat/audio/voiceClientAsrWorker';
+import { installVoiceClientAsrEngine, voiceClientAsrReadiness } from '@/modules/chat/audio/voiceClientAsrWorker';
 import { api, setVoiceProviderProfile } from '@/shared/api';
 import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
 import {
@@ -78,20 +78,22 @@ export function useVoiceAvailable(): boolean {
         await whenVoiceConfigReady();
         if (!active || id !== requestId) return;
 
-        // The client path answers for itself. A tab whose selected recogniser runs HERE has a working
-        // microphone whether or not a backend is configured, because the recognition never leaves the
-        // device — and it has one BEFORE the model has been downloaded, which is why the reading is
-        // the engine's own `available` and not its readiness: an engine that is configured but not yet
-        // loaded will answer (by loading, or by falling back), while one that is unavailable will not.
+        // The client path answers for itself, and it is the SERVER that says whether it can: the
+        // reading is `ready` on the deployment's model directory (`GET /api/voice/client-assets`),
+        // not whether the model has been downloaded in THIS tab yet. A provisioned deployment is
+        // available the moment the page loads — the download happens on the first segment, or the
+        // explicit init — while an unprovisioned one stays hidden, because the adapter behind it can
+        // only answer `ENGINE_UNAVAILABLE`. Reading readiness rather than the engine's own `available`
+        // is what keeps a 239 MB download from being spent to discover a file that was never there.
         //
         // Installing here is what makes the engine exist at all, and it is safe on every render of the
-        // effect: the installer is memoised, and a deployment with no configuration gets the port that
-        // answers `ENGINE_UNAVAILABLE`, so this reads `false` and the microphone stays hidden until the
-        // user picks a recogniser that can serve them. The download's progress and notices have no
-        // consumer in this hook on purpose — it is a boolean — and
-        // `observeVoiceClientAsrEngine` is where the surface that can show them attaches.
+        // effect: the installer is memoised. The download's progress and notices have no consumer in
+        // this hook on purpose — it is a boolean — and `observeVoiceClientAsrEngine` is where the
+        // surface that can show them attaches.
         if (isVoiceClientAsrSelected()) {
-          setAvailable(installVoiceClientAsrEngine().status().available);
+          installVoiceClientAsrEngine();
+          const reading = await voiceClientAsrReadiness();
+          if (active && id === requestId) setAvailable(reading?.ready === true);
           return;
         }
 

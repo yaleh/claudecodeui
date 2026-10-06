@@ -28,7 +28,7 @@
  * `window` event.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AsrInvocation, AsrRequest, AsrRuntimeStatus, AsrToken } from '@shared/asr/asrRegistry';
 import {
@@ -41,10 +41,14 @@ import {
 } from '@shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider';
 import {
   CLIENT_ASR_FALLBACK_EVENT,
+  VOICE_CLIENT_MODEL_BYTES,
   VOICE_CLIENT_RTF_THRESHOLD,
+  createVoiceClientAsrEngine,
   routeClientAsrSegment,
   type VoiceClientFallbackDetail,
 } from '@/modules/chat/audio/voiceClientAsrWorker';
+import type { VoiceClientReadiness } from '@/shared/types';
+import { voiceClientAssetPaths } from '@/shared/utils';
 
 /** The build identity a fake engine reports; the routing forwards it without reading it. */
 const BUILD_ID = 'ort-web 1.30.0 | sensevoice-small-int8-2024-07-17 | probe-v1 | sha256:c71f0ce00bec95b0';
@@ -265,5 +269,85 @@ describe('the client ASR routing policy', () => {
 
     expect(route).toMatchObject({ to: 'client', result: { ok: false, code: 'AUDIO_REJECTED' } });
     expect(announced).toEqual([]);
+  });
+});
+
+describe('the client ASR deployment paths and readiness gate', () => {
+  it('derives the same-origin asset paths from BASE_URL, prefix and all', () => {
+    expect(voiceClientAssetPaths('/sub/')).toEqual({
+      modelUrl: '/sub/voice-client/model/model.int8.onnx',
+      tokensUrl: '/sub/voice-client/model/tokens.txt',
+      ortScriptUrl: '/sub/voice-client/ort/ort.wasm.min.mjs',
+      ortWasmPaths: '/sub/voice-client/ort/',
+    });
+    // The site-root deployment is the other shape `BASE_URL` takes; neither may come out
+    // protocol-relative or with a doubled slash.
+    expect(voiceClientAssetPaths('/').modelUrl).toBe('/voice-client/model/model.int8.onnx');
+    expect(voiceClientAssetPaths(undefined).tokensUrl).toBe('/voice-client/model/tokens.txt');
+  });
+
+  it('refuses an unconfigured deployment as ENGINE_UNAVAILABLE, and fetches no model at all', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('the readiness gate must not start a download'));
+    try {
+      installWasmEngine(
+        createVoiceClientAsrEngine({
+          probe: async () => ({
+            configured: false,
+            directory: null,
+            source: null,
+            model: { name: 'model.int8.onnx', present: false, bytes: null, expectedBytes: VOICE_CLIENT_MODEL_BYTES },
+            tokens: { name: 'tokens.txt', present: false, bytes: null, expectedBytes: null },
+            ready: false,
+          }),
+        }),
+      );
+
+      const route = await routeClientAsrSegment({ request: clip(), invocation: invocation(), durationSec: 3 });
+
+      expect(route).toMatchObject({ to: 'server', reason: 'engine-unavailable' });
+      if (route.to !== 'server') throw new Error('expected a server fallback');
+      // The reason has to be actionable: the directory variable to set, and where the files come from.
+      expect(route.message).toContain('VOICE_CLIENT_MODEL_DIR');
+      expect(route.message).toContain('docs/operations/voice-client-asr-deployment.md');
+      // The whole point of asking the server first: not one byte of `/voice-client/model/` is fetched.
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('refuses a directory missing a file, naming the file and the documentation, still fetching nothing', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('the readiness gate must not start a download'));
+    const missingTokens: VoiceClientReadiness = {
+      configured: true,
+      directory: '/opt/sensevoice-model',
+      source: 'VOICE_CLIENT_MODEL_DIR',
+      model: {
+        name: 'model.int8.onnx',
+        present: true,
+        bytes: VOICE_CLIENT_MODEL_BYTES,
+        expectedBytes: VOICE_CLIENT_MODEL_BYTES,
+      },
+      tokens: { name: 'tokens.txt', present: false, bytes: null, expectedBytes: null },
+      ready: false,
+    };
+    try {
+      installWasmEngine(createVoiceClientAsrEngine({ probe: async () => missingTokens }));
+
+      const route = await routeClientAsrSegment({ request: clip(), invocation: invocation(), durationSec: 3 });
+
+      expect(route).toMatchObject({ to: 'server', reason: 'engine-unavailable' });
+      if (route.to !== 'server') throw new Error('expected a server fallback');
+      expect(route.message).toContain('tokens.txt');
+      expect(route.message).toContain('SENSEVOICE_MODEL_DIR');
+      expect(route.message).toContain('docs/operations/voice-client-asr-deployment.md');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
