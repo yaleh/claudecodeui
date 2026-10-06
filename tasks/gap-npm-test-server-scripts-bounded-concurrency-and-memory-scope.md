@@ -3,7 +3,7 @@ id: gap-npm-test-server-scripts-bounded-concurrency-and-memory-scope
 title: 会话里跑服务端测试会撞 8G 会话上限被 OOM 杀掉：npm run test:server / test:scripts 默认走
   with-memory-cap.sh 并限并发，AGENTS.md 加一条指向分层表的短规则，并记录 test.sh 服务端阶段入 scope
   的评估结论（暂不做）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
