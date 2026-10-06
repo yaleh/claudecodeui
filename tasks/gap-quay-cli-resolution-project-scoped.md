@@ -33,12 +33,12 @@ extra:
 
 ## AC
 
-- [ ] AC1 `createQuayProcessRunner`（或其替代实现）不再对裸 `PATH` 发起 `execFile('quay', ...)`：对给定 `projectRoot`，解析并优先使用 `<projectRoot>/.quay/plugin/bin/quay` 这个绝对路径发起 `execFile`；`server/modules/quay/tests/quay-process.test.ts` 新增用例断言 `execFile` 实际收到的命令路径等于该绝对路径拼接结果，而不是字面量 `'quay'`。
-- [ ] AC2 解析逻辑是项目范围的：不出现任何固定指向 claudecodeui 自身安装路径的硬编码分支；不以 `process.env.QUAY_BIN` 作为解析该入口点的主路径（允许在回退分支之外完全不读这个变量，或仅作为显式标注的次要覆盖，但不得是“先看 `QUAY_BIN`、找不到才看 projectRoot”的主路径顺序）。判据：阅读实现 + 单测断言传入两个不同 `projectRoot` 时解析出的路径分别落在各自目录下。
-- [ ] AC3 稳定入口点缺失时，允许短期回退到 `PATH` 上的 `quay`，但该次调用必须产生一条显式警告（日志或等价可观测信号，判据里可断言调用了注入的 warn 回调/logger）；实现文件内对该回退分支留一条可 grep 到的 TODO 注释，说明“裸 PATH 回退需在迁移期后移除”。判据：`quay-process.test.ts` 新增用例，fixture 不提供 `.quay/plugin/bin/quay`，断言命中回退分支且警告回调被调用恰好一次。
-- [ ] AC4 错误上报区分四种情形而非合并成一句通用错误：稳定入口点缺失（且该路径提示用户运行 `/quay:init`）、入口点存在但不可执行（例如权限位缺失）、进程超时、非零退出码/stderr 输出。判据：新增/扩展测试对四种 fixture 分别断言返回的错误结构里带有可区分的分类字段/消息，且“入口点缺失”一类的消息文本包含 `/quay:init`。
-- [ ] AC5 两个不同 `projectRoot`、各自独立的伪造 `.quay/plugin/bin/quay` fixture 的集成级用例：对 root A 发起调用时只执行 A 的 fixture 二进制，对 root B 发起调用时只执行 B 的 fixture 二进制；断言两次调用互不串用（例如各 fixture 回写自己唯一的标记到各自的输出，交叉校验 A 的调用输出中不包含 B 的标记，反之亦然）。
-- [ ] AC6 `npm run typecheck` 退出码 0；`server/modules/quay/tests/quay-process.test.ts`（及因改动涉及的 `server/modules/quay/tests/quay.service.test.ts`、`server/modules/quay/tests/quay.module.test.ts`——以实际存在的文件为准）全部退出码 0，既有用例不因本次改动回归。
+- [x] AC1 `createQuayProcessRunner`（或其替代实现）不再对裸 `PATH` 发起 `execFile('quay', ...)`：对给定 `projectRoot`，解析并优先使用 `<projectRoot>/.quay/plugin/bin/quay` 这个绝对路径发起 `execFile`；`server/modules/quay/tests/quay-process.test.ts` 新增用例断言 `execFile` 实际收到的命令路径等于该绝对路径拼接结果，而不是字面量 `'quay'`。
+- [x] AC2 解析逻辑是项目范围的：不出现任何固定指向 claudecodeui 自身安装路径的硬编码分支；不以 `process.env.QUAY_BIN` 作为解析该入口点的主路径（允许在回退分支之外完全不读这个变量，或仅作为显式标注的次要覆盖，但不得是“先看 `QUAY_BIN`、找不到才看 projectRoot”的主路径顺序）。判据：阅读实现 + 单测断言传入两个不同 `projectRoot` 时解析出的路径分别落在各自目录下。
+- [x] AC3 稳定入口点缺失时，允许短期回退到 `PATH` 上的 `quay`，但该次调用必须产生一条显式警告（日志或等价可观测信号，判据里可断言调用了注入的 warn 回调/logger）；实现文件内对该回退分支留一条可 grep 到的 TODO 注释，说明“裸 PATH 回退需在迁移期后移除”。判据：`quay-process.test.ts` 新增用例，fixture 不提供 `.quay/plugin/bin/quay`，断言命中回退分支且警告回调被调用恰好一次。
+- [x] AC4 错误上报区分四种情形而非合并成一句通用错误：稳定入口点缺失（且该路径提示用户运行 `/quay:init`）、入口点存在但不可执行（例如权限位缺失）、进程超时、非零退出码/stderr 输出。判据：新增/扩展测试对四种 fixture 分别断言返回的错误结构里带有可区分的分类字段/消息，且“入口点缺失”一类的消息文本包含 `/quay:init`。
+- [x] AC5 两个不同 `projectRoot`、各自独立的伪造 `.quay/plugin/bin/quay` fixture 的集成级用例：对 root A 发起调用时只执行 A 的 fixture 二进制，对 root B 发起调用时只执行 B 的 fixture 二进制；断言两次调用互不串用（例如各 fixture 回写自己唯一的标记到各自的输出，交叉校验 A 的调用输出中不包含 B 的标记，反之亦然）。
+- [x] AC6 `npm run typecheck` 退出码 0；`server/modules/quay/tests/quay-process.test.ts`（及因改动涉及的 `server/modules/quay/tests/quay.service.test.ts`、`server/modules/quay/tests/quay.module.test.ts`——以实际存在的文件为准）全部退出码 0，既有用例不因本次改动回归。
 
 ## DoD
 
