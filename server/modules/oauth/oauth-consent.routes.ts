@@ -43,12 +43,29 @@ import express from 'express';
 
 import type { CredentialVerifier } from '@/modules/auth/index.js';
 import type { OAuthClientRow } from '@/modules/database/index.js';
+import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/access-tokens.service.js';
 import { createConsentPasswordRateLimiter } from '@/modules/oauth/oauth-consent-ratelimit.service.js';
 import type { ConsentPasswordRateLimiter } from '@/modules/oauth/oauth-consent-ratelimit.service.js';
 import type { OAuthProvider } from '@/modules/oauth/oauth-provider.service.js';
 
 /** The scope every consent grants, pinned checked and disabled in the form. */
 const READ_SCOPE = 'cloudcli:read';
+
+/**
+ * Every scope the consent page offers, in vocabulary order, each with what it lets the
+ * client do. The page offers the WHOLE vocabulary, not what the client asked for: the
+ * clients that matter (ChatGPT, Gemini) send no `scope` at all, so listing only the
+ * requested ones left the read-only box as the only choice and the owner had no way to
+ * grant a write scope. Only `cloudcli:read` is pre-checked; every other scope stays an
+ * explicit tick.
+ */
+const SCOPE_DESCRIPTIONS: Record<string, string> = {
+  'cloudcli:read': 'View projects, sessions, runs and status',
+  'cloudcli:session:send': 'Send messages to existing sessions (the session runs commands)',
+  'cloudcli:session:create': 'Start new sessions (the session runs commands)',
+  'cloudcli:session:control': 'Interrupt runs, start and close sessions, stop background tasks',
+  'cloudcli:approve': 'Answer pending tool approvals',
+};
 
 /** A CSRF ledger entry's absolute expiry, in epoch milliseconds. */
 type CsrfEntry = { expiresAtMs: number };
@@ -101,18 +118,6 @@ function stringArray(value: unknown): string[] {
     return value.filter((item): item is string => typeof item === 'string');
   }
   return [];
-}
-
-/** Space-separated scope parameter → trimmed, non-empty scope names. */
-function parseScopes(value: unknown): string[] {
-  const raw = firstString(value);
-  if (raw === null) {
-    return [];
-  }
-  return raw
-    .split(' ')
-    .map((scope) => scope.trim())
-    .filter((scope) => scope.length > 0);
 }
 
 /**
@@ -172,42 +177,22 @@ function createCsrfTokenStore(options: {
 }
 
 /**
- * A CSP source expression for the origin a registered `redirect_uri` points at,
- * or `null` when it cannot be written safely.
- *
- * The consent form POSTs to this server and is answered with a 302 to the
- * client's callback. Browsers apply `form-action` to that redirect too: with
- * only `'self'` the navigation to the callback is refused silently, the page
- * stays on `/oauth/authorize`, and the client never receives its code. So the
- * callback's origin must be listed. A custom scheme has no origin (`"null"`) and
- * is listed as a bare scheme source. The strict pattern is what keeps a
- * registered URI from smuggling a `;` or a space into the header value.
- *
- * Exported for this module's consent-page criterion, which pins the header and
- * the unsafe-value refusal directly; no other module consumes it.
- */
-export function cspSourceForRedirectUri(redirectUri: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(redirectUri);
-  } catch {
-    return null;
-  }
-  const source = url.origin === 'null' ? url.protocol : url.origin;
-  return /^[a-z][a-z0-9+.-]*:(\/\/(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(:\d{1,5})?)?$/i.test(source) ? source : null;
-}
-
-/**
  * Sets the three hardening headers on any response, redirect or page alike.
- * `redirectSource` is the validated callback's CSP source, added to `form-action`
- * on the page that carries the consent form (see {@link cspSourceForRedirectUri}).
+ *
+ * There is deliberately NO `form-action` directive. Browsers apply `form-action`
+ * to the 302 that answers the form POST AND to every further redirect hop, and a
+ * client's callback chain is not ours to enumerate: Google's callback page
+ * (`oauth-redirect.googleusercontent.com/r/...`) answers with another redirect,
+ * so allowing only the registered callback's origin still blocks hop two — the
+ * page stays on `/oauth/authorize`, no code is delivered, and the browser shows
+ * only a CSP error. Injection into this page is closed by escaping every echoed
+ * field and by `default-src 'none'` (no script, style, image or connection can
+ * load); the callback itself is checked against the client's registered URIs
+ * before anything renders or redirects.
  */
-function applySecurityHeaders(res: express.Response, redirectSource?: string): void {
+function applySecurityHeaders(res: express.Response): void {
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader(
-    'Content-Security-Policy',
-    `default-src 'none'; form-action 'self'${redirectSource ? ` ${redirectSource}` : ''}; frame-ancestors 'none'`
-  );
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
   res.setHeader('Cache-Control', 'no-store');
 }
 
@@ -249,7 +234,8 @@ function renderConsentPage(input: ConsentPageInput): string {
     .map((scope) => {
       const required = scope === READ_SCOPE;
       const requiredAttributes = required ? ' checked disabled' : '';
-      return `<label><input type="checkbox" name="scope" value="${escapeHtml(scope)}"${requiredAttributes}> ${escapeHtml(scope)}</label>`;
+      const description = SCOPE_DESCRIPTIONS[scope];
+      return `<label><input type="checkbox" name="scope" value="${escapeHtml(scope)}"${requiredAttributes}> ${escapeHtml(scope)}${description ? ` — ${escapeHtml(description)}` : ''}</label>`;
     })
     .join('\n        ');
 
@@ -328,20 +314,17 @@ export function createOAuthConsentRouter(options: CreateOAuthConsentRouterOption
     }
     // RFC 6749 §3.1.2.4: an unregistered redirect_uri is shown as an error and the
     // user is never sent there. Exact match, as at the token endpoint.
-    const redirectSource = cspSourceForRedirectUri(redirectUri);
-    if (!registeredRedirectUris(client).includes(redirectUri) || redirectSource === null) {
+    if (!registeredRedirectUris(client).includes(redirectUri)) {
       sendErrorPage(res, 400, 'redirect_uri is not registered for this client');
       return;
     }
 
-    // `cloudcli:read` is always granted, so it is always shown — even when the
-    // request did not ask for it — pinned checked and disabled.
-    const requestedScopes = parseScopes(req.query.scope);
-    const scopes = requestedScopes.includes(READ_SCOPE)
-      ? requestedScopes
-      : [READ_SCOPE, ...requestedScopes];
+    // `cloudcli:read` is always granted, so it is always shown, pinned checked and
+    // disabled. The rest of the vocabulary is offered unchecked whatever the client
+    // asked for (see SCOPE_DESCRIPTIONS).
+    const scopes: string[] = [READ_SCOPE, ...ACCESS_TOKEN_SCOPES.filter((scope) => scope !== READ_SCOPE)];
 
-    applySecurityHeaders(res, redirectSource);
+    applySecurityHeaders(res);
     res.status(200).type('html').send(
       renderConsentPage({
         clientName: client.client_name ?? '',
@@ -437,8 +420,11 @@ export function createOAuthConsentRouter(options: CreateOAuthConsentRouterOption
     // Only the checked boxes arrive (the read-only box is disabled and is not
     // submitted), so the granted set is the deduplicated submission with the
     // read-only scope forced back in.
+    // A forged POST cannot name a scope outside the vocabulary (`cloudcli:admin`, a typo,
+    // anything else): such values are dropped rather than stored on the grant.
+    const vocabulary = new Set<string>(ACCESS_TOKEN_SCOPES);
     const submitted = stringArray(body.scope).filter(
-      (scope) => scope.length > 0 && scope !== READ_SCOPE
+      (scope) => scope !== READ_SCOPE && vocabulary.has(scope)
     );
     const scopes = [READ_SCOPE, ...submitted.filter((scope, index) => submitted.indexOf(scope) === index)];
 

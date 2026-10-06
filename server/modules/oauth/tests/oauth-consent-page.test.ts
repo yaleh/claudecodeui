@@ -23,16 +23,21 @@
  *       are on GET and on the successful POST;
  *   (h) `createCredentialVerifier` maps a login to `{ ok, userId }` and a throw to
  *       `{ ok: false }`;
- *   (i) the page's CSP `form-action` lists the registered callback's origin — with
- *       only `'self'` a browser silently refuses the 302 to the callback;
+ *   (i) the page's CSP carries no `form-action`: browsers apply it to every hop of the
+ *       redirect chain, and a client's callback chain (Google's callback page
+ *       redirects again) is not ours to enumerate;
  *   (j) a `redirect_uri` the client did not register is refused on GET and on POST
  *       (allow and deny alike): nothing renders, nothing redirects, no code issues;
- *   (k) the CSP source written for a callback is a bare origin or scheme, and a URI
- *       that would smuggle a `;` or a space into the header is refused;
- *   (l) in a REAL browser, Allow lands on the registered callback on another
- *       origin with the code and the verbatim state, while a control page served
- *       with the old `form-action 'self'` does not — which is what makes (l) able
- *       to go red.
+ *   (m) the page offers the WHOLE scope vocabulary even when the client sent no `scope`
+ *       parameter (ChatGPT and Gemini send none) — with only the requested scopes
+ *       listed the owner could never grant a write scope — and pre-checks only the
+ *       read-only one;
+ *   (n) a forged POST cannot put a scope outside the vocabulary on the grant;
+ *   (l) in a REAL browser, Allow lands at the END of a TWO-hop callback chain on a
+ *       third origin with the code and the verbatim state, while two control pages
+ *       do not get there: one with the old `form-action 'self'`, one that lists
+ *       only the first hop's origin (the mistake that shipped once) — which is what
+ *       makes (l) able to go red.
  */
 
 import assert from 'node:assert/strict';
@@ -61,7 +66,6 @@ import {
   createOAuthStore,
 } from '@/modules/oauth/index.js';
 import type { OAuthStore } from '@/modules/oauth/index.js';
-import { cspSourceForRedirectUri } from '@/modules/oauth/oauth-consent.routes.js';
 import { AppError } from '@/shared/utils.js';
 
 const PUBLIC_BASE_URL = 'https://cli.example';
@@ -535,16 +539,14 @@ test('(h) createCredentialVerifier maps login success and failure without throwi
   console.log(`(h) success=${JSON.stringify(success)} failure=${JSON.stringify(failure)}`);
 });
 
-test("(i) the consent page's CSP form-action lists the registered callback origin", async () => {
+test("(i) the consent page's CSP has no form-action, and keeps the framing and default-deny directives", async () => {
   await withConsentServer(async (harness) => {
     const clientId = harness.registerClient('consent-app');
     const form = await getConsentForm(harness, clientId, pkcePair().challenge, [READ_SCOPE]);
     const csp = form.headers.get('content-security-policy') ?? '';
-    assert.ok(
-      csp.includes("form-action 'self' https://app.example;"),
-      `form-action must name the callback origin so the browser can follow the redirect: ${csp}`
-    );
-    assert.ok(!csp.includes('*'), `no wildcard may appear in the CSP: ${csp}`);
+    assert.ok(!/form-action/i.test(csp), `form-action blocks later hops of the callback chain: ${csp}`);
+    assert.ok(csp.includes("default-src 'none'"), `default-deny must stay: ${csp}`);
+    assert.ok(csp.includes("frame-ancestors 'none'"), `anti-framing must stay: ${csp}`);
     console.log(`(i) csp="${csp}"`);
   });
 });
@@ -590,51 +592,50 @@ test('(j) an unregistered redirect_uri is refused on GET and on POST allow and d
   });
 });
 
-test('(k) the CSP source for a callback is a bare origin or scheme, and unsafe URIs are refused', () => {
-  assert.equal(cspSourceForRedirectUri('https://app.example/cb'), 'https://app.example');
-  assert.equal(cspSourceForRedirectUri('http://localhost:58214/callback'), 'http://localhost:58214');
-  assert.equal(cspSourceForRedirectUri('http://127.0.0.1:8080/cb?x=1'), 'http://127.0.0.1:8080');
-  assert.equal(cspSourceForRedirectUri('cursor://anysphere.cursor-retrieval/oauth'), 'cursor:');
-  for (const unsafe of [
-    'https://evil.example;script-src/cb',
-    'https://evil.example,x/cb',
-    'https://a b.example/cb',
-    'not a url',
-    '',
-  ]) {
-    assert.equal(cspSourceForRedirectUri(unsafe), null, `must refuse ${JSON.stringify(unsafe)}`);
-  }
-  console.log('(k) origins and schemes pass; ; , space and non-URLs are refused');
-});
-
-test('(l) in a real browser Allow follows the 302 to a registered callback on another origin', async () => {
-  const landing = http.createServer((req, res) => {
+test('(l) in a real browser Allow follows a TWO-hop callback chain to a third origin', async () => {
+  // Hop two's destination: a third origin, as Gemini's own page is for Google's callback.
+  const final = http.createServer((req, res) => {
     res.setHeader('content-type', 'text/html');
-    res.end('<h1>callback reached</h1>');
+    res.end('<h1>final destination</h1>');
   });
-  landing.listen(0, '127.0.0.1');
-  await once(landing, 'listening');
-  const landingOrigin = `http://127.0.0.1:${(landing.address() as AddressInfo).port}`;
+  final.listen(0, '127.0.0.1');
+  await once(final, 'listening');
+  const finalOrigin = `http://127.0.0.1:${(final.address() as AddressInfo).port}`;
 
-  // Control: the SAME form and redirect, served with the pre-fix CSP.
-  const control = http.createServer((req, res) => {
-    if (req.method === 'POST') {
-      res.statusCode = 302;
-      res.setHeader('location', `${landingOrigin}/cb?code=control&state=xyz`);
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', 'text/html');
-    res.setHeader('content-security-policy', "default-src 'none'; form-action 'self'; frame-ancestors 'none'");
-    res.end('<form method="post" action=""><button id="allow">Allow</button></form>');
+  // Hop one: the registered callback. Like Google's callback page it answers with ANOTHER redirect.
+  const callbackServer = http.createServer((req, res) => {
+    res.statusCode = 302;
+    res.setHeader('location', `${finalOrigin}/done${req.url?.includes('?') ? `?${req.url.split('?')[1]}` : ''}`);
+    res.end();
   });
-  control.listen(0, '127.0.0.1');
-  await once(control, 'listening');
+  callbackServer.listen(0, '127.0.0.1');
+  await once(callbackServer, 'listening');
+  const callbackOrigin = `http://127.0.0.1:${(callbackServer.address() as AddressInfo).port}`;
+
+  // Controls: the SAME form and the SAME two-hop chain, served with a CSP that restricts form-action.
+  const controlFor = async (csp: string): Promise<{ server: http.Server; url: string }> => {
+    const server = http.createServer((req, res) => {
+      if (req.method === 'POST') {
+        res.statusCode = 302;
+        res.setHeader('location', `${callbackOrigin}/cb?code=control&state=xyz`);
+        res.end();
+        return;
+      }
+      res.setHeader('content-type', 'text/html');
+      res.setHeader('content-security-policy', csp);
+      res.end('<form method="post" action=""><button id="allow">Allow</button></form>');
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    return { server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/authorize` };
+  };
+  const oldCsp = await controlFor("default-src 'none'; form-action 'self'; frame-ancestors 'none'");
+  const firstHopOnly = await controlFor(`default-src 'none'; form-action 'self' ${callbackOrigin}; frame-ancestors 'none'`);
 
   const browser = await chromium.launch();
   try {
     await withConsentServer(async (harness) => {
-      const callback = `${landingOrigin}/cb`;
+      const callback = `${callbackOrigin}/cb`;
       const clientId = harness.registerClient('browser-app', callback);
       const query = new URLSearchParams({
         client_id: clientId,
@@ -651,28 +652,85 @@ test('(l) in a real browser Allow follows the 302 to a registered callback on an
       await page.fill('input[name=username]', OWNER);
       await page.fill('input[name=password]', CORRECT_PASSWORD);
       await page.click('button[value=allow]');
-      await page.waitForURL(`${landingOrigin}/cb**`, { timeout: 10_000 });
+      await page.waitForURL(`${finalOrigin}/done**`, { timeout: 10_000 });
       const landed = new URL(page.url());
-      assert.equal(landed.origin, landingOrigin);
-      assert.ok((landed.searchParams.get('code') ?? '').length > 0, 'the callback must receive a non-empty code');
-      assert.equal(landed.searchParams.get('state'), 'xyz', 'the callback must receive the verbatim state');
+      assert.equal(landed.origin, finalOrigin, 'the chain must end on the third origin');
+      assert.ok((landed.searchParams.get('code') ?? '').length > 0, 'the code must survive both hops');
+      assert.equal(landed.searchParams.get('state'), 'xyz', 'the state must survive both hops verbatim');
 
-      const controlPage = await browser.newPage();
-      await controlPage.goto(`http://127.0.0.1:${(control.address() as AddressInfo).port}/authorize`);
-      await controlPage.click('#allow');
-      await controlPage.waitForTimeout(1500);
-      assert.ok(
-        !controlPage.url().startsWith(landingOrigin),
-        'control: with form-action \'self\' the browser must NOT follow the redirect — otherwise this test cannot detect the defect'
-      );
+      const outcomes: string[] = [];
+      for (const [label, control] of [['old form-action \'self\'', oldCsp], ['first-hop origin only', firstHopOnly]] as const) {
+        const controlPage = await browser.newPage();
+        await controlPage.goto(control.url);
+        await controlPage.click('#allow');
+        await controlPage.waitForTimeout(1500);
+        assert.ok(
+          !controlPage.url().startsWith(finalOrigin),
+          `control (${label}): the browser must NOT reach the end of the chain — otherwise this test cannot detect the defect`
+        );
+        outcomes.push(`${label} stopped on ${new URL(controlPage.url()).pathname}`);
+      }
       console.log(
-        `(l) real Chromium: Allow -> ${landed.origin}${landed.pathname} code=${(landed.searchParams.get('code') ?? '').length} chars state=${landed.searchParams.get('state')}; `
-        + `control (old CSP) stayed on ${new URL(controlPage.url()).pathname}`
+        `(l) real Chromium: Allow -> 2 hops -> ${landed.origin}${landed.pathname} code=${(landed.searchParams.get('code') ?? '').length} chars state=${landed.searchParams.get('state')}; `
+        + `controls: ${outcomes.join('; ')}`
       );
     });
   } finally {
     await browser.close();
-    await new Promise<void>((resolve) => landing.close(() => resolve()));
-    await new Promise<void>((resolve) => control.close(() => resolve()));
+    for (const server of [final, callbackServer, oldCsp.server, firstHopOnly.server]) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   }
+});
+
+test('(m) with no scope parameter the page still offers every scope, pre-checking only the read-only one', async () => {
+  await withConsentServer(async (harness) => {
+    const clientId = harness.registerClient('consent-app');
+    const query = authorizeQuery(clientId, pkcePair().challenge, []).replace(/(^|&)scope=[^&]*/, '');
+    assert.ok(!query.includes('scope='), 'the probe must send no scope parameter, as ChatGPT and Gemini do');
+    const response = await fetch(`${harness.baseUrl}/authorize?${query}`);
+    const body = await response.text();
+    assert.equal(response.status, 200);
+    const vocabulary = [READ_SCOPE, WRITE_SCOPE, 'cloudcli:session:create', CONTROL_SCOPE, 'cloudcli:approve'];
+    for (const scope of vocabulary) {
+      const input = extractScopeInput(body, scope);
+      if (scope === READ_SCOPE) {
+        assert.ok(/checked/.test(input) && /disabled/.test(input), `${scope} must be checked and disabled: ${input}`);
+      } else {
+        assert.ok(!/checked|disabled/.test(input), `${scope} must be offered, unchecked and enabled: ${input}`);
+      }
+    }
+    assert.ok(!body.includes('cloudcli:admin'), 'the reserved scope must never be offered');
+    console.log(`(m) no scope requested -> ${vocabulary.length} offered, only ${READ_SCOPE} pre-checked`);
+  });
+});
+
+test('(n) a forged POST cannot grant a scope outside the vocabulary', async () => {
+  await withConsentServer(async (harness) => {
+    const clientId = harness.registerClient('consent-app');
+    const pair = pkcePair();
+    const form = await getConsentForm(harness, clientId, pair.challenge, [READ_SCOPE]);
+    const ok = await postConsent(harness, {
+      csrf_token: extractCsrfToken(form.body),
+      action: 'allow',
+      client_id: clientId,
+      redirect_uri: REDIRECT_URI,
+      state: 'xyz',
+      code_challenge: pair.challenge,
+      code_challenge_method: 'S256',
+      username: OWNER,
+      password: CORRECT_PASSWORD,
+      scope: ['cloudcli:admin', 'bogus', 'cloudcli:session:create', 'cloudcli:session:create'],
+    });
+    assert.equal(ok.status, 302);
+    const grant = getConnection()
+      .prepare('SELECT scopes FROM oauth_grants ORDER BY id DESC LIMIT 1')
+      .get() as { scopes: string };
+    assert.deepEqual(
+      [...(JSON.parse(grant.scopes) as string[])].sort(),
+      [READ_SCOPE, 'cloudcli:session:create'].sort(),
+      'only vocabulary scopes survive, once each, plus the forced read-only scope'
+    );
+    console.log(`(n) forged scopes dropped; grant.scopes=${grant.scopes}`);
+  });
 });
