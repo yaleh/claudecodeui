@@ -2,7 +2,7 @@
 id: gap-ac285-mcp-error-code-vocabulary
 title: 错误 code 词表唯一来源（AC-285）：MCP_ERROR_CODES 为唯一词表（英文含义+可重试），每工具经 tools/list
   `_meta` 声明可能 code，观察到的 code 属于声明、无死 code、源码值位置字面量经 AST 扫描来自词表
-status: todo
+status: ready
 labels:
   - gap
   - defect
