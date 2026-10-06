@@ -59,6 +59,18 @@ const SERVER_TSCONFIG = 'server/tsconfig.json';
 const TRANSCRIPTION_WIRE_MODULE = 'shared/asr/transcriptionWire.ts';
 const MULTIMODAL_MODULE = 'shared/asr/list/multimodal/multimodal.asr-provider.ts';
 const OPENAI_COMPATIBLE_MODULE = 'shared/asr/list/openai-compatible/openai-compatible.asr-provider.ts';
+/**
+ * The other two adapters the landing registry imports.
+ *
+ * THEY ARE HERE BECAUSE THIS LIST IS "EVERY FILE THIS PROBE READS", AND THE REGISTRY READS THEM.
+ * A fixture built from the eight modules above cannot load `shared/asr/asrRegistry.ts` at all: the
+ * module imports four adapters, and the two absent ones make the import throw — so the behavioural
+ * reading, which is the one thing this probe exists to take, came back `unavailable` on every
+ * fixture. That is a fixture that cannot produce the readings the falsification controls mutate, and
+ * it reads exactly like a probe that is red for everything.
+ */
+const DASHSCOPE_OMNI_MODULE = 'shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts';
+const SENSEVOICE_LOCAL_MODULE = 'shared/asr/list/sensevoice-local/sensevoice-local.asr-provider.ts';
 
 /**
  * Every file this probe reads. A fixture built from these is the smallest tree all of its
@@ -77,6 +89,8 @@ export const FIXTURE_FILES = [
   LANDING_MODULE,
   OPENAI_COMPATIBLE_MODULE,
   MULTIMODAL_MODULE,
+  DASHSCOPE_OMNI_MODULE,
+  SENSEVOICE_LOCAL_MODULE,
   TRANSCRIPTION_WIRE_MODULE,
   'src/shared/api.ts',
   'src/modules/chat/hooks/useVoiceAvailable.ts',

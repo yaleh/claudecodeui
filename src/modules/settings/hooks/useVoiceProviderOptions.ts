@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import type { AsrCredentialFields } from '@shared/asr/asrRegistry';
+import type { AsrCredentialFields, AsrRuntimeStatus } from '@shared/asr/asrRegistry';
 import { api } from '@/shared/api';
 
 /**
@@ -25,6 +25,17 @@ export type VoiceProviderOption = {
   configured: boolean;
   /** The stored-settings fields this provider declares as its own, or `null` when it declares none. */
   credentialFields: AsrCredentialFields | null;
+  /**
+   * What this provider says about its own ability to run, or `null` when it says nothing.
+   *
+   * THE SECOND KIND OF ROW, and the reason this hook carries two nullable readings rather than one.
+   * `credentialFields` answers "what do I have to configure"; this one answers "can it run at all",
+   * and for a recogniser that runs on the machine hosting the server the second question has no
+   * answer in the user's settings — the answer is the deployment's. A remote provider declares
+   * neither and stays `null` here, which is exactly the shape the payload uses (the key is ABSENT
+   * rather than null for those rows), so the form can tell "says nothing" from "says unavailable".
+   */
+  runtime: AsrRuntimeStatus | null;
 };
 
 /**
@@ -52,6 +63,35 @@ function readDeclaration(value: unknown): AsrCredentialFields | null {
   };
 }
 
+/**
+ * Reads one row's runtime reading, or `null` when the row carries none.
+ *
+ * BOTH BRANCHES ARE READ, and the difference between them is what the form shows: an unavailable
+ * engine has a `reason` worth putting on screen, a usable one has the `buildId` of the artifacts the
+ * deployment is pinned to. A row whose `available` is neither `true` nor `false` is not a reading at
+ * all and is dropped — the server's own union has no third case, so a payload that invents one is
+ * describing something this client cannot render a claim about.
+ */
+function readRuntime(value: unknown): AsrRuntimeStatus | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const { available, state, buildId, reason } = value as Record<string, unknown>;
+  if (available === false) {
+    return {
+      available: false,
+      state: 'unavailable',
+      reason: typeof reason === 'string' ? reason : '',
+    };
+  }
+  if (available !== true) {
+    return null;
+  }
+  const usable = state === 'ready' || state === 'starting' || state === 'stopped' ? state : 'stopped';
+  return { available: true, state: usable, buildId: typeof buildId === 'string' ? buildId : '' };
+}
+
 /** Reads the payload's `providers` array, tolerating a server too old to send one. */
 export function readVoiceProviderOptions(payload: unknown): VoiceProviderOption[] {
   const rows = (payload as { providers?: unknown } | null)?.providers;
@@ -62,7 +102,7 @@ export function readVoiceProviderOptions(payload: unknown): VoiceProviderOption[
   const options: VoiceProviderOption[] = [];
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
-    const { id, label, configured, credentialFields } = row as Record<string, unknown>;
+    const { id, label, configured, credentialFields, runtime } = row as Record<string, unknown>;
     if (typeof id !== 'string' || !id) continue;
     options.push({
       id,
@@ -71,6 +111,7 @@ export function readVoiceProviderOptions(payload: unknown): VoiceProviderOption[
       label: typeof label === 'string' && label ? label : id,
       configured: configured === true,
       credentialFields: readDeclaration(credentialFields),
+      runtime: readRuntime(runtime),
     });
   }
   return options;

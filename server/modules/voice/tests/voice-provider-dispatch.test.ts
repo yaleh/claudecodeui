@@ -552,11 +552,21 @@ test('AC5 the code→status table: a row per member, each driven to the status i
 
 // ── AC6: registration order and the health payload ────────────────────────────────────────────
 
-test('AC6 the address book still opens with the factory entry and ends with dashscope-omni', () => {
+test('AC6 the address book still opens with the factory entry and keeps every earlier row in place', () => {
   const ids = listProviders().map((adapter) => adapter.id);
   emit(`provider-order ${ids.join(' ')}`);
   assert.equal(ids[0], 'openai-compatible', 'an id-less deployment must keep resolving to the factory entry');
-  assert.equal(ids[ids.length - 1], dashscopeOmniId, 'the new row is appended last');
+  // THE REGISTRY IS APPEND-ONLY, WHICH IS THE PROPERTY THIS ROW WAS ALWAYS ABOUT — and it is read as
+  // a PREFIX now, because "the last id is dashscope-omni" was a statement about the address book as
+  // it stood when that row was added, not about what appending does. A fifth recogniser keeps this
+  // green without an edit; a row that INSERTS itself, or that reorders what an id-less deployment
+  // resolves to, still reds — which is the failure the original assertion was there to catch.
+  assert.deepEqual(
+    ids.slice(0, 3),
+    ['openai-compatible', 'multimodal', dashscopeOmniId],
+    'the rows that existed before this one are unmoved and in order',
+  );
+  assert.ok(ids.indexOf(dashscopeOmniId) < ids.length - 1, 'a row was appended after dashscope-omni rather than inserted before it');
   assert.equal(dashscopeOmniId, 'dashscope-omni');
 
   const service = makeService({});

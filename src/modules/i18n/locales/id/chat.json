@@ -129,6 +129,7 @@
       "INVALID_BASE_URL": "URL dasar penyedia suara tidak valid — perbaiki di pengaturan penyedia suara.",
       "OVERSIZE": "Rekaman terlalu besar untuk diunggah — rekam bagian yang lebih pendek lalu coba lagi.",
       "UNSUPPORTED_MIME": "Format audio ini tidak didukung — coba berkas lain atau rekam dengan mikrofon.",
+      "ENGINE_UNAVAILABLE": "Mesin suara lokal tidak tersedia di server ini — periksa apakah sudah terpasang, atau pilih penyedia suara lain.",
       "unknown": "Transkripsi gagal — coba lagi, atau periksa pengaturan penyedia suara."
     }
   },

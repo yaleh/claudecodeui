@@ -681,7 +681,7 @@ const READINGS: readonly Reading[] = [
             `missing=[${missing.join(' ')}] extra=[${extra.join(' ')}] source=${source.length}`,
         ].join('\n'),
         ok:
-          vocab.length === 13 &&
+          vocab.length === 14 &&
           missing.length === 0 &&
           extra.length === 0 &&
           unindexable.length === 0 &&
@@ -762,7 +762,7 @@ const READINGS: readonly Reading[] = [
           'budget lives, because AC1 requires this file to start none) ' +
           `declared=${String(declared)} typed-to-the-union=${String(typedToTheUnion)} ` +
           `runtime-derived=${String(runtimeDerived)} runtime-length=${measurement.vocab.length}`,
-        ok: declared && typedToTheUnion && runtimeDerived && measurement.vocab.length === 13,
+        ok: declared && typedToTheUnion && runtimeDerived && measurement.vocab.length === 14,
       };
     },
   },

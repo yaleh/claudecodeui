@@ -4,6 +4,15 @@ import { fireEvent, render, waitFor } from '@testing-library/react';
 import React from 'react';
 import { afterAll, beforeEach, test, vi } from 'vitest';
 
+// THE REGISTRY BEFORE THE ADAPTER, and the order of these two lines is load-bearing rather than
+// cosmetic. This seam's modules form one import cycle — each adapter reads `declaredAcceptsMime` back
+// out of the registry — so whichever of the two is EVALUATED first starts the cycle, and a module
+// that enters through an ADAPTER reads the registry's bindings while they are still in their temporal
+// dead zone. Declaring the registry first is what guarantees it is evaluated first. The last case
+// below needs both: it renders the form from the rows the deployment really publishes, so the
+// provider under test is derived from the registry rather than named in this file.
+import { listProviders } from '@shared/asr/asrRegistry';
+import { installSensevoiceEngine } from '@shared/asr/list/sensevoice-local/sensevoice-local.asr-provider';
 import VoiceSettingsTab from '@/modules/settings/tabs/VoiceSettingsTab';
 import { resetVoiceConfig } from '@/shared/voiceConfig';
 
@@ -44,7 +53,15 @@ vi.mock('@/shared/context/UiPreferencesContext', () => ({
 vi.mock('react-i18next', async (importOriginal) => ({
   ...(await importOriginal() as object),
   useTranslation: () => ({
-    t: (key: string, options?: { provider?: string }) => (options?.provider ? `${key}:${options.provider}` : key),
+    // Every interpolation the call supplied, not just `provider`. The last case below reads a build
+    // id the form put on screen, and a mock that interpolated one option would make that value
+    // unreachable through the translation — leaving the case to assert the key was called rather
+    // than that the deployment's build reached the page.
+    t: (key: string, options?: Record<string, unknown>) => {
+      if (!options) return key;
+      const fields = Object.entries(options).map(([name, value]) => `${name}=${String(value)}`);
+      return `${key}:${fields.join(',')}`;
+    },
   }),
 }));
 
@@ -65,6 +82,13 @@ type Row = {
   label: string;
   configured: boolean;
   credentialFields?: { endpointField: string; apiKeyField: string; modelField?: string; defaultModel?: string };
+  /**
+   * The third declaration a row can carry, and the one the last case is about: what a provider says
+   * about its OWN ability to run. Absent for every fabricated row above, which is the shape the
+   * remote providers publish — see `readVoiceProviderOptions` for why absence and "unavailable" are
+   * different readings rather than the same one spelled twice.
+   */
+  runtime?: { available: true; state: string; buildId: string } | { available: false; state: string; reason: string };
 };
 
 /**
@@ -283,4 +307,95 @@ test('an empty model box shows the declared default as its placeholder, and fall
   await waitFor(() => assert.ok(renderedFields(plain).includes(ALPHA_DECLARATION.modelField)));
   assert.notEqual(renderedField(plain, ALPHA_DECLARATION.modelField).placeholder, 'alpha-default-model');
   assert.notEqual(renderedField(plain, ALPHA_DECLARATION.modelField).placeholder, '');
+});
+
+test('the provider that runs on this server shows no credential field of its own, says what it is, and saves', async () => {
+  // THE EMPTY DOCUMENT IS WHAT MAKES THE SELECTION REAL. `useVoiceConfig` hydrates from the mocked
+  // server, so `providerId` starts empty and the form falls back to the FIRST row — which is why the
+  // remote recogniser is listed first here and the local one second. Selecting the local one is then
+  // a change the form has to record, rather than a value it happened to render.
+  //
+  // BOTH ROWS COME FROM THE DEPLOYMENT'S OWN REGISTRY, and neither id is written in this file. The
+  // case is about the recogniser this build ships, so inventing a row for it would prove something
+  // about a payload nobody serves; taking the rows from `listProviders()` means a rename or a
+  // second local engine moves the case with it. The fabricated rows in the cases above are still what
+  // holds the FORM to its rule — this case is about the deployment, and they are about the form.
+  const adapters = listProviders();
+  const engineAdapter = adapters.find((adapter) => adapter.runtime !== undefined);
+  const remoteAdapter = adapters.find((adapter) => adapter.credentials !== undefined);
+  assert.ok(engineAdapter, 'the registry publishes no provider with a runtime reading');
+  assert.ok(remoteAdapter, 'the registry publishes no provider with credential fields');
+  assert.equal(
+    adapters.filter((adapter) => adapter.runtime !== undefined).length,
+    1,
+    'more than one provider declares a runtime, so "the local one" would be ambiguous here',
+  );
+
+  // The engine is installed exactly as the composition root installs one, and reports the state a
+  // healthy deployment is in. A build id is a fixture because this case reads it off the PAGE, so it
+  // has to be a value the case chose: an assertion against a build id read from the same registry the
+  // page read it from would pass whatever the two agreed on.
+  const BUILD_ID = 'build-under-test-8f31';
+  installSensevoiceEngine({
+    status: () => ({ available: true, state: 'ready', buildId: BUILD_ID }),
+    ensureReady: () => Promise.resolve({ available: true, state: 'ready', buildId: BUILD_ID }),
+    transcribe: () => Promise.reject(new Error('this case never transcribes')),
+  });
+
+  try {
+    voice.health.mockImplementation(() => ok({
+      configured: true,
+      provider: remoteAdapter.id,
+      providers: [
+        { id: remoteAdapter.id, label: remoteAdapter.id, configured: true, credentialFields: remoteAdapter.credentials },
+        { id: engineAdapter.id, label: engineAdapter.id, configured: true, runtime: engineAdapter.runtime?.() },
+      ],
+    }));
+
+    const view = render(<VoiceSettingsTab />);
+    await waitFor(() => assert.equal(providerSelect(view).options.length, 2));
+
+    // THE POSITIVE CONTROL FIRST: the remote provider's declaration IS rendered, so the absence the
+    // next reading finds cannot be a form that renders nothing for anybody.
+    await waitFor(() => assert.ok(renderedFields(view).length > 0));
+    assert.equal(renderedFields(view).length, 3, 'the remote declaration declares three fields');
+
+    fireEvent.change(providerSelect(view), { target: { value: engineAdapter.id } });
+    await waitFor(() => assert.equal(providerSelect(view).value, engineAdapter.id));
+
+    // THE READING THE CRITERION NAMES: no credential field of its own — not an empty input, not a
+    // disabled one, and not the declared section at all — because this recogniser declares no
+    // credential fields. The block the remote provider filled is gone rather than blanked.
+    assert.equal(view.queryByTestId('voice-provider-fields'), null);
+    assert.deepStrictEqual(renderedFields(view), []);
+
+    // What stands in its place says what this provider is and which build is deployed. That is the
+    // copy this change adds: a user who selects a recogniser that needs no key has to be able to read
+    // that from the page rather than infer it from an absent box.
+    const runtime = view.getByTestId('voice-provider-runtime');
+    assert.match(runtime.textContent ?? '', new RegExp(`provider=${engineAdapter.id}`));
+    assert.match(runtime.textContent ?? '', new RegExp(`buildId=${BUILD_ID}`));
+
+    // AND IT SAVES: the choice reaches the document the server is sent. The form writes the same
+    // whole document here as in the case above — the point is that a provider with no fields of its
+    // own is still a provider the user can select and keep.
+    await waitFor(
+      () => assert.ok(voice.saveConfig.mock.calls.length > 0, 'selecting the local provider saved nothing'),
+      { timeout: 4_000 },
+    );
+    const sent = voice.saveConfig.mock.calls[voice.saveConfig.mock.calls.length - 1][0] as Record<string, unknown>;
+    assert.equal(sent.providerId, engineAdapter.id);
+    for (const field of ['baseUrl', 'apiKey', 'sttModel', 'ttsModel', 'ttsVoice', 'ttsFormat']) {
+      assert.ok(field in sent, `${field} is missing from the saved document`);
+    }
+
+    console.log(
+      `[settings] local provider: id=${engineAdapter.id} buildId=${BUILD_ID}`
+        + ` declaredFields=${renderedFields(view).length} saved=providerId:${String(sent.providerId)}`,
+    );
+  } finally {
+    // The engine is a module-level singleton in the adapter, so a case that installs one has to take
+    // it away again: the next file to read `runtime()` would otherwise be handed this fixture.
+    installSensevoiceEngine(null);
+  }
 });
