@@ -423,3 +423,19 @@ export type {
 // criterion, which mounts the gateway and compares `tools/list` against the table.
 export { MCP_TOOL_ANNOTATIONS, readMcpToolAnnotations } from './mcp-tool-annotations.js';
 export type { McpGatewayToolName } from './mcp-tool-annotations.js';
+
+// The audit READBACK (AC-304): the read side of the AC-244 log. `createMcpAuditReader`
+// projects one user's recent `mcp_audit_log` rows into the settings page's shape —
+// reusing each row's stored digest as `summary`, resolving the user through its
+// token ids, and (unless `includeReads` is set) filtering the annotated read-only
+// tools in SQL so the limit counts write rows. `readMcpAuditLimit` normalizes and
+// clamps the requested page size, and the three LIMIT constants are the one
+// statement of the bounds. Consumers: `server/modules/settings/settings.module.ts`
+// (the production assembly) and this module's criterion.
+export { createMcpAuditReader, readMcpAuditLimit } from './mcp-audit-route.js';
+export {
+  MCP_AUDIT_ROUTE_DEFAULT_LIMIT,
+  MCP_AUDIT_ROUTE_MAX_LIMIT,
+  MCP_AUDIT_ROUTE_MIN_LIMIT,
+} from './mcp-audit-route.js';
+export type { McpAuditReadDeps, McpAuditRouteEntry } from './mcp-audit-route.js';

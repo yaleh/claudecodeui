@@ -52,6 +52,13 @@ export function createSettingsRouter(
     userId(req), req.body?.endpoint,
   )));
   router.get('/mcp-gateway', respond((req) => service.getMcpGatewayStatus(requestOrigin(req))));
+  // The recent MCP tool-call list (AC-304). `limit` / `includeReads` are passed
+  // through as raw query values; the service's reader normalizes the limit and
+  // reads `includeReads` as true only for `'true'`.
+  router.get('/mcp-audit', respond((req) => service.listMcpAudit(userId(req), {
+    limit: req.query.limit,
+    includeReads: req.query.includeReads,
+  })));
   router.get('/access-tokens', respond((req) => service.listAccessTokens(userId(req))));
   router.post('/access-tokens', respond(
     (req) => service.createAccessToken(userId(req), req.body ?? {}),
