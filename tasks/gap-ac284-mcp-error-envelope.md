@@ -2,7 +2,7 @@
 id: gap-ac284-mcp-error-envelope
 title: MCP 错误信封统一（AC-284）：所有工具的所有失败走同一个 isError+structuredContent 信封，同类同
   code，探针表由注册表驱动
-status: ready
+status: done
 labels:
   - gap
   - defect
