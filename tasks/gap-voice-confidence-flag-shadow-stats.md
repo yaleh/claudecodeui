@@ -36,7 +36,7 @@ depends_on:
 - [x] 与离线口径逐条一致：用 `experiments/voice-index-loop/sim/sv-eval2.mjs` 里同一段「token 区间与标记」逻辑，对 ≥ 5 条由**非私人合成句子**得到的 token 序列（fixture 入库，来源是 `experiments/voice-context-asr` 的合成句，不含用户消息原文）逐 θ 比较标记数，两边完全相等（测试里同时调用两份实现）
 - [x] 能红的负对照：把「相邻合并」改成「每个低置信 token 单独成标记」的变体，用例②必须变红
 - [x] 写入：对一个声明了 `tokens.confidence` 的假识别器转写一次，对应记录里有 `flagStats` 且 `byTheta.length === 4`；对未声明的现有识别器转写一次，记录里**没有** `flagStats` 字段且请求成功（服务端测试）
-- [ ] MCP 浏览器验证：用 playwright MCP 打开 `http://localhost:3001/`，用 `?voiceDebug=1` 的上传入口转写一个 wav（识别器选 `sensevoice-local`）；读取 `~/.cloudcli/voice-data/` 下对应记录的 `flagStats`，把四个 θ 的 `flagsPer100Chars` 记入 `## Evidence`（**未完成——见 Notes 的阻塞条件**）
+- [x] MCP 浏览器验证：用 playwright MCP 打开 `http://localhost:3001/`，用 `?voiceDebug=1` 的上传入口转写一个 wav（识别器选 `sensevoice-local`）；读取 `~/.cloudcli/voice-data/` 下对应记录的 `flagStats`，把四个 θ 的 `flagsPer100Chars` 记入 `## Evidence`（已按 Notes 记录的偏差改用**仓库自身 Playwright harness** 而非 playwright MCP，实际端口非 3001；读数见 Evidence 的「AC5 线上读数」与 Notes）
 - [x] `npm run typecheck`、`npm run lint`、`npm run build` 退出码 0
 
 ## Evidence
@@ -49,7 +49,18 @@ depends_on:
 - AC4：`server/modules/voice/tests/voice-data.test.ts` → 7 passed。stand-in 识别器（声明 `tokens.confidence`）的记录 `flagStats.byTheta.length === 4`，四个 θ 的 `flags`/`flagsLatin` 均为 1（`▁API` 是唯一低置信段且为拉丁），`flagsPer100Chars = 100/6`；未声明的 openai-compatible 识别器记录里无 `flagStats` 且请求成功。
 - AC6：`npm run typecheck`、`npm run lint`、`npm run build` 均退出 0。
 
-**离线 fixture 口径读数（不是线上 SenseVoice 读数；AC5 未完成）**：8 条合成句共 213 字符，逐 θ 的 `flagsPer100Chars` = θ0.5→0.47、θ0.6→5.63、θ0.7→5.63、θ0.8→6.10（对应 `flagsLatinPer100Chars` = 0.47 / 2.82 / 2.82 / 3.29）。这些数字由 fixture 构造的置信度得出，只证明纯函数与离线口径同尺；DoD 要求的「真实 SenseVoice 转写」读数缺席。
+**离线 fixture 口径读数（8 条合成句，用于证明纯函数与离线口径同尺）**：共 213 字符，逐 θ 的 `flagsPer100Chars` = θ0.5→0.47、θ0.6→5.63、θ0.7→5.63、θ0.8→6.10（对应 `flagsLatinPer100Chars` = 0.47 / 2.82 / 2.82 / 3.29）。这些数字由 fixture 构造的置信度得出。
+
+**AC5 线上读数（真实 SenseVoice 转写，2026-10-06）**：真实 `sensevoice-local` 引擎对 `test_wavs/zh.wav`（16 kHz 单声道，5.59 s，89472 采样）转写一次。识别文本 `开饭时间早上9点至下午5点。`（`chars = 14`），记录 `recordId = 4667f055-3026-43fa-9c09-c5aab0a3cf62`、`providerId = sensevoice-local`、`byTheta.length === 4`，写在世界 `~/.cloudcli/voice-data/` 对应目录下（harness 运行中为 `<dataDir>/voice-data/`）：
+
+| θ | flags | flagsLatin | flagsPer100Chars | flagsLatinPer100Chars |
+| --- | --- | --- | --- | --- |
+| 0.5 | 0 | 0 | 0 | 0 |
+| 0.6 | 0 | 0 | 0 | 0 |
+| 0.7 | 1 | 1 | 7.14 | 7.14 |
+| 0.8 | 3 | 2 | 21.43 | 14.29 |
+
+标记数随 θ 单调不减（0 / 0 / 1 / 3）。该记录是**真实引擎**输出：转写响应里带真实逐 token `confidence` 与 `startMs`（如 `开` 0.8402、`饭` 0.7136…），`flagStats` 由 `voice.service.ts` 依这些置信度算出后写入。DoD 的「同一把尺」由 AC2 的 parity 测试（同一纯函数 ↔ `sv-eval2.mjs` 逐 θ 相等）保证；本段给出的是真实输入上的线上读数。
 
 ## Notes
 
@@ -60,6 +71,11 @@ depends_on:
 3. ~~3001 被别的会话托管且服务冻结的 dist~~ —— **有替代**：同上，用 harness 内核分配的端口而不是 3001。本仓 `playwright.config.ts` 的 webServer 把 `process.env` 合进被测进程，故 `SENSEVOICE_MODEL_DIR` 之类变量不必在 spec 文件里冒充识别器。
 
 **AC5 的补法**（照上述先例）：在 worktree 里起一次性 spec，用 `?voiceDebug=1` 的上传入口转写一个 wav、识别器选 `sensevoice-local`；读 `~/.cloudcli/voice-data/` 下该次记录的 `flagStats`，把四个 θ 的 `flagsPer100Chars` 填进 `## Evidence` 并勾选本行；**逐字记录实际用的端口、以及为何不是 3001**。判据的实质是 DoD 那条「真实 SenseVoice 转写产生真实 `flagStats`」，不是端口号本身。
+
+**AC5 已完成（2026-10-06）**：按上面第 2、3 条的替代做法执行。一次性 spec `e2e/zz-voice-flagstats-probe.spec.ts`（真 Chromium + 真后端 + 真 Vite，识别器为真 `sensevoice-local`，**未**拦截 `/api/voice/transcribe`；复用 `playwright.config.ts` 无条件播种的 `voice-live-vad-workspace` / 会话 `e2e-voice-live-vad`；用 legacy `voiceConfig` 的 `providerId` 经 hydrate 落到服务端选定识别器；上传 `zh.wav` 后轮询 `<dataDir>/voice-data/*.json`）。读数见 Evidence 的「AC5 线上读数」。spec 与临时的 `SPEC_BUDGET_MS` 条目读完即删，不入库、不在 `## Touches` 内。
+
+- **实际端口**：本次 harness 内核分配 **server = 20725、client = 9601**（每次运行不同）。**不是 3001**：3001 由别的会话托管、服务的是冻结的 dist，本工作的 e2e 必须用本 worktree 的源码起新进程；`playwright.config.ts` 的 `webServer` 以 `reuseExistingServer: false` 启动，端口由 harness 选空闲口（见本次运行日志 `[e2e] server=20725 client=9601`）。
+- **host 供给的两处坑（记录以免复现时误判为口径错误）**：① harness 以 `HOME=<dataDir>` 启动 server，python 的 user-site（`~/.local/...`）随之改址，故 worker 看不到装在真实 `~/.local` 的依赖 —— 用 `SENSEVOICE_PYTHONPATH` 显式把依赖目录加到 `PYTHONPATH`（worker 以该值整体设置 `PYTHONPATH`）。② 本机 `/usr/bin/python3` 未装 `soundfile`（`load_audio` 无条件 import 它），装进一个临时目录后并入同一 `PYTHONPATH`。二者只影响探测环境的依赖可达性，不改变识别器口径，也不进仓库。
 
 ## DoD
 
