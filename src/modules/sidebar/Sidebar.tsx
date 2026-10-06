@@ -8,7 +8,7 @@ import { useSidebarController } from '@/modules/sidebar/hooks/useSidebarControll
 import { useTaskMaster, useTasksSettings } from '@/modules/task-master';
 import { usePaletteOps } from '@/modules/command-palette';
 import { useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
-import type { LLMProvider, LoadingProgress, MCPServerStatus, Project, ProjectSession, SidebarProjectListProps } from '@/shared/types';
+import type { LLMProvider, LoadingProgress, MCPServerStatus, Project, ProjectSession, SessionHiddenByProjectFilter, SidebarProjectListProps } from '@/shared/types';
 import SidebarCollapsed from '@/modules/sidebar/SidebarCollapsed';
 import SidebarContent from '@/modules/sidebar/SidebarContent';
 import SidebarModals from '@/modules/sidebar/SidebarModals';
@@ -26,6 +26,12 @@ type SidebarProps = {
   /** Projects whose name-filtered sessions are temporarily shown in this browser. */
   showHiddenProjectIds?: ReadonlySet<string>;
   onToggleShowHidden?: (projectId: string) => void;
+  /**
+   * The project's session-name rules as a predicate, handed down by the owner of
+   * the rules (useProjectsState). Passed as a prop, not imported, because the
+   * sidebar may not import project-workspace — see SessionHiddenByProjectFilter.
+   */
+  isSessionHiddenByProjectFilter?: SessionHiddenByProjectFilter;
   /** Reloads a project's sessions after its name-filter rules were saved. */
   onSessionFilterSaved?: (projectId: string, hide: string[]) => Promise<void> | void;
   // `projectId` is the DB identifier; the sidebar hands it back to the parent
@@ -59,6 +65,7 @@ function Sidebar({
   onLoadMoreSessions,
   showHiddenProjectIds,
   onToggleShowHidden,
+  isSessionHiddenByProjectFilter,
   onSessionFilterSaved,
   onProjectDelete,
   isLoading,
@@ -165,6 +172,7 @@ function Sidebar({
     onSessionDelete,
     onLoadMoreSessions,
     onProjectDelete,
+    isSessionHiddenByProjectFilter,
     setCurrentProject,
     setSidebarVisible: (visible) => setPreference('sidebarVisible', visible),
     sidebarVisible,
