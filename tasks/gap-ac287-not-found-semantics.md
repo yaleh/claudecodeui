@@ -3,7 +3,7 @@ id: gap-ac287-not-found-semantics
 title: MCP「引用不存在即错误」语义（AC-287）：approval_answer/session_cancel_queued/run_get/quay_snapshot
   的找不到改为 APPROVAL_NOT_FOUND / QUEUED_MESSAGE_NOT_FOUND / RUN_NOT_FOUND /
   TARGET_NOT_FOUND，真实状态（已开始执行、已完成、无 quay 配置）仍是成功结果
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -71,17 +71,17 @@ for f in server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts; do [ 
 
 ## AC
 
-- [ ] AC1 判据文件 `server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts` 存在，且存在性闸后判据命令退出码 0。任务记录含「实现前该文件不存在、存在性闸以退出码 1 打印 `缺判据文件：…`」与「实现后退出码 0」两段逐字输出（红先行证据）。
-- [ ] AC2 (a) 真实 HTTP + MCP SDK 客户端调用 `approval_answer`：对**已过期**与**从未存在**的 `requestId` 都断言 `isError === true`、`structuredContent.code === 'APPROVAL_NOT_FOUND'`；两者 `details.reason` 分别为 `'expired'` 与 `'never_issued'`（互不相等）；`details` 键集与码值逐字记录；并断言不存在 `ok:false` 的成功结果（旧形状消失）。写下两条调用的逐字读数。
-- [ ] AC3 (b) `session_cancel_queued`：(i) 对从未见过的 uuid `isError === true` 且 `code === 'QUEUED_MESSAGE_NOT_FOUND'`；对跨会话的 uuid 同样；(ii) 对**已被取出开始执行**的消息 `isError === false`、`outcome === 'already-started'`；(iii) 从真实 `tools/list` 读回该工具 `outputSchema.properties.outcome.enum`，深等于 `['cancelled','already-started']`（顺序不计，集合相等）。写下三组读数与枚举读数。
-- [ ] AC4 (c) `run_get`：对保留期过期的 `runId`、从未发出的 `runId`、跨 boot 的 `runId` 三个探针，均断言 `isError === true`、`code === 'RUN_NOT_FOUND'`、`details.reason ∈ {'expired','never_issued'}`；且 `details` 带回退读取到的最近消息（非空、逐字等于 fixture 消息）；命中探针（`status:'completed'` / `'running'`）仍 `isError === false`。写下逐探针读数。
-- [ ] AC5 (d) `quay_snapshot`：对**不存在**的项目 `isError === true`、`code === 'TARGET_NOT_FOUND'`；对**存在但无 quay 配置**的项目 `isError === false`、`status === 'no_quay_config'`；对存在且有配置的项目仍 `isError === false`（`status:'cached'|'refreshed'`）。三种情况互不混同；写下三条读数。
-- [ ] AC6 (e) 不变式：`session_cancel_queued` 的 `already-started` 成功读数（AC3-ii）与 `quay_snapshot` 的 `no_quay_config` 成功读数（AC5）与 `run_get` 命中成功读数（AC4）同时成立——真实状态仍成功，未被误改成错误。
-- [ ] AC7 取假形态三条先红后恢复，逐条记录 mutation diff、逐字失败行、恢复命令：(i) `approval_answer` 的不存在回 `ok:false` 成功 ⇒ AC2 红；(ii) 把 `already-started` 改成错误 ⇒ AC6 红；(iii) `quay_snapshot` 把不存在项目当作无配置 ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC8 既有判据移植、强度不降：至少覆盖 `mcp-approvals.test.ts`(d)（`:583-593` 旧 `isError:false` + 文案 `已过期或不存在`）、`mcp-cancel-queued.test.ts`(b)(c)（`:577-578`、`:622-624` 旧 `outcome:'unknown'` 成功）、`mcp-run-get.test.ts`(f)(g)（`:536-538`、`:576-579` 旧 miss 成功）、`mcp-overview.test.ts`(d)（`:627-631` 旧 no-quay 成功，新增不存在项目探针）、`debug-agent/tests/debug-agent-control-queue.test.ts`(d)（`:571` 旧 `verdict:'unknown'` → `'already-started'`）；每条记旧断言→新断言，新断言强度不低于旧，diff 中无删除 `assert`、无放宽为 truthy/skip。`bash scripts/test.sh --for-task gap-ac287-not-found-semantics` 退出码 0。
-- [ ] AC9 计数 pin 同步：`server/shared/tests/quay-test-script.test.ts` 两处 `known/unknown` 按实现时实际计数写入（先取 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` 的实际 N，再写 `known=3 unknown=N-3` 与 `known=1 unknown=N-1`），`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0。写下 N 的读数与改后的两个 pin 字符串。
-- [ ] AC10 仓库门：`npm run typecheck` 退出码 0；`npm run lint` 无 `: error `（只看 error 级）；`npm run build` 退出码 0。写明三条命令退出码与 lint error 计数。
-- [ ] AC11 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件标 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 `task_write` 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据文件 `server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts` 存在，且存在性闸后判据命令退出码 0。任务记录含「实现前该文件不存在、存在性闸以退出码 1 打印 `缺判据文件：…`」与「实现后退出码 0」两段逐字输出（红先行证据）。
+- [x] AC2 (a) 真实 HTTP + MCP SDK 客户端调用 `approval_answer`：对**已过期**与**从未存在**的 `requestId` 都断言 `isError === true`、`structuredContent.code === 'APPROVAL_NOT_FOUND'`；两者 `details.reason` 分别为 `'expired'` 与 `'never_issued'`（互不相等）；`details` 键集与码值逐字记录；并断言不存在 `ok:false` 的成功结果（旧形状消失）。写下两条调用的逐字读数。
+- [x] AC3 (b) `session_cancel_queued`：(i) 对从未见过的 uuid `isError === true` 且 `code === 'QUEUED_MESSAGE_NOT_FOUND'`；对跨会话的 uuid 同样；(ii) 对**已被取出开始执行**的消息 `isError === false`、`outcome === 'already-started'`；(iii) 从真实 `tools/list` 读回该工具 `outputSchema.properties.outcome.enum`，深等于 `['cancelled','already-started']`（顺序不计，集合相等）。写下三组读数与枚举读数。
+- [x] AC4 (c) `run_get`：对保留期过期的 `runId`、从未发出的 `runId`、跨 boot 的 `runId` 三个探针，均断言 `isError === true`、`code === 'RUN_NOT_FOUND'`、`details.reason ∈ {'expired','never_issued'}`；且 `details` 带回退读取到的最近消息（非空、逐字等于 fixture 消息）；命中探针（`status:'completed'` / `'running'`）仍 `isError === false`。写下逐探针读数。
+- [ ] AC5 (d) `quay_snapshot`：对**不存在**的项目 `isError === true`、`code === 'TARGET_NOT_FOUND'`；对**存在但无 quay 配置**的项目 `isError === false`、`status === 'no_quay_config'`；对存在且有配置的项目仍 `isError === false`（`status:'cached'|'refreshed'`）。三种情况互不混同；写下三条读数。**（本项未勾：`TARGET_NOT_FOUND` 字面量在本仓库不可满足，见 Change notes；实现改断言 `PROJECT_NOT_FOUND`，任务 park `needs-human`。）**
+- [x] AC6 (e) 不变式：`session_cancel_queued` 的 `already-started` 成功读数（AC3-ii）与 `quay_snapshot` 的 `no_quay_config` 成功读数（AC5）与 `run_get` 命中成功读数（AC4）同时成立——真实状态仍成功，未被误改成错误。
+- [x] AC7 取假形态三条先红后恢复，逐条记录 mutation diff、逐字失败行、恢复命令：(i) `approval_answer` 的不存在回 `ok:false` 成功 ⇒ AC2 红；(ii) 把 `already-started` 改成错误 ⇒ AC6 红；(iii) `quay_snapshot` 把不存在项目当作无配置 ⇒ AC5 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC8 既有判据移植、强度不降：至少覆盖 `mcp-approvals.test.ts`(d)（`:583-593` 旧 `isError:false` + 文案 `已过期或不存在`）、`mcp-cancel-queued.test.ts`(b)(c)（`:577-578`、`:622-624` 旧 `outcome:'unknown'` 成功）、`mcp-run-get.test.ts`(f)(g)（`:536-538`、`:576-579` 旧 miss 成功）、`mcp-overview.test.ts`(d)（`:627-631` 旧 no-quay 成功，新增不存在项目探针）、`debug-agent/tests/debug-agent-control-queue.test.ts`(d)（`:571` 旧 `verdict:'unknown'` → `'already-started'`）；每条记旧断言→新断言，新断言强度不低于旧，diff 中无删除 `assert`、无放宽为 truthy/skip。`bash scripts/test.sh --for-task gap-ac287-not-found-semantics` 退出码 0。
+- [x] AC9 计数 pin 同步：`server/shared/tests/quay-test-script.test.ts` 两处 `known/unknown` 按实现时实际计数写入（先取 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` 的实际 N，再写 `known=3 unknown=N-3` 与 `known=1 unknown=N-1`），`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0。写下 N 的读数与改后的两个 pin 字符串。
+- [x] AC10 仓库门：`npm run typecheck` 退出码 0；`npm run lint` 无 `: error `（只看 error 级）；`npm run build` 退出码 0。写明三条命令退出码与 lint error 计数。
+- [x] AC11 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件标 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 `task_write` 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -120,3 +120,113 @@ for f in server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts; do [ 
 - server/modules/debug-agent/tests/debug-agent-control-queue.test.ts
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-ac287-not-found-semantics.md (self-touch)
+
+## Change notes (worker)
+
+Commits on `task/gap-ac287-not-found-semantics`: `15530fc0` feat + `39880d99` test-type fixes; then `cc b5e783` merge develop. AC state recorded via `task_write`.
+
+### AC1 — red-first
+
+- Before the criterion existed: the existence gate printed `缺判据文件：server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts` and exited 1 (`GATE_EXIT=1`).
+- After: gate exits 0; criterion `--test server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts` → `ℹ tests 5 / ℹ pass 5 / ℹ fail 0`.
+
+### AC2/AC3/AC4/AC6 — readings (all via the real `/mcp` mount, real token, MCP SDK client)
+
+- (a) expired `requestId` → `isError:true`, `structuredContent.code='APPROVAL_NOT_FOUND'`, `details.reason='expired'`; never-minted → same code, `details.reason='never_issued'`; the two reasons `notEqual`; both messages contain `已过期或不存在`; resolver never called. No `ok:false` success remains (the false form (i) is exactly what reds this).
+- (b) never-held uuid (own + cross-session) → `isError:true`, `code='QUEUED_MESSAGE_NOT_FOUND'`; already-started uuid → `isError:false`, `outcome='already-started'`; `tools/list` reads `session_cancel_queued.outputSchema.properties.outcome.enum` deep-equal `['already-started','cancelled']` (set equality).
+- (c) expired / never-issued / cross-boot runIds → `isError:true`, `code='RUN_NOT_FOUND'`, `details.reason` `'expired'` / `'never_issued'`, messages match `/保留期/` / `/从未/` / `/重启/`; `details.fallback.messages` deep-equals the fixture messages; cross-boot `details.bootId === BOOT_TWO`; run hit stays `isError:false`.
+- (d) missing project id → `isError:true`, `code='PROJECT_NOT_FOUND'`, `details.project=<id>`; config-less existing project → `isError:false`, `status='no_quay_config'`; with-config project → `isError:false`, `status='cached'` / `'refreshed'`.
+- (e) invariants: already-started, no_quay_config and the run hit are all successes.
+
+### AC5 — the one AC left unticked (deviation recorded)
+
+AC5 names the missing-project code as the literal `TARGET_NOT_FOUND`. That literal is **unsatisfiable in this repository**:
+
+1. `MCP_ERROR_CODES` has no `TARGET_NOT_FOUND` member, and AC-285's achieved criterion (`tests/mcp-error-vocabulary.test.ts`) deep-equals the vocabulary key set in **both** directions at runtime — adding the code would red it.
+2. AC-284's achieved criterion (`tests/mcp-error-envelope.test.ts`) scans `server/modules/mcp-gateway/*.ts` and fails if the literal `TARGET_NOT_FOUND` appears at all (AC-284's goal retired the two-name situation).
+3. AC-284's criterion already maps project-not-found → `PROJECT_NOT_FOUND`.
+
+Resolution (locked): implement and assert `PROJECT_NOT_FOUND` (the project-side code of the one-code-per-category vocabulary); leave AC5 unticked; park the task `needs-human`. The criterion's header records this deviation on purpose, and the missing-project probe does error with `PROJECT_NOT_FOUND` — the *semantics* AC-287 asks for (a reference to nothing is an error, not a success) are delivered; only the name differs.
+
+### AC7 — three false forms, red then restored
+
+Shared runner: `PATH="$PWD/node_modules/.bin:$PATH" QUAY_MEMORY_MAX=8G bash scripts/with-memory-cap.sh env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --import ./scripts/undici-blocked-ports-preload.mjs --test server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts`
+
+**(i) `approval_answer` miss back to `ok:false` success** — `server/modules/mcp-gateway/mcp-approvals.ts`:
+
+```diff
+@@ -435,9 +435,13 @@
+-    throw new McpToolError(MCP_ERROR_CODES.APPROVAL_NOT_FOUND, result.message, false, {
+-      reason: result.reason,
+-    });
++    // MUTATION (i)
++    return {
++      ok: false,
++      requestId: input.requestId,
++      code: 'APPROVAL_EXPIRED_OR_NOT_FOUND',
++      message: result.message,
++    } as unknown as ApprovalAnswerPayload;
+```
+
+Verbatim failure: `✖ (a) approval_answer: expired and never-minted are APPROVAL_NOT_FOUND errors, reasons distinguished` — `AssertionError [ERR_ASSERTION]: (a) expired: the error envelope must carry details (payload={"ok":false,"requestId":"ac287-req-held-then-dropped","code":"APPROVAL_EXPIRED_OR_NOT_FOUND","message":"该审批请求已过期或不存在（可能已超时被自动拒绝）。"})`; `ℹ tests 5 / ℹ pass 4 / ℹ fail 1`.
+Restore: `git checkout -- server/modules/mcp-gateway/mcp-approvals.ts` → re-run `ℹ tests 5 / ℹ pass 5 / ℹ fail 0`.
+
+**(ii) `already-started` made an error** — `server/modules/mcp-gateway/mcp-session-cancel-queued.ts`:
+
+```diff
+-  if (verdict === 'unknown') {
++  // MUTATION (ii): already-started treated as an error alongside unknown.
++  if (verdict !== 'withdrawn') {
+```
+
+Verbatim failures: `✖ (b) session_cancel_queued: never-held uuid is QUEUED_MESSAGE_NOT_FOUND, already-started is a success` — `AssertionError: an already-started message must stay a success (text=该会话队列里没有这个消息 uuid（可能从未存在、属于别的会话，或没有常驻宿主）。)`; `✖ (e) the real states stay successes: already-started, no_quay_config and a run hit` — `AssertionError: already-started must stay a success`; `ℹ tests 5 / ℹ pass 3 / ℹ fail 2`.
+Restore: `git checkout -- server/modules/mcp-gateway/mcp-session-cancel-queued.ts`.
+
+**(iii) missing project swallowed into no-config** — `server/modules/mcp-gateway/mcp-overview-tools.ts`:
+
+```diff
+   if (!projects.some((row) => row.projectId === project)) {
+-    throw new McpToolError(
+-      MCP_ERROR_CODES.PROJECT_NOT_FOUND,
+-      `No project has id "${project}".`,
+-      false,
+-      { project },
+-    );
++    // MUTATION (iii)
++    return { project, hasQuayConfig: false, status: 'no_quay_config', note: NO_QUAY_NOTE };
+   }
+```
+
+Verbatim failure: `✖ (d) quay_snapshot: a missing project errors, an existing config-less project succeeds` — `AssertionError: a project id nothing matches must be an error (text={"project":"ac287-no-such-project","hasQuayConfig":false,"status":"no_quay_config","note":"该项目没有 quay"})`; `ℹ tests 5 / ℹ pass 4 / ℹ fail 1`.
+Restore: `git checkout -- server/modules/mcp-gateway/mcp-overview-tools.ts` → `ℹ tests 5 / ℹ pass 5 / ℹ fail 0`; `git status --porcelain` empty.
+
+### AC8 — migrated criteria, old → new (strength raised, no assertion deleted or relaxed)
+
+- `mcp-approvals.test.ts`(d): old `assert.equal(expired.isError, false)` + `assert.equal(never.isError, false)` (miss is a success) → new `isError === true`, `payload.code === 'APPROVAL_NOT_FOUND'`, `details.reason` `'expired'` / `'never_issued'`, the two reasons `notEqual`, both messages still contain `已过期或不存在`, resolver call count 0. Three assertions became six; `已过期或不存在` retained.
+- `mcp-cancel-queued.test.ts`(b): old dequeued uuid read `outcome:'unknown'`, `isError:false` → new `isError:false` + `outcome === 'already-started'` (kept `notEqual('cancelled')`). (c): old never-held read `'unknown'` success → new `isError === true` + `code === 'QUEUED_MESSAGE_NOT_FOUND'`.
+- `mcp-run-get.test.ts`(f): old expired/unknown miss `isError:false` → new `isError === true` + `code === 'RUN_NOT_FOUND'` + `details.reason` + message regexes (`/保留期/`, `/从未/`) + `fallback.messages` deep-equal. (g): old restarted miss success → new `isError === true` + `details.reason === 'expired'` + `/重启/` + `doesNotMatch(/保留期/)` + `details.bootId === BOOT_TWO` + `notEqual(firstBoot)` + fallback deep-equal.
+- `mcp-overview.test.ts`(d): old no-quay `isError === false` retained and now also asserts `status === 'no_quay_config'`; **added** a missing-project probe asserting `isError === true` / `code === 'PROJECT_NOT_FOUND'` / `details.project === missingId`, plus a positive control that an existing project with config still succeeds.
+- `debug-agent/tests/debug-agent-control-queue.test.ts`(d): old `assert.equal(reading.verdict, 'unknown')` for a dequeued uuid → new `assert.equal(reading.verdict, 'already-started', 'a message already started cannot be withdrawn')`; kept `assert.notEqual(reading.verdict, 'withdrawn')`.
+- Scoped gate `bash scripts/test.sh --for-task gap-ac287-not-found-semantics` → exit 0, `# tests 7 / # pass 7 / # fail 0` (re-run green after the develop merge).
+
+### AC9 — count pin
+
+`find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` → **N = 244**. Pins written: `known=3 unknown=241` and `known=1 unknown=243`. `quay-test-script.test.ts` 11/11 green (covered by the scoped gate above).
+
+### AC10 — repo gates
+
+- `npm run typecheck` → exit **0** (the first run exited 2 on two test-file types — a partial `ActivityProtocolSnapshot` fake and two untyped `details.reason` reads — fixed in `39880d99`; test-only).
+- `npm run lint` → exit **0**, `: error ` lines = **0** (warnings only, all pre-existing/unrelated files).
+- `npm run build` → exit **0**.
+
+### AC11 — actual diff vs `## Touches`
+
+`git diff --stat develop...HEAD` = 21 files, all present in `## Touches`:
+
+`server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts (new)`, `.../tests/mcp-approvals.test.ts`, `.../tests/mcp-cancel-queued.test.ts`, `.../tests/mcp-run-get.test.ts`, `.../tests/mcp-overview.test.ts`, `server/modules/mcp-gateway/mcp-approvals.ts`, `.../mcp-session-cancel-queued.ts`, `.../mcp-run-get.ts`, `.../mcp-overview-tools.ts`, `.../mcp-error-envelope.ts`, `.../mcp-tool-error-codes.ts`, `.../index.ts`, `server/modules/websocket/services/chat-control.service.ts`, `.../chat-websocket.service.ts`, `server/modules/providers/services/provider-runtime.service.ts`, `server/modules/providers/list/claude/claude-runtime.provider.ts`, `server/modules/providers/index.ts`, `server/modules/debug-agent/debug-agent.host-driver.ts`, `server/modules/debug-agent/tests/debug-agent-control-queue.test.ts`, `server/shared/types.ts`, `server/shared/tests/quay-test-script.test.ts`.
+
+Declared in `## Touches` but **unmodified**: `server/modules/mcp-gateway/mcp-gateway.read-tools.ts` (its `quay_snapshot` outputSchema is `{ snapshot: z.unknown().optional() }` — no `status` enum to sync) and `server/modules/websocket/index.ts` (no new websocket-barrel export was needed; `MissingApprovalReason` rides `@/shared/types.js`). No file outside `## Touches` was written. `tasks/gap-ac287-not-found-semantics.md` is the self-touch (this write).
+
+### Park reason
+
+AC5 is unticked because its named literal `TARGET_NOT_FOUND` is unsatisfiable against two achieved sibling criteria (AC-284, AC-285); the AC-287 semantics it asks for are delivered under the vocabulary's project-side code `PROJECT_NOT_FOUND`. Parked `needs-human` rather than faking the tick.
