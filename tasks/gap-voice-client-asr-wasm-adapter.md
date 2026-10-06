@@ -77,5 +77,8 @@ extra:
 - src/modules/chat/tests/voiceClientAsrRouting.test.ts (new)
 - src/modules/chat/tests/voiceCaptureTestHarness.ts
 - src/shared/asr/tests/asrContractInvariants.test.ts
+- scripts/asr-dashscope-omni-check.test.mjs
+- scripts/asr-second-adapter-check.test.mjs
+- scripts/asr-pause-cues-source-check.test.mjs
 - docs/experiments/2026-10-06-voice-client-asr-probe.md
 - tasks/gap-voice-client-asr-wasm-adapter.md
