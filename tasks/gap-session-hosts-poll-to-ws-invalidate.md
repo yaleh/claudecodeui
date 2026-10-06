@@ -32,13 +32,13 @@ extra:
 
 ## AC
 
-- [ ] `session-hosts` 在 WS 已连接且无状态变化时，30 秒窗口内对 `GET /api/session-hosts` 的请求数 ≤ 2（真浏览器 e2e，对网络请求计数；对照基线：改前同窗口约 30 次）。
-- [ ] 触发一次 host 状态变化（开始/结束一个 turn，或启动/关闭常驻进程）后，页面上 `ResidentMark`/`ResidentStatusBar` 在 1s 内反映新状态，且这期间没有依赖兜底轮询（把兜底间隔在测试里调到极大值仍通过）。
-- [ ] 新建会话/改名后，侧栏 `sessions[]` 驱动的读数（常驻标记所属行）在 1s 内更新，不等兜底轮询。
-- [ ] WS 断开时轮询回退到 ≤ 2s 间隔；WS 重连（`websocket_reconnected`）后立即拉取一次且状态收敛（单元测试用 fake timers 断言间隔与立即拉取）。
-- [ ] 服务端 manager 的 `onChange` 对每类状态转换恰好通知一次、可取消订阅；`hosts_changed` 帧只发给 `readyState === OPEN` 的连接（`node --experimental-strip-types --test` 单文件，exit 0）。
-- [ ] `GET /api/session-hosts` 的响应形状与 `toHostView` 投影不变（`server/modules/session-hosts/tests/session-hosts-routes.test.ts` 原样通过，不改断言）。
-- [ ] 改写后的 `hostSnapshotFailure.test.ts` 与 `occupiedSessionReadOnly.test.tsx` 通过，且这两个文件里不再有对 1000ms 轮询间隔的写死假设；`npm run typecheck` 与 oxlint（含 boundaries 规则）exit 0。
+- [x] `session-hosts` 在 WS 已连接且无状态变化时，30 秒窗口内对 `GET /api/session-hosts` 的请求数 ≤ 2（真浏览器 e2e，对网络请求计数；对照基线：改前同窗口约 30 次）。
+- [x] 触发一次 host 状态变化（开始/结束一个 turn，或启动/关闭常驻进程）后，页面上 `ResidentMark`/`ResidentStatusBar` 在 1s 内反映新状态，且这期间没有依赖兜底轮询（把兜底间隔在测试里调到极大值仍通过）。
+- [x] 新建会话/改名后，侧栏 `sessions[]` 驱动的读数（常驻标记所属行）在 1s 内更新，不等兜底轮询。
+- [x] WS 断开时轮询回退到 ≤ 2s 间隔；WS 重连（`websocket_reconnected`）后立即拉取一次且状态收敛（单元测试用 fake timers 断言间隔与立即拉取）。
+- [x] 服务端 manager 的 `onChange` 对每类状态转换恰好通知一次、可取消订阅；`hosts_changed` 帧只发给 `readyState === OPEN` 的连接（`node --experimental-strip-types --test` 单文件，exit 0）。
+- [x] `GET /api/session-hosts` 的响应形状与 `toHostView` 投影不变（`server/modules/session-hosts/tests/session-hosts-routes.test.ts` 原样通过，不改断言）。
+- [x] 改写后的 `hostSnapshotFailure.test.ts` 与 `occupiedSessionReadOnly.test.tsx` 通过，且这两个文件里不再有对 1000ms 轮询间隔的写死假设；`npm run typecheck` 与 oxlint（含 boundaries 规则）exit 0。
 
 ## DoD
 
@@ -52,6 +52,7 @@ extra:
 - server/modules/websocket/index.ts
 - server/modules/websocket/tests/activity-protocol.test.ts
 - server/modules/providers/services/sessions.service.ts
+- server/modules/providers/tests/session-rename-route.test.ts
 - server/index.ts
 - server/shared/types.ts
 - src/shared/hooks/useSessionHosts.ts
