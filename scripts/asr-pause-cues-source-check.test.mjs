@@ -264,14 +264,31 @@ test('every registered provider names its OWN paired experiment (ADR-004 decisio
     `${OMNI_PROVIDER} declares a non-destructive pauseCues too; its record must be the run it was measured in`,
   );
 
-  // The judgement itself, stated as the count rather than as per-row comparisons: with `n` providers
-  // and `n` distinct records, no row is resting on a measurement of a different service. A per-row
-  // check would go on passing if a further provider were added pointing at one of these.
-  const distinct = new Set(evidence.values());
+  // The judgement itself, stated as the count rather than as per-row comparisons: among the rows
+  // that NAME a record at all, `n` rows and `n` distinct records mean no row is resting on a
+  // measurement of a different service. A per-row check would go on passing if a further provider
+  // were added pointing at one of these.
+  //
+  // ONLY NAMED RECORDS COUNT. `destructive` is the shipped default, so a provider carrying it may
+  // name no measurement — and two such providers are not "resting on the same paired experiment":
+  // `undefined` is not a record. Both `sensevoice-local` and `sensevoice-wasm` sit on the default,
+  // being handed the same already-trimmed audio, so counting the unset rows would red on a pair that
+  // makes no claim at all. The loop above the count keeps the obligation the count would otherwise
+  // drop: a provider that declares a NON-default value is the one that changes what leaves the
+  // machine, and it must name its own record.
+  for (const row of providers) {
+    if (row.capability === REGISTRY_VALUE) continue;
+    assert.notEqual(
+      row.evidence,
+      undefined,
+      `${row.id} declares '${row.capability}', which changes what leaves the machine, but names no paired experiment`,
+    );
+  }
+  const named = providers.filter((row) => row.evidence !== undefined);
   assert.equal(
-    distinct.size,
-    evidence.size,
-    `two providers rest on the same paired experiment (${[...evidence.entries()].map(([id, e]) => `${id}->${e}`).join(', ')}) — decision 1 obliges the provider, so one of them is unmeasured`,
+    new Set(named.map((row) => row.evidence)).size,
+    named.length,
+    `two providers rest on the same paired experiment (${named.map((row) => `${row.id}->${row.evidence}`).join(', ')}) — decision 1 obliges the provider, so one of them is unmeasured`,
   );
 });
 

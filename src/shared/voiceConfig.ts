@@ -19,7 +19,11 @@
  * the origin.
  */
 
-import { id as voiceClientAsrProviderId } from '@shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider';
+// The client provider's id is taken from the REGISTRY, not from the adapter module directly. This
+// module is entered before the registry on some paths (it is an import of `shared/api.ts`), and the
+// adapter reaches back into the registry, so importing the adapter here would enter it first and
+// leave the registry reading a binding that is still uninitialised.
+import { clientAsrProviderId } from '@shared/asr/asrRegistry';
 import { getStoredAuthToken } from '@/shared/authToken';
 import { api } from '@/shared/api';
 
@@ -250,11 +254,12 @@ export function readVoiceConfig(): VoiceConfig {
  * second answer to a question `providerId` already answers: a user who selects the on-device
  * recogniser has enabled it, and one who selects another has not. What the field would NOT have
  * carried is the one thing that makes this a helper rather than a comparison at each call site — the
- * ID ITSELF, which belongs to the adapter and is imported from it here rather than copied. A second
- * copy of that string in this file is exactly the kind of fact that goes stale silently.
+ * ID ITSELF, still written in one place (the adapter's own `id`) and handed out by the registry as
+ * `clientAsrProviderId()` rather than copied into this file. A second copy of that string would be
+ * exactly the kind of fact that goes stale silently.
  */
 export function isVoiceClientAsrSelected(): boolean {
-  return readVoiceConfig().providerId === voiceClientAsrProviderId;
+  return readVoiceConfig().providerId === clientAsrProviderId();
 }
 
 /**

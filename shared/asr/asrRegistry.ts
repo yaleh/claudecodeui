@@ -61,6 +61,25 @@ import type { TranscriptionTolerance } from './transcriptionWire.js';
 export type AsrProviderId = string;
 
 /**
+ * The id of the recogniser that runs inside the user's own browser (`locality: 'local-client'`).
+ *
+ * IT IS NAMED HERE SO A CLIENT MODULE CAN NAME THE PROVIDER WITHOUT ENTERING ITS MODULE. A module
+ * that imports the adapter only to read its `id` enters the adapter BEFORE the registry, and the
+ * registry's own static import of that adapter back then reads a binding that has not been
+ * initialised yet — the cycle the registry-first ordering everywhere else exists to avoid. Handing
+ * the id out from here lets such a caller take it through the module it must enter first anyway,
+ * while keeping the one source of the string: the adapter's own `id`, read rather than copied.
+ *
+ * A FUNCTION, NOT A CONST, and that is the point rather than a style choice: a `const` would read
+ * `sensevoiceWasmId` as the registry module is evaluated, which — on a path that entered the
+ * registry through the adapter — is a binding that has not been assigned yet. Read at call time,
+ * after every module in the cycle has settled, the value is always the adapter's own.
+ */
+export function clientAsrProviderId(): AsrProviderId {
+  return sensevoiceWasmId;
+}
+
+/**
  * What a recogniser says about itself. Every field corresponds to a measured effect recorded in
  * ADR-004 §二 rather than to a guess about what a future provider might need.
  */

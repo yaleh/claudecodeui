@@ -61,6 +61,11 @@ const SHIPPING_FILES = [
   'shared/asr/list/openai-compatible/openai-compatible.asr-provider.ts',
   'shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts',
   'shared/asr/list/sensevoice-local/sensevoice-local.asr-provider.ts',
+  // THE CLIENT ADAPTER'S MODULE IS PART OF THE FIXTURE, not an optional extra: the registry imports
+  // this module at load time to build its `REGISTERED` row, so a fixture without it cannot load the
+  // registry at all. It is the fifth wiring shape — a recogniser that runs in the user's own browser
+  // and is handed an engine rather than an address — and the module the registry imports back.
+  'shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider.ts',
 ];
 
 /** The module under test: every mutation below but one is applied to this file. */

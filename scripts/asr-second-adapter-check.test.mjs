@@ -70,6 +70,11 @@ const SHIPPING_FILES = [
   // its locality as this host and sends no request — which is why a fixture that omitted it would
   // leave that half of the probe running against nothing but the mutations below.
   'shared/asr/list/sensevoice-local/sensevoice-local.asr-provider.ts',
+  // THE FIFTH ADAPTER IS PART OF THE FIXTURE FOR THE SAME REASON, and it is not optional either: the
+  // registry imports this module at load time, so a fixture without it cannot load the registry at
+  // all. It is the row that runs in the user's own browser — it declares `local-client`, no wire, no
+  // address and no credentials — which is a shape none of the rows above exercises.
+  'shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider.ts',
 ];
 
 /** The adapter every mutation below is applied to: the SECOND one, whose claims this file pins. */

@@ -37,9 +37,18 @@
  * should have to infer from a delay.
  */
 
-import type { AsrInvocation, AsrRequest, AsrResult, AsrRuntimeStatus, AsrToken } from '@shared/asr/asrRegistry';
+// The registry is imported for a VALUE (the client provider's id), not only for its types, and it is
+// listed before the adapter on purpose: the adapter import below reaches back into the registry, so
+// the registry must be entered first or the adapter would read a binding that is still uninitialised.
 import {
-  id as wasmProviderId,
+  clientAsrProviderId,
+  type AsrInvocation,
+  type AsrRequest,
+  type AsrResult,
+  type AsrRuntimeStatus,
+  type AsrToken,
+} from '@shared/asr/asrRegistry';
+import {
   installWasmEngine,
   transcribe as wasmTranscribe,
   type WasmEngineAnswer,
@@ -1221,7 +1230,7 @@ export async function routeClientAsrSegment(input: VoiceClientRouteInput): Promi
     latencyMs?: number,
   ): VoiceClientRoute => {
     emit({
-      providerId: wasmProviderId,
+      providerId: clientAsrProviderId(),
       reason,
       message,
       ...(input.segmentIndex === undefined ? {} : { segmentIndex: input.segmentIndex }),
