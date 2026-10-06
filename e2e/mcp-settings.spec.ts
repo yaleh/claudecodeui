@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Browser, Page } from '@playwright/test';
+import type { Browser, Locator, Page } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -16,6 +16,14 @@ import path from 'node:path';
 //
 // The build under test is the worktree's own source, served by Vite (not a possibly-stale `dist/`), so a change to
 // `McpGatewaySection.tsx` or `AccessTokensSection.tsx` is what the browser renders.
+//
+// The startup path is bounded in the same two levers its sibling specs use (`e2e/access-tokens-settings.spec.ts`,
+// `e2e/model-library.spec.ts`): a per-state client warm-up before any page exists, and a single bounded navigation
+// guard. The lever exists because the trigger is OUTSIDE this repo: a host-level `net::ERR_NETWORK_CHANGED` (docker
+// /veth churn on the runner) aborts this app's in-flight module requests as a batch, the module graph never executes,
+// React never mounts, and `#username` never appears — an unbounded 30s `toBeVisible` wait turned that transient into
+// a red. What this file fixes is the *response* (unbounded wait → bounded replay of a fresh document), not the
+// trigger: the guard's stability rests on replay, never on the host network change going away.
 
 const REPO_ROOT = process.cwd();
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -275,6 +283,188 @@ const bootState = async (state: GateState, dataDir: string): Promise<BootedState
 };
 
 // ---------------------------------------------------------------------------
+// Bounded startup guard
+// ---------------------------------------------------------------------------
+
+/**
+ * A dependency the optimizer serves out of a state's private cache, already rewritten to its url.
+ *
+ * A 200 on this url only comes once the optimizer has committed the bundle, so warming on it means the page below
+ * does not race a re-optimization that would serve it a superseded url.
+ */
+const OPTIMIZED_DEP_IN_TEXT = /["'](\/@fs\/[^"']*\/deps\/[^"']+\.js\?v=[0-9a-f]+)["']/;
+/** How long a state's client is given to answer its app entry before the startup path gives up on it. */
+const CLIENT_WARM_DEADLINE_MS = 30_000;
+/** How long the landing of a navigation's *first* attempt is given on its own, before the guard starts replaying. */
+const STARTUP_PROBE_MS = 8_000;
+/** How long each bounded replay's landing is given. Shorter than the first: a replay is a re-ask, not a cold boot. */
+const STARTUP_RELOAD_PROBE_MS = 3_000;
+/** How long one navigation's single request is given before the guard treats it as a failed landing. */
+const NAVIGATION_PROBE_MS = 8_000;
+/**
+ * How long the startup probe may spend proving a navigation landed, replays included.
+ *
+ * A deadline rather than a replay count, because it is the *sum* that has to stay inside the criterion's own wall
+ * clock: a probe that cannot land must end the run inside this budget rather than let the case below wait out its
+ * own 30s on a blank page. Counting replays leaves that head-room to chance; a deadline spends it.
+ */
+const STARTUP_PROBE_DEADLINE_MS = 14_000;
+
+/**
+ * Takes one state's first dependency optimization out of the measurement window: the shell, the app entry and one
+ * optimized dependency, all requested against that state's own client before its page exists.
+ *
+ * Each state has its own `VITE_CACHE_DIR`, and Vite is guaranteed to rewrite its cache — without this the first
+ * navigation would race the optimizer's own re-optimization, which swaps the `browserHash` baked into every
+ * dependency url out from under a page already holding the old one (`504 Outdated Optimize Dep`). A 200 on the
+ * dependency url only comes once the bundle is committed, so the page below does not race it.
+ *
+ * Every step is bounded, including each request: a client that accepts the connection and then never answers fails
+ * here, by name, with the url — rather than waiting out a timeout further up the stack.
+ */
+const warmClientStartup = async (clientUrl: string): Promise<number> => {
+  const startedAt = Date.now();
+  const deadline = startedAt + CLIENT_WARM_DEADLINE_MS;
+  const budgetMs = () => Math.max(1, deadline - Date.now());
+  const fetchWithin = async (url: string): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs());
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } catch (error) {
+      throw new Error(
+        `the client did not answer ${url} inside the ${CLIENT_WARM_DEADLINE_MS}ms startup budget `
+        + `(${error instanceof Error ? error.message : String(error)})`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const shellUrl = new URL('/', clientUrl).href;
+  const shell = await fetchWithin(shellUrl);
+  if (!shell.ok) throw new Error(`the client's shell did not load: ${shellUrl} answered HTTP ${shell.status}`);
+  await shell.text();
+
+  const entryUrl = new URL('/src/main.tsx', clientUrl).href;
+  const entry = await fetchWithin(entryUrl);
+  if (!entry.ok) throw new Error(`the app entry did not transform: ${entryUrl} answered HTTP ${entry.status}`);
+  await entry.text();
+
+  let lastAnswer = 'no dependency url was ever served';
+  for (let attempt = 0; attempt < 5 && Date.now() < deadline; attempt += 1) {
+    const specifier = OPTIMIZED_DEP_IN_TEXT.exec(await (await fetchWithin(entryUrl)).text())?.[1];
+    if (!specifier) break;
+    const depUrl = new URL(specifier, clientUrl).href;
+    const dep = await fetchWithin(depUrl);
+    if (dep.ok) {
+      console.log(`[e2e] client warm-up (${clientUrl}): pre-bundle committed in ${Date.now() - startedAt}ms`);
+      return Date.now() - startedAt;
+    }
+    lastAnswer = `${depUrl} answered HTTP ${dep.status}`;
+    await dep.text().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `this state's dependency pre-bundle never committed, so the criterion cannot drive a document that stays: `
+    + lastAnswer,
+  );
+};
+
+/** Whether `locator` showed up within `timeoutMs`. */
+const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
+  locator.waitFor({ state: 'visible', timeout: timeoutMs }).then(
+    () => true,
+    () => false,
+  );
+
+/**
+ * What a guarded navigation is expected to land on — and how the guard names it when it never lands.
+ *
+ * `present` and `label` are functions rather than values because both are read at attempt time: the locator has to
+ * be re-created against whatever document is current *now*, after a replay has replaced the one the navigation
+ * started on.
+ */
+type StartupLanding = {
+  /** Names this landing in the guard's own error, so a red says which document never came up. */
+  readonly label: () => string;
+  /** Whether the landing is on screen right now, within `budgetMs`. */
+  readonly present: (budgetMs: number) => Promise<boolean>;
+};
+
+/** What the startup page said, kept for one purpose: a startup red has to explain a document pulled out from under a navigation. */
+type StartupEvidence = {
+  consoleErrors: string[];
+  failedRequests: string[];
+};
+
+/** The startup page's own text plus this run's console and network evidence — what a startup red is read from. */
+const readStartupEvidence = async (page: Page, evidence: StartupEvidence): Promise<string> => {
+  const shown = await page.locator('body').innerText().catch(() => '<unreadable>');
+  const errors = evidence.consoleErrors.slice(0, 5);
+  const failed = evidence.failedRequests.slice(0, 5);
+  return `the page shows ${JSON.stringify(shown.slice(0, 300))}`
+    + `; console errors: ${errors.length > 0 ? errors.join(' | ') : '<none>'}`
+    + `; failed requests: ${failed.length > 0 ? failed.join(' | ') : '<none>'}`;
+};
+
+/**
+ * The one place this spec navigates — every `page.goto`/`page.reload` in this file is inside this function, which is
+ * what makes "every navigation is guarded" a property of the file rather than a habit of its call site.
+ *
+ * One pass is: navigate to this state's own client, then probe the landing with a short budget. A landing that does
+ * not arrive has the navigation replayed — a fresh document, which is exactly what recovers from in-flight module
+ * requests that were interrupted once (the host's `net::ERR_NETWORK_CHANGED`) — and the probe repeated, until the
+ * deadline. When the deadline is spent the guard throws with the page's own text and the failed-request list, never
+ * silently continuing: a probe that cannot land must end the run here, with a cause, rather than let the case wait
+ * out its own 30s on a document with nothing in it.
+ *
+ * The navigation itself is bounded too, and a navigation that times out is treated as a landing that did not arrive
+ * rather than as an error of its own: a document that never finishes loading and a document that loads without ever
+ * mounting are the same failure from here, and both end at the same named error.
+ */
+const navigateBounded = async (
+  page: Page,
+  clientUrl: string,
+  landing: StartupLanding,
+  evidence: StartupEvidence,
+): Promise<void> => {
+  const startedAt = Date.now();
+  const deadline = startedAt + STARTUP_PROBE_DEADLINE_MS;
+  const budgetMs = () => Math.max(1, deadline - Date.now());
+  let navigationFailure: string | null = null;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      if (attempt === 1) {
+        await page.goto(clientUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: Math.min(NAVIGATION_PROBE_MS, budgetMs()),
+        });
+      } else {
+        await page.reload({ timeout: Math.min(NAVIGATION_PROBE_MS, budgetMs()) });
+      }
+      navigationFailure = null;
+    } catch (error) {
+      navigationFailure = error instanceof Error ? error.message : String(error);
+    }
+    const landingBudget = Math.min(attempt === 1 ? STARTUP_PROBE_MS : STARTUP_RELOAD_PROBE_MS, budgetMs());
+    if (await landing.present(landingBudget)) {
+      console.log(
+        `[e2e] client startup: ${landing.label()} landed after ${Date.now() - startedAt}ms (attempt ${attempt})`,
+      );
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `${landing.label()} never rendered, so this run's client never came up to a document that stays`
+        + `${navigationFailure === null ? '' : ` (the navigation itself failed: ${navigationFailure})`}`
+        + `: ${await readStartupEvidence(page, evidence)}`,
+      );
+    }
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Page plumbing
 // ---------------------------------------------------------------------------
 
@@ -311,6 +501,23 @@ const readAllTextNodes = (page: Page): Promise<string> => page.evaluate(() => {
   return parts.join('\n');
 });
 
+/**
+ * What the first navigation must land on: the fresh database's account form, or the app shell's Settings button in
+ * the tolerant case where this state's database already carries an account. Either proves the document mounted —
+ * the property the guard is about — and not that a particular read happened to arrive.
+ */
+const firstLanding = (page: Page): StartupLanding => ({
+  label: () => 'the account form or the app shell',
+  present: async (budgetMs) => {
+    // One budget for BOTH probes, or a blank page spends the whole probe window on the first probe and the guard
+    // reaches its deadline without ever replaying — the one thing the deadline exists to leave room for.
+    const startedAt = Date.now();
+    if (await appears(page.locator('#username'), budgetMs)) return true;
+    const remainingMs = Math.max(1, budgetMs - (Date.now() - startedAt));
+    return appears(page.getByRole('button', { name: 'Settings', exact: true }).first(), remainingMs);
+  },
+});
+
 /** Boots one state in a fresh browser context seeded with a fresh data directory. */
 const bootStateWithPage = async (browser: Browser, state: GateState): Promise<{
   booted: BootedState;
@@ -319,9 +526,26 @@ const bootStateWithPage = async (browser: Browser, state: GateState): Promise<{
 }> => {
   const dataDir = fs.mkdtempSync(path.join(process.env.QUAY_E2E_DATA_DIR ?? '/tmp', `mcp-settings-${state.label}-`));
   const booted = await bootState(state, dataDir);
+  // Take this state's own cold pre-bundle out of the measurement window BEFORE its page exists: each state has its
+  // own `VITE_CACHE_DIR`, so this warms this state's optimizer rather than racing another state's re-optimization.
+  await warmClientStartup(booted.clientUrl);
+
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto(booted.clientUrl, { waitUntil: 'domcontentloaded' });
+  const evidence: StartupEvidence = { consoleErrors: [], failedRequests: [] };
+  // What the page said, kept for one purpose: the startup guard has to *explain* a document pulled out from under a
+  // navigation instead of reporting that a wait ran out. Registered before the first navigation, or the burst that
+  // matters (the interrupted module requests) would not be in the evidence.
+  page.on('console', (message) => {
+    if (message.type() === 'error') evidence.consoleErrors.push(message.text());
+  });
+  page.on('requestfailed', (request) => {
+    evidence.failedRequests.push(`${request.url()} — ${request.failure()?.errorText ?? 'no error text'}`);
+  });
+
+  // The startup navigation is the guard's, not this helper's call site: it lands on the fresh database's account
+  // form, or it ends the run with the page's own evidence instead of letting the 30s `#username` wait below run out.
+  await navigateBounded(page, booted.clientUrl, firstLanding(page), evidence);
   await reachAppShell(page);
   return {
     booted,
