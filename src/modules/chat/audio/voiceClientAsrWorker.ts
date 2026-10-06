@@ -30,9 +30,11 @@
  *
  * THE ROUTING POLICY IS THE LAST SECTION, AND IT IS THE ONLY PLACE THAT MAY DECIDE TO LEAVE THE
  * DEVICE. The adapter itself never falls back — it cannot see the user's choice — so the caller does,
- * on exactly two readings: the engine could not serve the request at all (`engine-unavailable`), or
- * one segment took longer than its own length to recognise (`segment-too-slow`, a realtime factor over
- * `VOICE_CLIENT_RTF_THRESHOLD`). Every fallback is announced on `window` as
+ * on exactly three readings: the engine is not ready yet and will not be inside its grace (the model
+ * is still downloading; the segment is recognised by the fallback recogniser rather than waiting out
+ * a deadline it cannot meet), the engine could not serve the request at all (`engine-unavailable`),
+ * or one segment took longer than its own length to recognise (`segment-too-slow`, a realtime factor
+ * over `VOICE_CLIENT_RTF_THRESHOLD`). Every fallback is announced on `window` as
  * `voice-client-asr:fallback`, because "your audio just went to a server" is not something a user
  * should have to infer from a delay.
  */
@@ -51,6 +53,7 @@ import {
 import {
   installWasmEngine,
   transcribe as wasmTranscribe,
+  wasmEngine,
   type WasmEngineAnswer,
   type WasmEnginePort,
   type WasmEngineRequest,
@@ -387,7 +390,15 @@ type ReadyState = Extract<EngineState, { kind: 'ready' }>;
 /** The worker's engine: one load, many runs, and the state machine above. */
 export type VoiceClientEngine = {
   status(): AsrRuntimeStatus;
-  ensureReady(): Promise<AsrRuntimeStatus>;
+  /**
+   * Pays the one load if it has not been paid for, and reports the download while it runs.
+   *
+   * THE PROGRESS SINK IS AN ARGUMENT RATHER THAN A FIELD because the two things that ask for a load
+   * want different answers from it: `init` is asked for BY a surface that can show a progress line,
+   * and a `run` is asked for by a caller that has nowhere to put one. A load already in flight keeps
+   * its original sink, so a second caller cannot redirect a download's reporting mid-stream.
+   */
+  ensureReady(onProgress?: (progress: VoiceModelProgress) => void): Promise<AsrRuntimeStatus>;
   transcribe(request: WasmEngineRequest): Promise<WasmEngineAnswer>;
 };
 
@@ -510,9 +521,9 @@ export function createVoiceClientEngine(
   return {
     status: statusOf,
 
-    async ensureReady(): Promise<AsrRuntimeStatus> {
+    async ensureReady(onProgress?: (progress: VoiceModelProgress) => void): Promise<AsrRuntimeStatus> {
       try {
-        await ensureSession();
+        await ensureSession(onProgress);
       } catch {
         // The reason is already in `state`; a caller of `ensureReady` is asking what happened, not
         // asking to handle a throw, so the answer is the status either way.
@@ -785,10 +796,18 @@ export function startVoiceClientAsrWorker(
       }
 
       if (request.kind === 'init') {
-        // Progress is reported against the init request, so the panel can show the download moving.
+        // PROGRESS IS POSTED HERE AND NOWHERE ELSE, and each reading is posted as it is taken rather
+        // than folded into the reply that ends the load: the load is a 239 MB download, and a reading
+        // that arrived with its answer would arrive after the user had already spent ten minutes
+        // watching nothing. The readings are correlated to the init request so a panel can tell one
+        // download's numbers from another's.
+        //
         // A `run` that pays the load reports nothing, because the caller that skipped `init` has
         // nowhere to show it.
-        scope.postMessage({ kind: 'status', requestId: request.requestId, status: await engine.ensureReady() });
+        const status = await engine.ensureReady((progress) => {
+          scope.postMessage({ kind: 'progress', requestId: request.requestId, progress });
+        });
+        scope.postMessage({ kind: 'status', requestId: request.requestId, status });
         return;
       }
 
@@ -892,6 +911,26 @@ type Observers = {
   onNotice: ((message: string) => void) | undefined;
 };
 
+/**
+ * The last download reading the installed engine was handed, kept so a caller that arrives mid-load
+ * can report where the download has got to without being the one that started it.
+ *
+ * THE PANEL IS NOT THE ONLY READER. The routing policy needs the same numbers when a segment gives up
+ * while the model is still arriving: "the recogniser is still downloading 12 MB of 239 MB" is the
+ * sentence that tells a user why their speech took the server path, and a policy that could only say
+ * "it is not ready" would leave the one fact they can act on (wait for it) out of the answer.
+ *
+ * Module-level because the worker port is a singleton per tab, exactly like `installedEngine` below.
+ * It is a mirror of what the worker last posted, never an independent opinion, and `null` before any
+ * reading has arrived.
+ */
+let lastProgress: VoiceModelProgress | null = null;
+
+/** The last model-download reading the engine received, or `null` before the first one. */
+export function voiceClientAsrProgress(): VoiceModelProgress | null {
+  return lastProgress;
+}
+
 /** What the main thread's port needs, injected so the whole proxy is testable without a worker. */
 export type VoiceClientEngineOptions = {
   /** Spawns the worker. Defaults to the module-worker spawn below. */
@@ -975,6 +1014,7 @@ export function createVoiceClientAsrEngine(
     spawned.addEventListener('message', (event) => {
       const reply = event.data;
       if (reply.kind === 'progress') {
+        lastProgress = reply.progress;
         observers.onProgress?.(reply.progress);
         return;
       }
@@ -1108,6 +1148,45 @@ export function voiceClientAsrEngine(): WasmEnginePort | null {
 }
 
 /**
+ * Starts the model download NOW, at a moment the user chose, and answers when it has finished.
+ *
+ * WHY A SELECTION IS A REASON TO SPEND 239 MB. The first recognition is the wrong place to pay for
+ * the model: the user has already spoken, the segment is already waiting, and the download is longer
+ * than any per-segment deadline can cover — so the first thing the client path does on a fresh
+ * browser is fall back. Asking for the load when the recogniser is CHOSEN moves that cost to where
+ * the user can see it (the settings panel, whose progress line this call feeds) and where waiting
+ * costs nothing.
+ *
+ * MEMOISED PER ATTEMPT, AND RETRIABLE ON FAILURE. Two effects selecting the same recogniser must not
+ * each spawn a load — hence one promise — but a load that came back unusable clears the memo, so
+ * re-selecting the recogniser is a retry rather than a no-op. It never rejects: `ensureReady`
+ * answers with the engine's own reading, whose `reason` is the sentence a panel shows.
+ */
+let preloadPromise: Promise<AsrRuntimeStatus> | null = null;
+
+export function preloadVoiceClientAsrEngine(): Promise<AsrRuntimeStatus> {
+  if (preloadPromise !== null) return preloadPromise;
+
+  preloadPromise = (async () => {
+    const engine = installVoiceClientAsrEngine();
+    try {
+      const status = await engine.ensureReady();
+      if (!status.available) preloadPromise = null;
+      return status;
+    } catch (error) {
+      preloadPromise = null;
+      return {
+        available: false,
+        state: 'unavailable',
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  })();
+
+  return preloadPromise;
+}
+
+/**
  * Points the installed engine's progress and notice reporting at a caller, whenever that caller shows
  * up.
  *
@@ -1168,9 +1247,75 @@ export function clientAsrSegmentTimeoutMs(durationSec: number): number {
   return Math.max(VOICE_CLIENT_SEGMENT_TIMEOUT_FLOOR_MS, durationSec * 10_000);
 }
 
+/**
+ * How long a segment waits for a not-yet-ready engine before it leaves the device.
+ *
+ * WHY THERE IS A WAIT AT ALL, AND WHY IT IS THIS SHORT. A cached model loads in a few seconds and
+ * a segment that arrives in that window SHOULD be recognised on the device; abandoning it the
+ * instant the engine says `starting` would send audio to a server for no reason. A model being
+ * downloaded, on the other hand, is 239 MB — minutes to tens of minutes — and no per-segment
+ * deadline can reach the end of it. This grace is the boundary between those two cases: long
+ * enough for a load that is nearly done, short enough that a download in flight costs the user a
+ * quarter of a second rather than the segment timeout they used to pay.
+ *
+ * THE OLD BEHAVIOUR THIS REPLACES: a segment on a cold browser waited the whole
+ * `VOICE_CLIENT_SEGMENT_TIMEOUT_FLOOR_MS` (30 s) for a download that could not finish, and only
+ * THEN fell back. The user's first impression of the client recogniser was half a minute of
+ * silence per segment, followed by the server path they were not on.
+ */
+export const VOICE_CLIENT_READINESS_GRACE_MS = 250;
+
+/**
+ * The sentence a segment falls back with while the model is still arriving.
+ *
+ * IT CARRIES THE PROGRESS, not just a state word, because "not ready" is not actionable and "12 MB
+ * of 239 MB, about 3 min left" is. Both spellings of the not-ready state are covered — loading, and
+ * not-yet-started (a `stopped` engine is started by the very call this reason is composed for) — and
+ * both say the word the user needs to understand what is happening, which is that the model is
+ * still being DOWNLOADED/LOADED rather than that the device failed.
+ */
+function stillLoadingReason(status: AsrRuntimeStatus, progress: VoiceModelProgress | null): string {
+  const state = status.available && status.state === 'starting'
+    ? 'is still loading its model'
+    : 'has not finished loading its model';
+  if (progress === null) {
+    return `the on-device recogniser ${state}; this clip was recognised by the fallback recogniser instead`;
+  }
+  const receivedMb = (progress.receivedBytes / 1_000_000).toFixed(1);
+  const totalMb = (progress.totalBytes / 1_000_000).toFixed(1);
+  const rateKb = Math.round(progress.bytesPerSec / 1024);
+  const remaining = progress.remainingMs === null
+    ? ''
+    : `, about ${Math.max(1, Math.round(progress.remainingMs / 60_000))} min left`;
+  return (
+    `the on-device recogniser ${state}: ${receivedMb} MB of ${totalMb} MB downloaded`
+    + ` (${rateKb} KB/s${remaining}); this clip was recognised by the fallback recogniser instead`
+  );
+}
+
+/**
+ * The engine's answer to `ensureReady()`, given at most `VOICE_CLIENT_READINESS_GRACE_MS`, or `null`
+ * when it has not answered by then.
+ *
+ * THE CALL IS NOT CANCELLED WHEN THE GRACE RUNS OUT, and that is the point rather than a leak: the
+ * load it starts is the download the user is waiting for, and abandoning the promise would not stop
+ * the work — it would only stop this function from knowing about it. What the grace decides is
+ * whether THIS SEGMENT waits, not whether the model keeps arriving.
+ */
+async function settledReadiness(engine: WasmEnginePort): Promise<AsrRuntimeStatus | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const grace = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), VOICE_CLIENT_READINESS_GRACE_MS);
+  });
+  try {
+    return await Promise.race([engine.ensureReady(), grace]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 /** Why a segment left the device. */
 export type VoiceClientFallbackReason = 'engine-unavailable' | 'segment-too-slow';
-
 /** What the fallback event carries. */
 export type VoiceClientFallbackDetail = {
   providerId: string;
@@ -1215,12 +1360,14 @@ export type VoiceClientRouteInput = {
 /**
  * Recognise one segment on the device, and say so if it does not stay there.
  *
- * THE TWO TRIGGERS, AND WHY THERE ARE ONLY TWO. `engine-unavailable` is the adapter's own fail-closed
+ * THE TWO REASONS, AND THE THREE TRIGGERS. `engine-unavailable` is the adapter's own fail-closed
  * answer — no engine installed, no configuration, a browser that cannot run WASM, a model that did not
- * verify, a runtime that threw, a run the caller gave up on. `segment-too-slow` is the measurement
- * above. Everything else the adapter can say is a result, and a result is kept. That is the whole
- * policy, and it is deliberately small: a policy with more branches is a policy whose behaviour on a
- * given clip a reader cannot predict.
+ * verify, a runtime that threw, a run the caller gave up on — and it is also what a segment takes when
+ * the engine is not ready YET (see the readiness gate below: the reason is the same, the sentence the
+ * user reads is the progress one). `segment-too-slow` is the measurement above. Everything else the
+ * adapter can say is a result, and a result is kept. That is the whole policy, and it is deliberately
+ * small: a policy with more branches is a policy whose behaviour on a given clip a reader cannot
+ * predict.
  *
  * THE FALLBACK IS ANNOUNCED BEFORE THIS FUNCTION RETURNS, so a listener sees it in the same turn the
  * caller learns of it — the caller's own retry to the server starts after, never before, the interface
@@ -1244,6 +1391,41 @@ export async function routeClientAsrSegment(input: VoiceClientRouteInput): Promi
     });
     return { to: 'server', reason, message };
   };
+
+  // THE READINESS GATE, AND IT RUNS BEFORE THE ADAPTER IS ASKED.
+  //
+  // WHAT IT FIXES. The adapter can only answer "the engine could not serve this" — the engine it is
+  // handed reports `starting` for the whole of a download, and a `transcribe` against it queues
+  // behind the load and pays the caller's deadline (30 s at the floor) before coming back
+  // unavailable. So the first segment on a fresh browser was thirty seconds of silence and then the
+  // upload the user was not on. A segment that is not going to be recognised on the device should
+  // cost a decision, not a timeout.
+  //
+  // WHAT IT DOES NOT CHANGE. An engine that is `ready` is left alone and the adapter recognises the
+  // clip. An engine with nothing installed, or one that has already failed, is left to the adapter
+  // too: its answer is already the actionable sentence (`NO_ENGINE_REASON`, or the load's own
+  // failure), and re-stating it here would be a second copy of a sentence this module does not own.
+  const engine = wasmEngine();
+  if (engine !== null) {
+    const reading = engine.status();
+    if (reading.available && reading.state !== 'ready') {
+      // Asking for readiness is also what STARTS the download on an engine that has not begun one,
+      // which is the behaviour the requirement asks for: the fallback is immediate, and the model
+      // keeps arriving in the background so the next segment can stay on the device.
+      const settled = await settledReadiness(engine);
+      if (settled === null) {
+        return fallback('engine-unavailable', stillLoadingReason(engine.status(), voiceClientAsrProgress()));
+      }
+      if (!settled.available) {
+        // The load failed inside the grace — the engine's own sentence, which names the remedy.
+        return fallback('engine-unavailable', settled.reason);
+      }
+      if (settled.state !== 'ready') {
+        return fallback('engine-unavailable', stillLoadingReason(settled, voiceClientAsrProgress()));
+      }
+      // `ready` after all: the load finished inside the grace, so the clip stays on the device.
+    }
+  }
 
   const result = await wasmTranscribe(input.request, input.invocation);
   if (!result.ok) {

@@ -1,10 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
-import type { AsrCapabilities } from '@shared/asr/asrRegistry';
+import type { AsrCapabilities, AsrRuntimeStatus } from '@shared/asr/asrRegistry';
 
-import { installVoiceClientAsrEngine, voiceClientAsrReadiness } from '@/modules/chat/audio/voiceClientAsrWorker';
-import { api, setVoiceProviderProfile } from '@/shared/api';
+import {
+  CLIENT_ASR_FALLBACK_EVENT,
+  installVoiceClientAsrEngine,
+  observeVoiceClientAsrEngine,
+  preloadVoiceClientAsrEngine,
+  voiceClientAsrEngine,
+  voiceClientAsrProgress,
+  voiceClientAsrReadiness,
+  type VoiceClientFallbackDetail,
+} from '@/modules/chat/audio/voiceClientAsrWorker';
+import type { VoiceModelProgress } from '@/modules/chat/utils/voiceModelCache';
+import { api, setVoiceProviderProfile, setVoiceProviderRows } from '@/shared/api';
 import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
+import type { VoiceProviderRow } from '@/shared/types';
 import {
   isVoiceClientAsrSelected,
   readVoiceConfig,
@@ -17,12 +28,67 @@ import {
 let healthRequest: Promise<boolean> | null = null;
 
 /**
+ * One row's capability declaration, or `null` when the row cannot say where it runs.
+ *
+ * THE LOCALITY IS CHECKED AND THE REST IS TRUSTED, on purpose: the declaration is the registry's own
+ * object as the server republished it (see `voice.service.ts`'s `getHealth`), so there is nothing here
+ * to re-derive — but a row whose declaration does not name one of the three localities is a row this
+ * client cannot make a routing decision about, and the honest answer for one of those is "not
+ * published" rather than a guess from the fields that happen to be present.
+ */
+function readCapabilities(value: unknown): AsrCapabilities | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const locality = (value as { locality?: unknown }).locality;
+  if (locality !== 'remote' && locality !== 'local-server' && locality !== 'local-client') return null;
+  return value as AsrCapabilities;
+}
+
+/** One row's runtime reading, or `null` when the row carries none (a remote recogniser's shape). */
+function readRuntime(value: unknown): AsrRuntimeStatus | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { available, state, buildId, reason } = value as Record<string, unknown>;
+  if (available === false) {
+    return { available: false, state: 'unavailable', reason: typeof reason === 'string' ? reason : '' };
+  }
+  if (available !== true) return null;
+  const usable = state === 'ready' || state === 'starting' || state === 'stopped' ? state : 'stopped';
+  return { available: true, state: usable, buildId: typeof buildId === 'string' ? buildId : '' };
+}
+
+/** The health payload's provider list, as the routing decisions need it. */
+function readProviderRows(payload: unknown): VoiceProviderRow[] {
+  const rows = (payload as { providers?: unknown } | null)?.providers;
+  if (!Array.isArray(rows)) return [];
+
+  const published: VoiceProviderRow[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const { id, label, configured, capabilities, runtime } = row as Record<string, unknown>;
+    if (typeof id !== 'string' || !id) continue;
+    published.push({
+      id,
+      // A label is the server's to choose; the id is the honest fallback when it sent none, rather
+      // than a name this client would have to keep in step with the registry.
+      label: typeof label === 'string' && label ? label : id,
+      configured: configured === true,
+      capabilities: readCapabilities(capabilities),
+      runtime: readRuntime(runtime),
+    });
+  }
+  return published;
+}
+
+/**
  * Hands the health reading's effective provider to the shared API module, which is where the
  * direct path decides which endpoint a recording takes.
  *
  * The payload is read leniently and never throws: a response from an older server, or one
  * whose provider list is missing, must leave the previous profile in place cleared rather than
  * break a hook whose job is only to answer whether the microphone is available.
+ *
+ * THE WHOLE LIST IS PUBLISHED BESIDE THE PROFILE, and it is the same payload read twice rather than a
+ * second request: the profile answers "what may this recording do" for the recogniser in use, while
+ * the rows answer "which recognisers exist here" for a clip that recogniser could not take.
  */
 function publishEffectiveProvider(payload: unknown): void {
   const health = (payload ?? {}) as { provider?: unknown; providers?: unknown };
@@ -35,6 +101,7 @@ function publishEffectiveProvider(payload: unknown): void {
   setVoiceProviderProfile(
     entry?.capabilities ? { id: providerId, capabilities: entry.capabilities } : null,
   );
+  setVoiceProviderRows(readProviderRows(payload));
 }
 
 function checkVoiceHealth(): Promise<boolean> {
@@ -92,7 +159,18 @@ export function useVoiceAvailable(): boolean {
         // surface that can show them attaches.
         if (isVoiceClientAsrSelected()) {
           installVoiceClientAsrEngine();
-          const reading = await voiceClientAsrReadiness();
+          // The health reading is asked for on THIS path too, and it carries a second job the direct
+          // path does not need: it is what PUBLISHES the recogniser rows the fallback resolver reads
+          // (`resolveVoiceFallbackProvider`). Returning after the readiness read alone left the client
+          // path — the one path whose whole purpose is that it CAN hand a clip off — the single path
+          // with no fallback table at all, so the hand-off had no address to dial and the clip was
+          // dropped instead. Fired beside it rather than after it so the two requests overlap, and its
+          // failure is swallowed for the same reason as below: a deployment that cannot answer health
+          // must not take the microphone away, it just leaves the fallback table empty.
+          const [reading] = await Promise.all([
+            voiceClientAsrReadiness(),
+            checkVoiceHealth().catch(() => false),
+          ]);
           if (active && id === requestId) setAvailable(reading?.ready === true);
           return;
         }
@@ -132,4 +210,76 @@ export function useVoiceAvailable(): boolean {
   }, [enabled]);
 
   return enabled && available;
+}
+
+/**
+ * The client recogniser's state, as the settings panel needs to show it.
+ *
+ * Consumed by the settings module's voice panel (`VoiceSettingsTab`), which is the surface that shows
+ * a first download's progress and the reason a clip had to leave the device.
+ *
+ * WHY THIS IS A HOOK AND NOT A RETURN OF `useVoiceAvailable`. Availability is one bit — may the
+ * microphone be offered — and this is everything the user needs to judge a recogniser that runs on
+ * their own machine: how far its first download has come, whether it ever finished, and, when a clip
+ * had to leave the device, why. Folding these into the availability boolean would make every consumer
+ * of that boolean re-render on every model chunk.
+ *
+ * THE FALLBACK DETAIL COMES OFF THE WINDOW EVENT rather than from this hook's own transcription calls,
+ * because the clips that fall back are not transcribed by the panel — they are transcribed by the chat
+ * composer, in another module, on another render. The event is the one channel between the two, so a
+ * give-up that happened while the user was typing is still on screen when they open settings.
+ */
+export type VoiceClientAsrPanel = {
+  /** The engine's own reading, or null before anything installed one. */
+  engine: AsrRuntimeStatus | null;
+  /** The latest download reading, or null before the first byte of the model. */
+  progress: VoiceModelProgress | null;
+  /** The last fallback announced on this page, or null when nothing has left the device. */
+  fallback: VoiceClientFallbackDetail | null;
+  /** Starts (or joins) the download now and answers with the engine's reading when it settles. */
+  preload: () => Promise<AsrRuntimeStatus>;
+};
+
+export function useVoiceClientAsrStatus(): VoiceClientAsrPanel {
+  const [engine, setEngine] = useState<AsrRuntimeStatus | null>(
+    () => voiceClientAsrEngine()?.status() ?? null,
+  );
+  const [progress, setProgress] = useState<VoiceModelProgress | null>(voiceClientAsrProgress);
+  const [fallback, setFallback] = useState<VoiceClientFallbackDetail | null>(null);
+
+  useEffect(() => {
+    // Installing here rather than requiring the caller to have done it first: a panel that shows the
+    // download is a panel that must be able to start one, and the installer is memoised, so a page
+    // where the composer already installed one pays nothing for this line.
+    installVoiceClientAsrEngine();
+    setEngine(voiceClientAsrEngine()?.status() ?? null);
+    // Seeded from the module's last reading as well as fed by the observer, so a panel opened midway
+    // through a download shows the position it is already at rather than an empty bar until the next
+    // chunk — which on a stalled connection could be a long time.
+    setProgress(voiceClientAsrProgress());
+    observeVoiceClientAsrEngine({
+      onProgress: (reading) => setProgress(reading),
+    });
+
+    const onFallback = (event: Event) => {
+      setFallback((event as CustomEvent<VoiceClientFallbackDetail>).detail ?? null);
+    };
+    window.addEventListener(CLIENT_ASR_FALLBACK_EVENT, onFallback);
+    return () => window.removeEventListener(CLIENT_ASR_FALLBACK_EVENT, onFallback);
+  }, []);
+
+  // STABLE IDENTITY, because its caller is an effect. The settings panel starts a download from an
+  // effect keyed on the selection, and a fresh function on every render would either re-run that
+  // effect infinitely or force the panel to reach for a ref to keep it quiet. The memo it calls is
+  // what actually guarantees one load; this only keeps the caller's dependency list honest.
+  const preload = useCallback(() => preloadVoiceClientAsrEngine().then((reading) => {
+    // The reading the load settled on is the whole answer, including a load that FAILED: `preload`
+    // catches a rejected `ensureReady` into `{available:false, reason}`, and re-reading the port's own
+    // status would instead show whatever it believed mid-flight (`starting`) — a panel frozen on
+    // "downloading" for a download that is never coming back.
+    setEngine(reading);
+    return reading;
+  }), []);
+
+  return { engine, progress, fallback, preload };
 }

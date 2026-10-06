@@ -81,7 +81,19 @@
     "providerLocalTitle": "{{provider}} 在本服务器上运行",
     "providerLocalNotice": "该识别器运行在托管本服务器的机器上。它不需要密钥和地址——音频不会离开本机——因此下方的共享后端字段对它不适用。",
     "providerBuild": "引擎构建：{{buildId}}",
-    "providerUnavailable": "该识别器在此无法运行：{{reason}}"
+    "providerUnavailable": "该识别器在此无法运行：{{reason}}",
+    "clientAsrTitle": "{{provider}}（在本浏览器中运行）",
+    "clientAsrNotice": "该识别器在你的浏览器里运行：模型只下载一次，之后识别都在这台设备上完成——只有片段回退时音频才会离开本机。",
+    "clientAsrProgress": "模型下载：{{received}} MB / {{total}} MB",
+    "clientAsrRate": "{{rate}} KB/s —— {{remaining}}",
+    "clientAsrRemaining": "约剩 {{minutes}} 分钟",
+    "clientAsrRemainingUnknown": "剩余时间未知",
+    "clientAsrReady": "模型已就绪：新的片段将在这台设备上识别。",
+    "clientAsrUnavailable": "模型无法加载：{{reason}}",
+    "clientAsrFallback": "本机识别不了的片段交给谁",
+    "clientAsrFallbackAuto": "使用后端自己的选择",
+    "clientAsrFallbackDescription": "这台设备处理不了的片段（模型仍在下载，或耗时过长）会改用这个识别器；它必须是本服务端能运行的识别器。",
+    "clientAsrFallbackReason": "最近一个片段离开了本机：{{reason}}"
   },
   "quickSettings": {
     "title": "快速设置",

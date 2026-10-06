@@ -30,6 +30,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { listProviders } from '@shared/asr/asrRegistry';
 import type { AsrInvocation, AsrRequest, AsrRuntimeStatus, AsrToken } from '@shared/asr/asrRegistry';
 import {
   NO_ENGINE_REASON,
@@ -39,15 +40,26 @@ import {
   type WasmEnginePort,
   type WasmEngineRequest,
 } from '@shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider';
+import { parseTranscriptionResponse } from '@shared/asr/transcriptionWire';
 import {
   CLIENT_ASR_FALLBACK_EVENT,
   VOICE_CLIENT_MODEL_BYTES,
+  VOICE_CLIENT_READINESS_GRACE_MS,
   VOICE_CLIENT_RTF_THRESHOLD,
   createVoiceClientAsrEngine,
   routeClientAsrSegment,
+  startVoiceClientAsrWorker,
+  type VoiceClientEngineDeps,
   type VoiceClientFallbackDetail,
+  type VoiceClientWorkerHandle,
+  type VoiceClientWorkerReply,
+  type VoiceClientWorkerRequest,
+  type VoiceClientWorkerScope,
 } from '@/modules/chat/audio/voiceClientAsrWorker';
-import type { VoiceClientReadiness } from '@/shared/types';
+import type { VoiceModelProgress } from '@/modules/chat/utils/voiceModelCache';
+import { resolveVoiceFallbackProvider, setVoiceProviderProfile, setVoiceProviderRows, transcribeVoice } from '@/shared/api';
+import type { VoiceClientReadiness, VoiceProviderRow } from '@/shared/types';
+import { VOICE_FALLBACK_STORAGE_KEY } from '@/shared/voiceConfig';
 import { voiceClientAssetPaths } from '@/shared/utils';
 
 /** The build identity a fake engine reports; the routing forwards it without reading it. */
@@ -121,6 +133,14 @@ afterEach(() => {
   // The adapter holds the installed engine in a module-level slot, which is exactly what makes the
   // routing testable — and exactly what has to be cleared between cases.
   installWasmEngine(null);
+  // The shared API module keeps the published rows and the effective profile in the same kind of
+  // slot, and the fallback resolver reads the first of them. Both are cleared, so a case that
+  // published a deployment cannot decide a later case's answer.
+  setVoiceProviderRows([]);
+  setVoiceProviderProfile(null);
+  localStorage.removeItem(VOICE_FALLBACK_STORAGE_KEY);
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('the client ASR routing policy', () => {
@@ -351,3 +371,287 @@ describe('the client ASR deployment paths and readiness gate', () => {
     }
   });
 });
+
+// ── the first load, and the recogniser a given-up clip is handed to ───────────────────────────
+
+/** The reading a provisioned deployment answers the readiness probe with. */
+const READY_READING: VoiceClientReadiness = {
+  configured: true,
+  directory: '/opt/sensevoice-model',
+  source: 'VOICE_CLIENT_MODEL_DIR',
+  model: {
+    name: 'model.int8.onnx',
+    present: true,
+    bytes: VOICE_CLIENT_MODEL_BYTES,
+    expectedBytes: VOICE_CLIENT_MODEL_BYTES,
+  },
+  tokens: { name: 'tokens.txt', present: true, bytes: 1024, expectedBytes: null },
+  ready: true,
+};
+
+/** One download reading, as the worker posts it while the model arrives. */
+const DOWNLOAD_READING: VoiceModelProgress = {
+  receivedBytes: 12_000_000,
+  totalBytes: VOICE_CLIENT_MODEL_BYTES,
+  bytesPerSec: 102_400,
+  remainingMs: 2_040_000,
+};
+
+/**
+ * The deployment's published recognisers, taken from the registry the build really ships.
+ *
+ * NEITHER ID IS WRITTEN IN THIS FILE, and that is what makes "not the on-device recogniser" a
+ * reading about the registry rather than about a string this test invented: the case asserts the
+ * upload is addressed to the local-`server` row, so a rename or a second local engine moves the
+ * case with it instead of leaving it green against a payload nobody serves.
+ */
+function publishedRows(): { client: VoiceProviderRow; server: VoiceProviderRow } {
+  const adapters = listProviders();
+  const clientAdapter = adapters.find((adapter) => adapter.capabilities.locality === 'local-client');
+  const serverAdapter = adapters.find((adapter) => adapter.capabilities.locality === 'local-server');
+  if (!clientAdapter || !serverAdapter) {
+    throw new Error('the registry no longer declares one recogniser of each local locality');
+  }
+  return {
+    client: {
+      id: clientAdapter.id,
+      label: clientAdapter.id,
+      configured: true,
+      capabilities: clientAdapter.capabilities,
+      // The on-device row is exactly the row that cannot take an upload: it is the recogniser that
+      // gives up, so it must never be selected as where the sound goes instead.
+      runtime: { available: false, state: 'unavailable', reason: 'this browser refused the WASM runtime' },
+    },
+    server: {
+      id: serverAdapter.id,
+      label: serverAdapter.id,
+      configured: true,
+      capabilities: serverAdapter.capabilities,
+      // The reading a PROVISIONED deployment publishes: this is the row whose own engine has said it
+      // can run. It is written out rather than read off `serverAdapter.runtime()`, because that
+      // accessor answers about the engine installed in THIS process — none here — and the resolver
+      // rightly refuses a row whose runtime says it cannot serve.
+      runtime: { available: true, state: 'ready', buildId: 'fallback-build' },
+    },
+  };
+}
+
+type UploadCall = { url: string; headers: Record<string, string>; body: FormData };
+
+/**
+ * The network, doubled: the settings read the config module performs on first use, and the proxy
+ * upload. Every upload is recorded with its headers, because the header is where the recogniser id
+ * travels (`x-voice-provider`) — which is the whole reading these cases take.
+ */
+function stubVoiceNetwork(answerText: string): { uploads: UploadCall[] } {
+  const uploads: UploadCall[] = [];
+  const fetchStub = vi.fn(async (input: unknown, init?: RequestInit) => {
+    const url = String(input);
+    if (url === '/api/voice/config') {
+      return new Response(
+        JSON.stringify({ baseUrl: '', apiKey: '', sttModel: '', ttsModel: '', ttsVoice: '', ttsFormat: '' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    uploads.push({
+      url,
+      headers: (init?.headers ?? {}) as Record<string, string>,
+      body: init?.body as FormData,
+    });
+    return new Response(JSON.stringify({ text: answerText }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchStub);
+  return { uploads };
+}
+
+/** The clip a segment carries; only its bytes and base type matter to the routing. */
+function segmentBlob(): Blob {
+  return new Blob([new Uint8Array([0x52, 0x49, 0x46, 0x46])], { type: 'audio/wav' });
+}
+
+describe('the fallback a given-up segment is uploaded to', () => {
+  it('addresses the upload to the deployment\'s server-side recogniser — never the on-device one — and reads its text back', async () => {
+    const { client, server } = publishedRows();
+    setVoiceProviderRows([client, server]);
+    const { uploads } = stubVoiceNetwork('recognised by the fallback recogniser');
+
+    // The deployment's own answer: the local-server recogniser, and pointedly not the browser one.
+    expect(resolveVoiceFallbackProvider()).toBe(server.id);
+    expect(resolveVoiceFallbackProvider()).not.toBe(client.id);
+
+    const response = await transcribeVoice(segmentBlob(), 'segment-1.wav', 'listen-1', {
+      kind: 'client-fallback',
+      giveUpMessage: 'the on-device recogniser is still loading its model',
+    });
+
+    expect(uploads.map((call) => call.url)).toEqual(['/api/voice/transcribe']);
+    expect(uploads[0].headers['x-voice-provider']).toBe(server.id);
+    expect(uploads[0].headers['x-voice-provider']).not.toBe(client.id);
+    // The text the fallback returned, read through the shipping parse rather than off the fixture.
+    expect(await parseTranscriptionResponse(response, 'strict')).toBe('recognised by the fallback recogniser');
+  });
+
+  it('uploads NOTHING when the deployment publishes no recogniser that can take the clip', async () => {
+    // Only the on-device recogniser is published — the deployment this defect was reported against.
+    const { client } = publishedRows();
+    setVoiceProviderRows([client]);
+    const { uploads } = stubVoiceNetwork('this answer must never be reached');
+
+    expect(resolveVoiceFallbackProvider()).toBeNull();
+
+    const response = await transcribeVoice(segmentBlob(), 'segment-1.wav', 'listen-1', {
+      kind: 'client-fallback',
+      giveUpMessage: 'the on-device recogniser is still loading its model',
+    });
+
+    // The reading the criterion names: no transcription request at all. The audio stayed here.
+    expect(uploads.filter((call) => call.url === '/api/voice/transcribe')).toEqual([]);
+    expect(uploads).toEqual([]);
+    // And the caller is told why rather than handed a silent empty answer.
+    expect(response.ok).toBe(false);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'ENGINE_UNAVAILABLE' });
+  });
+});
+
+describe('a segment that arrives while the model is still downloading', () => {
+  it('leaves the device inside the readiness grace — not after the 30 s segment timeout — and is recognised by the fallback', async () => {
+    vi.useFakeTimers();
+
+    // A worker that answers `init` with a download reading and then nothing at all: the model is
+    // still arriving, which is the state the real worker is in for the whole of a 239 MB download.
+    const posted: VoiceClientWorkerRequest[] = [];
+    const listeners: ((event: { data: VoiceClientWorkerReply }) => void)[] = [];
+    const handle: VoiceClientWorkerHandle = {
+      postMessage: (message) => {
+        posted.push(message);
+        if (message.kind === 'init') {
+          for (const listener of listeners) {
+            listener({ data: { kind: 'progress', requestId: message.requestId, progress: DOWNLOAD_READING } });
+          }
+        }
+      },
+      addEventListener: (_type, listener) => {
+        listeners.push(listener);
+      },
+    };
+    installWasmEngine(createVoiceClientAsrEngine({ probe: async () => READY_READING, spawn: () => handle }));
+
+    const startedAt = Date.now();
+    const routing = routeClientAsrSegment({ request: clip(), invocation: invocation(), durationSec: 3 });
+    // Exactly the grace, and NOTHING more: the download never finishes, so the only thing that can
+    // settle this segment is the grace expiring.
+    await vi.advanceTimersByTimeAsync(VOICE_CLIENT_READINESS_GRACE_MS);
+    const route = await routing;
+
+    expect(route).toMatchObject({ to: 'server', reason: 'engine-unavailable' });
+    if (route.to !== 'server') throw new Error('expected the segment to leave the device');
+    // Under a second, asserted against the fake clock rather than by waiting one out — the whole
+    // point being that the old behaviour spent the segment timeout (30 s) here.
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    // The reason says the model is being LOADED/DOWNLOADED, and carries the figures a user can act
+    // on, rather than a bare state word.
+    expect(route.message).toMatch(/loading its model|downloaded/);
+    expect(route.message).toContain('12.0 MB');
+    expect(route.message).toContain('239.2 MB');
+    expect(route.message).toContain('100 KB/s');
+    // Nothing was ever run on the device: the clip left before the engine was asked to transcribe.
+    expect(posted.filter((message) => message.kind === 'run')).toEqual([]);
+
+    // AND THE CLIP IS STILL RECOGNISED: the give-up is a hand-off, so the same segment is uploaded
+    // to the fallback and its text is what the caller gets.
+    vi.useRealTimers();
+    const { client, server } = publishedRows();
+    setVoiceProviderRows([client, server]);
+    const { uploads } = stubVoiceNetwork('recognised by the fallback recogniser');
+    const response = await transcribeVoice(segmentBlob(), 'segment-1.wav', 'listen-1', {
+      kind: 'client-fallback',
+      giveUpMessage: route.message,
+    });
+    expect(uploads[0].headers['x-voice-provider']).toBe(server.id);
+    expect(await parseTranscriptionResponse(response, 'strict')).toBe('recognised by the fallback recogniser');
+  });
+});
+
+describe('the worker reporting a first download', () => {
+  /** The two ends of the worker channel, wired to each other in this thread. */
+  function loopbackWorker(deps: VoiceClientEngineDeps): {
+    handle: VoiceClientWorkerHandle;
+    posted: VoiceClientWorkerRequest[];
+  } {
+    const toWorker: ((event: { data: VoiceClientWorkerRequest }) => void)[] = [];
+    const toMain: ((event: { data: VoiceClientWorkerReply }) => void)[] = [];
+    const posted: VoiceClientWorkerRequest[] = [];
+    const handle: VoiceClientWorkerHandle = {
+      postMessage: (message) => {
+        posted.push(message);
+        for (const listener of [...toWorker]) listener({ data: message });
+      },
+      addEventListener: (_type, listener) => {
+        toMain.push(listener);
+      },
+    };
+    const scope: VoiceClientWorkerScope = {
+      postMessage: (reply) => {
+        for (const listener of [...toMain]) listener({ data: reply });
+      },
+      addEventListener: (_type, listener) => {
+        toWorker.push(listener);
+      },
+    };
+    // The REAL worker body, driven over this channel: the protocol is exercised on both ends.
+    startVoiceClientAsrWorker(scope, deps);
+    return { handle, posted };
+  }
+
+  /** A `fetch` that streams the model in chunks, so the download loop reports more than once. */
+  function streamingModelFetch(chunks: number, chunkBytes: number): typeof fetch {
+    let index = 0;
+    return (async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      body: {
+        getReader: () => ({
+          read: async () => {
+            // THE COUNTER MUST ADVANCE, or the download loop reads forever and takes the process with
+            // it: `read` is the only thing that can say "no more", and a stub that always answers
+            // `done: false` is an unbounded stream rather than a download of `chunks` chunks.
+            if (index >= chunks) return { done: true, value: undefined };
+            index += 1;
+            return { done: false, value: new Uint8Array(chunkBytes) };
+          },
+        }),
+      },
+    })) as unknown as typeof fetch;
+  }
+
+  it('posts a progress message per chunk during init, and the subscriber never sees the reading walk backwards', async () => {
+    const readings: VoiceModelProgress[] = [];
+    const { handle, posted } = loopbackWorker({
+      cacheEnv: { fetchImpl: streamingModelFetch(3, 64 * 1024), cachesImpl: null },
+    });
+    const engine = createVoiceClientAsrEngine({
+      spawn: () => handle,
+      probe: async () => READY_READING,
+      onProgress: (reading) => readings.push(reading),
+    });
+
+    // One init, and the download it starts. (The placeholder bytes are not the 239 MB checkpoint, so
+    // the load itself ends in the length check — the readings taken on the way are the subject here.)
+    await engine.ensureReady();
+
+    expect(posted.filter((message) => message.kind === 'init')).toHaveLength(1);
+    expect(readings.length).toBeGreaterThanOrEqual(2);
+    for (let index = 0; index < readings.length; index++) {
+      expect(readings[index].totalBytes).toBe(VOICE_CLIENT_MODEL_BYTES);
+      if (index > 0) {
+        expect(readings[index].receivedBytes).toBeGreaterThanOrEqual(readings[index - 1].receivedBytes);
+      }
+    }
+  });
+});
+

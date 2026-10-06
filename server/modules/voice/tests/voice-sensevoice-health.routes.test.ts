@@ -51,7 +51,9 @@ import { listProviders } from '../../../../shared/asr/asrRegistry.js';
 import {
   installSensevoiceEngine,
   type SensevoiceEnginePort,
+  type SensevoiceEngineStatus,
 } from '../../../../shared/asr/list/sensevoice-local/sensevoice-local.asr-provider.js';
+import { NO_ENGINE_REASON } from '../../../../shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider.js';
 import type { VoiceClientAssetsService, VoiceSettings, VoiceSettingsService } from '../../../shared/types.js';
 import {
   createSensevoiceWorker,
@@ -230,6 +232,118 @@ function rowFor(body: HealthBody, id: string): ProviderRow {
   const row = (body.providers ?? []).find((provider) => provider.id === id);
   assert.ok(row, `the payload carries no row for '${id}': ${JSON.stringify(body.providers?.map((p) => p.id) ?? [])}`);
   return row;
+}
+
+// ── the request-carried override, on the upload route ─────────────────────────────────────────
+//
+// The health route above reads WHICH recogniser a deployment has. This section reads which one an
+// UPLOAD is addressed to, which is the other half of the same seam: the client's device path gives up
+// on a clip and re-uploads it naming a recogniser the SERVER can run (S0 of
+// `gap-voice-client-asr-fallback-and-first-load`). Two of those namings are refused before a request is
+// built — an unregistered id, and this task's addition, one that declares `locality: 'local-client'`
+// and therefore only ever ran in the browser that is uploading.
+
+/** One `POST /transcribe` through the shipping router, with a parser that fakes multer's one field. */
+function callTranscribe(options: {
+  settings: VoiceSettings;
+  headers?: Record<string, string>;
+  /** The engine installed for the attempt, or `null` for the engine-less state a server really has. */
+  engine?: SensevoiceEnginePort | null;
+  /** Called for each recognition the engine is asked for, so a refusal can be shown to ask for none. */
+  onTranscribe?: () => void;
+}): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (options.engine !== undefined) installSensevoiceEngine(options.engine);
+
+  const service = createVoiceService({
+    defaults: { ...DEFAULTS },
+    timeoutMs: 1_000,
+    // The bridge is not the subject of any reading here: a refusal is owed BEFORE a request exists,
+    // and the one case that reaches an adapter reaches the on-host engine, which calls nothing.
+    fetchBackend: async () => {
+      throw new Error('no recognition in this section reaches a remote backend');
+    },
+    logger: { info: () => undefined },
+  });
+
+  const parser = (request: unknown, _response: unknown, callback: (error?: unknown) => void) => {
+    // What multer does with a real multipart body, in one line: the frames themselves are not what
+    // these cases read — the ADDRESS is — and a four-byte RIFF header is a container the gates accept.
+    (request as { file?: unknown }).file = {
+      buffer: Buffer.from([0x52, 0x49, 0x46, 0x46]),
+      mimetype: 'audio/wav',
+      originalname: 'fallback.wav',
+    };
+    callback(undefined);
+  };
+
+  const router = createVoiceRouter({
+    voiceService: service,
+    voiceSettingsService: {
+      getSettings: () => options.settings,
+      saveSettings: () => ({ ok: false, status: 400, error: 'unused' }),
+      maskForReadback: (document) => document,
+    },
+    lexiconService: {
+      observeSentText: () => {},
+      importFromHistory: async () => ({ importedMessages: 0, tokenCount: 0 }),
+      list: () => [],
+      clear: () => {},
+    },
+    parseAudioUpload: parser as never,
+    parseRawAudioUpload: parser as never,
+  });
+
+  return new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+    let status = 200;
+    const request = {
+      method: 'POST',
+      url: '/transcribe',
+      headers: options.headers ?? {},
+      user: { id: 1 },
+    };
+    const response = {
+      status(code: number) {
+        status = code;
+        return this;
+      },
+      json(payload: Record<string, unknown>) {
+        resolve({ status, body: payload });
+        return this;
+      },
+      setHeader() {
+        return this;
+      },
+      end() {
+        resolve({ status, body: {} });
+      },
+    };
+    router(
+      request as never,
+      response as never,
+      (error?: unknown) => reject(error instanceof Error ? error : new Error(String(error))),
+    );
+  });
+}
+
+/**
+ * An engine that answers a recognition with text, built like every other fake in the seam: the port is
+ * a type, so a reading of "the override was USED" needs no model on disk.
+ */
+function answeringEngine(onTranscribe?: () => void): SensevoiceEnginePort {
+  const ready: SensevoiceEngineStatus = { available: true, state: 'ready', buildId: manifest.buildId };
+  return {
+    status: () => ready,
+    ensureReady: async () => ready,
+    transcribe: async (request) => {
+      onTranscribe?.();
+      return {
+        ok: true,
+        text: `recognised ${request.fileName} on the on-host engine`,
+        tokens: [],
+        buildId: manifest.buildId,
+      };
+    },
+  };
 }
 
 // ── the readings ─────────────────────────────────────────────────────────────────────────────
@@ -659,4 +773,97 @@ test('S0 a Range request answers 206 with that exact slice, and the wasm carries
 
   const refused = await callAsset(assets, '/ort/package.json');
   assert.equal(refused.status, 404, 'only the three shipped runtime files are on the whitelist');
+});
+
+// ── the readings the override section above exists for ────────────────────────────────────────
+
+test('S0 an override naming a registered server-side recogniser is used, and its text comes back', async () => {
+  let recognised = 0;
+  try {
+    const outcome = await callTranscribe({
+      // The user's OWN selection is the browser recogniser — which is the state the client is in when
+      // it falls back — and the override names the recogniser the server can run.
+      settings: settingsFor('sensevoice-wasm'),
+      headers: { 'x-voice-provider': 'sensevoice-local' },
+      engine: answeringEngine(() => {
+        recognised += 1;
+      }),
+    });
+
+    assert.equal(outcome.status, 200, `the override must be honoured: ${JSON.stringify(outcome.body)}`);
+    assert.equal(
+      outcome.body.text,
+      'recognised fallback.wav on the on-host engine',
+      'the text is the recogniser the override named',
+    );
+    assert.equal(recognised, 1, 'exactly one recognition, on the provider the request named');
+  } finally {
+    installSensevoiceEngine(null);
+  }
+});
+
+test('S0 an override naming a client-side recogniser is refused before any recognition', async () => {
+  const clientSide = listProviders().find((adapter) => adapter.capabilities.locality === 'local-client');
+  assert.ok(clientSide, 'the registry has no client-side recogniser, so this reading measures nothing');
+
+  let recognised = 0;
+  try {
+    const outcome = await callTranscribe({
+      settings: settingsFor('sensevoice-local'),
+      headers: { 'x-voice-provider': clientSide.id },
+      engine: answeringEngine(() => {
+        recognised += 1;
+      }),
+    });
+
+    // `400`: the id came in with the request, so it is the caller's to change — the client's own
+    // fallback answers it by naming a different recogniser one line later.
+    assert.equal(outcome.status, 400, `a browser-only recogniser cannot serve an upload: ${JSON.stringify(outcome.body)}`);
+    assert.match(
+      String(outcome.body.error ?? ''),
+      new RegExp(clientSide.id),
+      'the refusal has to name the id that cannot serve the request',
+    );
+    assert.match(
+      String(outcome.body.error ?? ''),
+      /browser/,
+      'and it has to say WHY — the engine is in the caller, not missing from this host',
+    );
+    assert.equal(recognised, 0, 'a refused address must not reach any engine');
+  } finally {
+    installSensevoiceEngine(null);
+  }
+});
+
+test('S0 an override naming an id nothing registers is refused', async () => {
+  try {
+    const outcome = await callTranscribe({
+      settings: settingsFor('sensevoice-local'),
+      headers: { 'x-voice-provider': 'no-such-recogniser' },
+      engine: answeringEngine(),
+    });
+
+    assert.equal(outcome.status, 400);
+    assert.match(String(outcome.body.error ?? ''), /no-such-recogniser/);
+    assert.match(String(outcome.body.error ?? ''), /no ASR adapter is registered/);
+  } finally {
+    installSensevoiceEngine(null);
+  }
+});
+
+test('S0 control: with no override the stored selection behaves exactly as it did', async () => {
+  // THE NARROWNESS OF THE REFUSAL, which is the whole reason it is scoped to the request. A user who
+  // simply has the browser recogniser selected and uploads without naming one gets what this route has
+  // always answered — the adapter's own failure, `ENGINE_UNAVAILABLE` — and not the new 400. Reading
+  // this as a defect would be to change what a stored selection means, which this task does not.
+  installSensevoiceEngine(null);
+  const outcome = await callTranscribe({ settings: settingsFor('sensevoice-wasm') });
+
+  assert.equal(outcome.status, PROVIDER_ERROR_STATUS['ENGINE_UNAVAILABLE']);
+  assert.equal(outcome.body.code, 'ENGINE_UNAVAILABLE');
+  assert.equal(
+    outcome.body.error,
+    NO_ENGINE_REASON,
+    'the sentence is still the adapter\'s own — not the override refusal\'s',
+  );
 });
