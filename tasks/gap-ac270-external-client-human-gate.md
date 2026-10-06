@@ -2,7 +2,7 @@
 id: gap-ac270-external-client-human-gate
 title: AC-270 人工关卡：外部客户端绑定记录送人 yale 验收——复核 AC-269 九节齐全、公网基址无令牌与反自点亮，worker
   只写读数与结论，停在 needs-human 等人写入「外部客户端验收：通过」
-status: ready
+status: done
 labels:
   - gap
 parent: null
