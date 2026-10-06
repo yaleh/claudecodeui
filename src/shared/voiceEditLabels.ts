@@ -72,13 +72,35 @@ export type VoiceEditLabel = {
 };
 
 /**
- * The most tokens a change may touch on EITHER side and still read as a correction.
+ * The most LATIN tokens a change may touch on EITHER side and still read as a correction.
  *
  * Three, because a correction is a repair of what was heard and repairs are short: a recogniser
  * mangles a word, drops a word, or runs two together. A change that reaches past three tokens is
  * not a repair of the same words, it is a different sentence.
  */
 const MAX_CORRECTION_TOKENS = 3;
+
+/**
+ * The most HAN characters a change may touch on EITHER side and still read as a correction.
+ *
+ * A SEPARATE budget, because a Han character is not a word. A sentence of Han carries no spaces, so
+ * cutting it per character (see `tokenize`) turns one mistaken character into one token — but it
+ * also turns `AC 零零二` into four. The Latin budget of three would call that a rewrite, and it is
+ * the canonical correction this module exists to keep. Six characters is room for a small repair
+ * (`了功启` → `重启`, four characters heard) while a whole rewritten sentence is far past it and
+ * lands on `rewrite`, which is the judgement the acceptance criteria pin from both sides.
+ */
+const MAX_CORRECTION_HAN_TOKENS = 6;
+
+/**
+ * The most tokens a short change may touch on either side and still be read WITH context.
+ *
+ * A one-or-two character Han repair is unreadable on its own (`功` → `重`), so its label carries one
+ * neighbouring token on each side (`查了功启` → `查重启`) — see `withHanContext`. Only SHORT changes
+ * are widened: a longer change is already readable, and widening it would push a near-budget
+ * correction over `MAX_CORRECTION_HAN_TOKENS` and mislabel it a rewrite.
+ */
+const MAX_CONTEXT_TOKENS = 2;
 
 /**
  * The largest character edit ratio a correction may carry, over the joined comparable forms.
@@ -112,6 +134,33 @@ const WORD_CHAR = /[A-Za-z0-9]/;
 
 /** A character that joins two Latin runs into ONE token when the result is an identifier. */
 const IDENTIFIER_JOINER = /[-_]/;
+
+/**
+ * A Han character — a CJK unified ideograph, its extension A, or its compatibility block.
+ *
+ * Han is cut PER CHARACTER (see `tokenize`): a sentence of Han has no spaces, so the whitespace-only
+ * rule made it one token and every Han edit a whole-sentence `replace`. `Intl.Segmenter('zh')` is
+ * NOT used: measured against this very fixture it cuts a mistaken `功启` the same way it cuts a
+ * correct `重启`, so it cannot tell a mended word from a mangled one — the characters are tokens and
+ * the alignment is what decides.
+ */
+const HAN = /[㐀-䶿一-鿿豈-﫿]/;
+
+/** Whether a single character is Han. */
+function isHanChar(char: string): boolean {
+  return HAN.test(char);
+}
+
+/**
+ * Whether a token is Han — made only of Han characters, with joining punctuation around it ignored.
+ *
+ * Punctuation is not a script, so a Han run that carries a full stop (`记录。`) is still Han; a token
+ * with any Latin word character in it is not.
+ */
+function isHanToken(token: string): boolean {
+  const core = token.replace(JOINING_PUNCTUATION, '');
+  return core.length > 0 && [...core].every(isHanChar);
+}
 
 /**
  * Whether a token has the shape of an identifier rather than of an ordinary word.
@@ -152,10 +201,14 @@ function stripped(text: string): { value: string; at: number[] } {
   let value = '';
   const at: number[] = [];
   for (let index = 0; index < text.length; index += 1) {
-    if (!/\s/.test(text[index])) {
-      value += text[index].toLowerCase();
-      at.push(index);
+    // Whitespace AND joining punctuation are dropped, so the alignment is over the COMPARABLE forms:
+    // `？` → `?` and a sentence-final `。` are not characters a span can be mapped to, which keeps
+    // them from stretching a region past the last word the segment actually became.
+    if (text[index].replace(JOINING_PUNCTUATION, '') === '') {
+      continue;
     }
+    value += text[index].toLowerCase();
+    at.push(index);
   }
   return { value, at };
 }
@@ -173,6 +226,14 @@ function stripped(text: string): { value: string; at: number[] } {
  *
  * The region is then widened to the gap between the nearest surviving characters on either side, so
  * a span that maps to nothing does not collapse to a zero-width region in the middle of a word.
+ *
+ * IT DOES NOT REACH FOR THE ENDS OF THE TEXT. The nearest surviving characters bound the region only
+ * when they EXIST; with no neighbour on a side, the region stops at the characters this span itself
+ * was aligned to. The earlier rule took a sentinel there (`-1` / `textLength`) and widened to it,
+ * which dragged the region to the start or the end of the whole box and swallowed the user's own
+ * typing, or another dictation, into this segment's `final`. A span whose characters all vanished is
+ * bounded by the gap between the neighbours that DID survive, and when there is no such pair there
+ * is no region to speak of — the caller records a deletion instead.
  */
 function alignRegion(gold: string, text: string, from: number, to: number): Span | null {
   const goldStripped = stripped(gold);
@@ -228,29 +289,32 @@ function alignRegion(gold: string, text: string, from: number, to: number): Span
     return null;
   }
 
-  // The nearest surviving characters OUTSIDE the span, which bound the region when the span's own
-  // characters were all deleted.
-  const survivingBefore = mapping.slice(0, first).reverse().find((index) => index >= 0) ?? -1;
-  const survivingAfter = mapping.slice(last + 1).find((index) => index >= 0) ?? textLength;
-
+  // ---- REGION SHRINK (the negative control behind the test file swaps this block for the
+  // endpoint-expanding one, so the two live as one source and cannot drift) ----
   const mapped = mapping.slice(first, last + 1).filter((index) => index >= 0);
   let low: number;
   let high: number;
   if (mapped.length > 0) {
+    // The smallest region covering every character of the span that survived. It stops here: the
+    // unmatched characters around it belong to whatever came before or after, not to this span.
     low = Math.min(...mapped);
     high = Math.max(...mapped);
   } else {
+    // Every character of the span is gone. The region is the gap the surviving neighbours leave —
+    // and only when there IS a neighbour on BOTH sides, so the gap cannot run off to the text ends.
+    const survivingBefore = mapping.slice(0, first).reverse().find((index) => index >= 0);
+    const survivingAfter = mapping.slice(last + 1).find((index) => index >= 0);
+    if (survivingBefore === undefined || survivingAfter === undefined) {
+      return null;
+    }
     low = survivingBefore + 1;
     high = survivingAfter - 1;
   }
-  // Widen to the gaps the neighbours leave: a span that maps to one character in the middle of a
-  // word owns the whole word, because that is what the region became.
-  low = Math.min(low, survivingBefore + 1);
-  high = Math.max(high, survivingAfter - 1);
   if (high < low) {
     return null;
   }
   return { start: textStripped.at[low], end: textStripped.at[high] + 1 };
+  // ---- end region shrink ----
 }
 
 /**
@@ -338,8 +402,21 @@ function editRatio(left: string, right: string): number {
   return distance[left.length][right.length] / span;
 }
 
-/** One changed run: the words that were heard and the words that replaced them. */
-type Hunk = { heard: string[]; final: string[] };
+/** One token of a text, with the half-open range it occupies in that text. */
+type Token = { text: string; start: number; end: number };
+
+/**
+ * One changed run: the tokens that were heard and the tokens that replaced them, and where each run
+ * sits in its own token list (the indices are what `withHanContext` reaches past for context).
+ */
+type Hunk = {
+  heard: Token[];
+  final: Token[];
+  heardFrom: number;
+  heardTo: number;
+  finalFrom: number;
+  finalTo: number;
+};
 
 /**
  * The maximal runs of changed tokens between two token lists, via a token-level alignment.
@@ -351,12 +428,14 @@ type Hunk = { heard: string[]; final: string[] };
  * separate segments, each with its own edit) and case ① (`key` → `quay` inside an otherwise
  * untouched sentence) are the same rule answering twice.
  *
- * A hunk with no heard words is DROPPED: it is the user typing text of their own, not a correction
- * of anything, and case ⑤ of the acceptance criteria — typing before or after the voice segment
- * produces no labels — is exactly that case. A hunk that heard words and replaced them with nothing
- * is kept as a deletion.
+ * THE REGION IS WHAT EXCLUDES THE USER'S OTHER TEXT. A run that heard nothing is text with no
+ * counterpart in the segment — typing before or after the dictation (case ⑤) or another dictation in
+ * the same box (case ②) — and it cannot reach this function at all, because the text diffed against
+ * is only the characters THIS segment was aligned to (see `alignRegion`). So a run that heard nothing
+ * is not filtered out here; it is never produced. The control that widens the region back to the text
+ * ends is what makes case ② red, which is why the two are one mechanism and not two.
  */
-function changedHunks(heardTokens: readonly string[], finalTokens: readonly string[]): Hunk[] {
+function changedHunks(heardTokens: readonly Token[], finalTokens: readonly Token[]): Hunk[] {
   const heardLength = heardTokens.length;
   const finalLength = finalTokens.length;
 
@@ -370,7 +449,7 @@ function changedHunks(heardTokens: readonly string[], finalTokens: readonly stri
   }
   for (let row = 1; row <= heardLength; row += 1) {
     for (let column = 1; column <= finalLength; column += 1) {
-      const substitution = sameToken(heardTokens[row - 1], finalTokens[column - 1]) ? 0 : 1;
+      const substitution = sameToken(heardTokens[row - 1].text, finalTokens[column - 1].text) ? 0 : 1;
       distance[row][column] = Math.min(
         distance[row - 1][column] + 1,
         distance[row][column - 1] + 1,
@@ -380,25 +459,35 @@ function changedHunks(heardTokens: readonly string[], finalTokens: readonly stri
   }
 
   // Walked back from the end, so the steps come out reversed and are flipped before grouping.
-  const steps: { heard: string | null; final: string | null }[] = [];
+  const steps: {
+    heard: Token | null;
+    final: Token | null;
+    heardAt: number | null;
+    finalAt: number | null;
+  }[] = [];
   let row = heardLength;
   let column = finalLength;
   while (row > 0 || column > 0) {
     if (row > 0 && column > 0) {
-      const substitution = sameToken(heardTokens[row - 1], finalTokens[column - 1]) ? 0 : 1;
+      const substitution = sameToken(heardTokens[row - 1].text, finalTokens[column - 1].text) ? 0 : 1;
       if (distance[row][column] === distance[row - 1][column - 1] + substitution) {
-        steps.push({ heard: heardTokens[row - 1], final: finalTokens[column - 1] });
+        steps.push({
+          heard: heardTokens[row - 1],
+          final: finalTokens[column - 1],
+          heardAt: row - 1,
+          finalAt: column - 1,
+        });
         row -= 1;
         column -= 1;
         continue;
       }
     }
     if (row > 0 && distance[row][column] === distance[row - 1][column] + 1) {
-      steps.push({ heard: heardTokens[row - 1], final: null });
+      steps.push({ heard: heardTokens[row - 1], final: null, heardAt: row - 1, finalAt: null });
       row -= 1;
       continue;
     }
-    steps.push({ heard: null, final: finalTokens[column - 1] });
+    steps.push({ heard: null, final: finalTokens[column - 1], heardAt: null, finalAt: column - 1 });
     column -= 1;
   }
   steps.reverse();
@@ -406,7 +495,8 @@ function changedHunks(heardTokens: readonly string[], finalTokens: readonly stri
   const hunks: Hunk[] = [];
   let current: Hunk | null = null;
   for (const step of steps) {
-    const unchanged = step.heard !== null && step.final !== null && sameToken(step.heard, step.final);
+    const unchanged = step.heard !== null && step.final !== null
+      && sameToken(step.heard.text, step.final.text);
     if (unchanged) {
       current = null;
       continue;
@@ -414,18 +504,67 @@ function changedHunks(heardTokens: readonly string[], finalTokens: readonly stri
     // A run is opened at its first changed step and closed by the fence above; the object is pushed
     // ONCE and then grown in place, so consecutive changed tokens stay one hunk rather than one each.
     if (current === null) {
-      current = { heard: [], final: [] };
+      current = { heard: [], final: [], heardFrom: -1, heardTo: -1, finalFrom: -1, finalTo: -1 };
       hunks.push(current);
     }
     if (step.heard !== null) {
       current.heard.push(step.heard);
+      if (current.heardFrom < 0) {
+        current.heardFrom = step.heardAt as number;
+      }
+      current.heardTo = step.heardAt as number;
     }
     if (step.final !== null) {
       current.final.push(step.final);
+      if (current.finalFrom < 0) {
+        current.finalFrom = step.finalAt as number;
+      }
+      current.finalTo = step.finalAt as number;
     }
   }
-  // A run with no heard words is the user typing text of their own, not a correction of anything.
-  return hunks.filter((hunk) => hunk.heard.length > 0);
+  // No filter: a run that heard nothing is not a correction, but it is only ever produced when the
+  // region itself is wrong (see the function comment), so the region is where that is enforced.
+  return hunks;
+}
+
+/**
+ * Grows a SHORT all-Han hunk by one neighbouring token on each side.
+ *
+ * A one- or two-character Han repair does not read on its own: `功` → `重` says nothing about the
+ * word it sits in. The neighbours are the context — `查了功启` → `查重启` — and they are the SAME
+ * tokens on both sides (a fence the hunk was cut at), so including them cannot invent a difference.
+ * Only Han hunks are widened, and only short ones: a Latin `key` → `quay` is a whole word already,
+ * and widening a longer Han change could push a near-budget correction past
+ * `MAX_CORRECTION_HAN_TOKENS`. The widened tokens are what the label reports AND what its op is
+ * judged on, so the pair a reader sees is the pair the budget weighed.
+ */
+function withHanContext(
+  hunk: Hunk,
+  heardTokens: readonly Token[],
+  finalTokens: readonly Token[],
+): { heard: Token[]; final: Token[] } {
+  const allHan = [...hunk.heard, ...hunk.final].every((token) => isHanToken(token.text));
+  const shortChange = hunk.heard.length <= MAX_CONTEXT_TOKENS
+    && hunk.final.length <= MAX_CONTEXT_TOKENS;
+  if (!allHan || !shortChange) {
+    return { heard: hunk.heard, final: hunk.final };
+  }
+  const heardLow = Math.max(0, hunk.heardFrom - 1);
+  const heardHigh = Math.min(heardTokens.length, hunk.heardTo + 2);
+  const finalLow = Math.max(0, hunk.finalFrom - 1);
+  const finalHigh = Math.min(finalTokens.length, hunk.finalTo + 2);
+  return {
+    heard: heardTokens.slice(heardLow, heardHigh),
+    final: finalTokens.slice(finalLow, finalHigh),
+  };
+}
+
+/** The source text a run of tokens spans, taken whole from the first token's start to the last's end. */
+function textOf(source: string, tokens: readonly Token[]): string {
+  if (tokens.length === 0) {
+    return '';
+  }
+  return source.slice(tokens[0].start, tokens[tokens.length - 1].end);
 }
 
 /**
@@ -459,39 +598,118 @@ function correctionShape(heardWords: readonly string[], finalWords: readonly str
 /**
  * Whether a change is small enough to be a correction rather than a rewrite.
  *
- * THE ONE JUDGEMENT IN THIS FILE. Two gates, both needed: a token-count budget
- * (`MAX_CORRECTION_TOKENS` on either side) and a character budget (`MAX_CORRECTION_EDIT_RATIO`).
- * A deletion is exempt from the character budget because it has no counterpart to compare — the
- * ratio against an empty string is 1.0 for any word, which would call every deletion a rewrite.
+ * THE ONE JUDGEMENT IN THIS FILE. The budget is SPLIT BY SCRIPT, because a token is a different size
+ * in each: a Latin token is a whole word (`restart`), a Han token is a single character (`重`), and
+ * one number for both would either forbid a two-character Han repair or admit a four-word rewrite.
+ * So each side gets `MAX_CORRECTION_TOKENS` Latin tokens and `MAX_CORRECTION_HAN_TOKENS` Han
+ * characters, and the character budget (`MAX_CORRECTION_EDIT_RATIO`) is the second, script-blind
+ * gate. A deletion is exempt from the character budget because it has no counterpart to compare —
+ * the ratio against an empty string is 1.0 for any word, which would call every deletion a rewrite.
  *
  * The falsifying variant behind `src/shared/tests/voiceEditLabels.test.ts` deletes the call to this
  * function and its guard from `opFor`, and case ⑥ — a whole-sentence rewrite — goes red on it.
  */
-function withinCorrectionBudget(heardWords: readonly string[], finalWords: readonly string[]): boolean {
-  if (heardWords.length > MAX_CORRECTION_TOKENS || finalWords.length > MAX_CORRECTION_TOKENS) {
+function withinCorrectionBudget(
+  heardTokens: readonly Token[],
+  finalTokens: readonly Token[],
+): boolean {
+  const hanTokens = (tokens: readonly Token[]): number =>
+    tokens.filter((token) => isHanToken(token.text)).length;
+  const heardHan = hanTokens(heardTokens);
+  const finalHan = hanTokens(finalTokens);
+  const heardLatin = heardTokens.length - heardHan;
+  const finalLatin = finalTokens.length - finalHan;
+  if (heardLatin > MAX_CORRECTION_TOKENS || finalLatin > MAX_CORRECTION_TOKENS) {
     return false;
   }
-  if (finalWords.length === 0) {
+  if (heardHan > MAX_CORRECTION_HAN_TOKENS || finalHan > MAX_CORRECTION_HAN_TOKENS) {
+    return false;
+  }
+  if (finalTokens.length === 0) {
     return true;
   }
-  return editRatio(comparable(heardWords.join(' ')), comparable(finalWords.join(' ')))
+  // A change whose two sides are BOTH Han is already measured in characters — one Han token is one
+  // character — so the Han budget above IS its character budget, and the ratio gate (which exists to
+  // catch what a per-WORD budget hides) has nothing left to add. The gate still applies the moment a
+  // Latin token is on either side, which is where it earns its place.
+  if (heardHan === heardTokens.length && finalHan === finalTokens.length) {
+    return true;
+  }
+  return editRatio(comparable(runText(heardTokens)), comparable(runText(finalTokens)))
     <= MAX_CORRECTION_EDIT_RATIO;
 }
 
 /** The op one hunk carries: its shape, unless the change is too large to be a correction at all. */
-function opFor(heardWords: readonly string[], finalWords: readonly string[]): VoiceEditOp {
-  const shape = correctionShape(heardWords, finalWords);
+function opFor(heardTokens: readonly Token[], finalTokens: readonly Token[]): VoiceEditOp {
+  const shape = correctionShape(
+    heardTokens.map((token) => token.text),
+    finalTokens.map((token) => token.text),
+  );
   // ---- THE CORRECTION / REWRITE BOUNDARY (the falsifying variant removes this block) ----
-  if (!withinCorrectionBudget(heardWords, finalWords)) {
+  if (!withinCorrectionBudget(heardTokens, finalTokens)) {
     return 'rewrite';
   }
   // ---- end boundary ----
   return shape;
 }
 
-/** A token list: whitespace-separated, with the empty runs dropped. */
-function tokenize(text: string): string[] {
-  return text.split(/\s+/).filter((token) => token !== '');
+/** The text a token run covers, in the box's own spacing — not a re-join, so `AC 零零二` keeps its space. */
+function runText(tokens: readonly Token[]): string {
+  return tokens.map((token) => token.text).join(' ');
+}
+
+const LATIN_TOKEN = /[A-Za-z0-9]/;
+const LATIN_JOINER = /[-_./]/;
+
+/**
+ * Splits a text into tokens, each carrying where it sits in the text.
+ *
+ * A HAN CHARACTER IS ITS OWN TOKEN. Han is written without spaces, so a word is one or more
+ * characters and there is no whitespace to cut on; the per-character reading is what lets a
+ * one-character repair be a correction of that character rather than of the whole run it sits in.
+ * Latin runs stay whole, and an internal `-`, `_`, `.` or `/` stays inside the run
+ * (`quay-fleet` and `voice-routes.ts` are one token each — the same reading `widenToWords` gives
+ * them). A run of punctuation is a token of its own so the diff can see it move, but a token whose
+ * comparable form is empty is dropped: punctuation on its own is never the thing a user corrected,
+ * so `？` → `?` is not an edit anybody made.
+ */
+function tokenize(text: string): Token[] {
+  // ---- HAN TOKENIZATION (the negative control behind the test file swaps this block for a
+  // whitespace split, so the two live as one source and cannot drift) ----
+  const tokens: Token[] = [];
+  let index = 0;
+  while (index < text.length) {
+    const char = text[index];
+    if (isHanChar(char)) {
+      tokens.push({ text: char, start: index, end: index + 1 });
+      index += 1;
+      continue;
+    }
+    if (LATIN_TOKEN.test(char)) {
+      let end = index + 1;
+      while (
+        end < text.length
+        && (LATIN_TOKEN.test(text[end])
+          || (LATIN_JOINER.test(text[end]) && LATIN_TOKEN.test(text[end + 1] ?? '')))
+      ) {
+        end += 1;
+      }
+      tokens.push({ text: text.slice(index, end), start: index, end });
+      index = end;
+      continue;
+    }
+    let end = index + 1;
+    while (end < text.length && !isHanChar(text[end]) && !LATIN_TOKEN.test(text[end])) {
+      end += 1;
+    }
+    const run = text.slice(index, end);
+    if (!/^\s*$/.test(run)) {
+      tokens.push({ text: run, start: index, end });
+    }
+    index = end;
+  }
+  return tokens.filter((token) => comparable(token.text) !== '');
+  // ---- end Han tokenization ----
 }
 
 /**
@@ -551,12 +769,17 @@ export function labelsFor(
     }
     const widened = widenToWords(finalText, region);
     const finalRegion = finalText.slice(widened.start, widened.end);
-    for (const hunk of changedHunks(tokenize(heardText), tokenize(finalRegion))) {
+    const heardTokens = tokenize(heardText);
+    const finalTokens = tokenize(finalRegion);
+    for (const hunk of changedHunks(heardTokens, finalTokens)) {
+      // The label reports the tokens AFTER Han context widening, and the op is judged on the same
+      // pair — so a repair the reader can see is a repair the budget weighed (see `withHanContext`).
+      const context = withHanContext(hunk, heardTokens, finalTokens);
       labels.push({
         segmentIndex: span.segmentIndex,
-        heard: hunk.heard.join(' '),
-        final: hunk.final.join(' '),
-        op: opFor(hunk.heard, hunk.final),
+        heard: textOf(heardText, context.heard),
+        final: textOf(finalRegion, context.final),
+        op: opFor(context.heard, context.final),
       });
     }
   }

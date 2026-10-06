@@ -281,3 +281,268 @@ test('the correction/rewrite boundary is falsifiable: case ⑥ goes red without 
     rmSync(VARIANT_PATH, { force: true });
   }
 });
+
+// --------------- 4. Han granularity and the segment's own region (this task) ---------------
+
+/**
+ * The transcript the defect was reported over, kept as a constant because several cases below are
+ * variations of the SAME dictation — ① is the repair on its own, ② puts another dictation and some
+ * typing around it. Using one string for both keeps the two cases measuring the region and not the
+ * fixture.
+ */
+const CHINESE_HEARD = '检查了功启后，是否有服务端的语音识别？';
+const CHINESE_REPAIRED = '检查重启后是否有服务端的语音识别记录。';
+
+test('① a one-character Han repair is one small label, not the whole sentence', () => {
+  const labels = labelsFor([segment(0, CHINESE_HEARD)], CHINESE_REPAIRED);
+  expect(labels).toHaveLength(1);
+  expect(labels[0].segmentIndex).toBe(0);
+  expect(labels[0].heard).toContain('功');
+  expect(labels[0].final).toContain('重');
+  expect([...labels[0].heard].length).toBeLessThanOrEqual(6);
+  expect([...labels[0].final].length).toBeLessThanOrEqual(6);
+  expect(labels[0].op).not.toBe('rewrite');
+});
+
+test('② another dictation and the user\'s own typing stay out of the labels', () => {
+  const labels = labelsFor(
+    [segment(0, CHINESE_HEARD)],
+    `语音输入测试。${CHINESE_REPAIRED}谢谢`,
+  );
+  expect(labels.length).toBeGreaterThan(0);
+  for (const label of labels) {
+    expect(label.heard).not.toContain('语音输入测试');
+    expect(label.final).not.toContain('语音输入测试');
+    expect(label.heard).not.toContain('谢谢');
+    expect(label.final).not.toContain('谢谢');
+  }
+});
+
+test('③ a punctuation or full/half-width difference is not a change', () => {
+  expect(labelsFor([segment(0, '是否有服务端的语音识别？')], '是否有服务端的语音识别?')).toEqual([]);
+  expect(labelsFor([segment(0, '是否有服务端的语音识别？')], '是否有服务端的语音识别')).toEqual([]);
+});
+
+test('④ a whole Han sentence rewritten is a rewrite, never a replace', () => {
+  const labels = labelsFor(
+    [segment(0, CHINESE_REPAIRED)],
+    '明天下午三点开会讨论发布计划安排。',
+  );
+  expect(labels.length).toBeGreaterThan(0);
+  expect(labels.some((label) => label.op === 'replace')).toBe(false);
+  expect(labels.every((label) => label.op === 'rewrite')).toBe(true);
+  // The in-case control: the SAME boundary must NOT call the small repair (①) a rewrite.
+  expect(labelsFor([segment(0, CHINESE_HEARD)], CHINESE_REPAIRED)[0].op).not.toBe('rewrite');
+});
+
+test('⑤ a mixed Han/Latin sentence yields its two words and no surrounding Han context', () => {
+  // The pair is Han and Latin together, which is where the two tokenizations meet: a Han run must not
+  // swallow the identifier next to it, and `AC 一九零` must stay one change rather than the Han run
+  // being split off from the `AC` it is part of.
+  const labels = labelsFor([segment(0, '检查 key 的 AC 一九零')], '检查 quay 的 AC-190');
+  expect(labels).toHaveLength(2);
+  expect(labels.every((label) => label.op !== 'rewrite')).toBe(true);
+  expect(labels.map((label) => [label.heard, label.final])).toEqual([
+    ['key', 'quay'],
+    ['AC 一九零', 'AC-190'],
+  ]);
+  for (const label of labels) {
+    expect(label.heard).not.toContain('检查');
+    expect(label.final).not.toContain('检查');
+    expect(label.heard).not.toContain('的');
+    expect(label.final).not.toContain('的');
+  }
+});
+
+test('⑥ two segments: only the second is labelled, and text typed between them is not', () => {
+  const labels = labelsFor(
+    [segment(0, CHINESE_REPAIRED), segment(1, '明天下午三点开会讨论发布计划安排。')],
+    `检查重启后是否有服务端的语音识别记录。我先说一句。明天下午四点开会讨论发布计划安排。`,
+  );
+  expect(labels.length).toBeGreaterThan(0);
+  expect(labels.every((label) => label.segmentIndex === 1)).toBe(true);
+  for (const label of labels) {
+    expect(label.heard).not.toContain('我先说一句');
+    expect(label.final).not.toContain('我先说一句');
+    expect(label.final).not.toContain('检查');
+  }
+});
+
+test('⑦ an emptied box deletes each segment that carried words', () => {
+  const labels = labelsFor(
+    [segment(0, CHINESE_REPAIRED), segment(1, '明天下午三点开会讨论发布计划安排。')],
+    '',
+  );
+  expect(labels).toHaveLength(2);
+  expect(labels.every((label) => label.op === 'delete' && label.final === '')).toBe(true);
+  expect(labels.map((label) => label.segmentIndex)).toEqual([0, 1]);
+});
+
+// --------------- 5. The two regressions are falsifiable ---------------
+
+/** The module under test again, as the control below imports its mutated twin through the same shape. */
+type LabelsModule = {
+  labelsFor: (segments: readonly VoiceSourceSegment[], finalText: string) => VoiceEditLabel[];
+};
+
+const shipped: LabelsModule = { labelsFor };
+
+/**
+ * The four readings the controls below compare across two copies of the module — one shipped, one
+ * mutated. Written ONCE and reused for both arms, so the control asks the same question of both and
+ * cannot pass by asserting something the shipped module never satisfied anyway (the existing section
+ * 3 makes the same move with `losesItsRewrite`).
+ */
+const caseOneHolds = (mod: LabelsModule): boolean => {
+  const labels = mod.labelsFor([segment(0, CHINESE_HEARD)], CHINESE_REPAIRED);
+  return labels.length === 1
+    && labels[0].heard.includes('功')
+    && labels[0].final.includes('重')
+    && [...labels[0].heard].length <= 6
+    && [...labels[0].final].length <= 6
+    && labels[0].op !== 'rewrite';
+};
+
+const caseTwoHolds = (mod: LabelsModule): boolean => {
+  const labels = mod.labelsFor(
+    [segment(0, CHINESE_HEARD)],
+    `语音输入测试。${CHINESE_REPAIRED}谢谢`,
+  );
+  return labels.length > 0 && labels.every((label) => !label.heard.includes('语音输入测试')
+    && !label.final.includes('语音输入测试')
+    && !label.heard.includes('谢谢')
+    && !label.final.includes('谢谢'));
+};
+
+const caseFourHolds = (mod: LabelsModule): boolean => {
+  const labels = mod.labelsFor([segment(0, CHINESE_REPAIRED)], '明天下午三点开会讨论发布计划安排。');
+  return labels.length > 0 && labels.every((label) => label.op === 'rewrite');
+};
+
+/**
+ * The variant files, written BESIDE the module and deleted in each control's `finally`. Each control
+ * gets its OWN path: a second `import()` of the same URL is served from the module cache rather than
+ * re-read, so two mutations sharing one path would race and the second control would silently test
+ * the first control's module.
+ */
+const variantPaths: string[] = [];
+
+function variantPath(): string {
+  const file = path.resolve(
+    process.cwd(),
+    `src/shared/tests/__criterion-falsify-cjk-${variantPaths.length}.ts`,
+  );
+  variantPaths.push(file);
+  return file;
+}
+
+afterAll(() => {
+  for (const file of variantPaths) {
+    rmSync(file, { force: true });
+  }
+});
+
+/**
+ * Replaces the block a pair of marker comments brackets, so a mutation names the REGION of the source
+ * it rewrites rather than a line number that would drift. The markers are the two the shipped file
+ * carries around the Han tokenizer and the region shrink.
+ */
+function spliceBlock(
+  source: string,
+  startMarker: string,
+  endMarker: string,
+  replacement: string,
+): string {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const lineStart = source.lastIndexOf('\n', start) + 1;
+  const lineEnd = source.indexOf('\n', end);
+  return `${source.slice(0, lineStart)}${replacement}${source.slice(lineEnd)}`;
+}
+
+/** Writes the mutated module, imports it, hands it to the caller, and removes it again. */
+async function withVariant<T>(
+  mutate: (source: string) => string,
+  run: (mod: LabelsModule) => T,
+): Promise<T> {
+  const file = variantPath();
+  const mutated = mutate(readFileSync(MODULE_PATH, 'utf8'));
+  writeFileSync(file, mutated);
+  try {
+    const mod = (await import(/* @vite-ignore */ pathToFileURL(file).href)) as LabelsModule;
+    return run(mod);
+  } finally {
+    rmSync(file, { force: true });
+  }
+}
+
+/** `text.split(/\s+/)` — the whitespace tokenizer the defect came from; Han is one token per run. */
+const WHITESPACE_TOKENIZE = `  // Whitespace split — the regression: a sentence of Han is one token.
+  return text.split(/\\s+/).filter((token) => token !== '').map((token) => {
+    const start = text.indexOf(token);
+    return { text: token, start, end: start + token.length };
+  });`;
+
+/**
+ * The pre-fix region: no surviving neighbour on a side means the sentinel `-1` / `textLength`, and
+ * the region is then widened to the neighbours' images — which drags a segment that has nothing
+ * before or after it out to the ends of the whole final text.
+ */
+const ENDPOINT_EXPANDING_REGION = `  const mapped = mapping.slice(first, last + 1).filter((index) => index >= 0);
+  let low: number;
+  let high: number;
+  if (mapped.length > 0) {
+    low = Math.min(...mapped);
+    high = Math.max(...mapped);
+  } else {
+    const previous = mapping.slice(0, first).reverse().find((index) => index >= 0) ?? -1;
+    const next = mapping.slice(last + 1).find((index) => index >= 0) ?? textLength;
+    low = previous + 1;
+    high = next - 1;
+    if (high < low) {
+      return null;
+    }
+  }
+  const previousMatched = mapping.slice(0, first).reverse().find((index) => index >= 0) ?? -1;
+  const nextMatched = mapping.slice(last + 1).find((index) => index >= 0) ?? textLength;
+  low = Math.min(low, previousMatched + 1);
+  high = Math.max(high, nextMatched - 1);
+  if (high < low) {
+    return null;
+  }
+  return { start: textStripped.at[low], end: textStripped.at[high] + 1 };`;
+
+test('the Han tokenization is falsifiable: whitespace splitting reds cases ① and ④', async () => {
+  // The shipped arm first: the control only means something if these readings were green to start.
+  expect(caseOneHolds(shipped)).toBe(true);
+  expect(caseFourHolds(shipped)).toBe(true);
+  await withVariant(
+    (source) => spliceBlock(
+      source,
+      '// ---- HAN TOKENIZATION',
+      '// ---- end Han tokenization ----',
+      WHITESPACE_TOKENIZE,
+    ),
+    (mod) => {
+      expect(caseOneHolds(mod)).toBe(false);
+      expect(caseFourHolds(mod)).toBe(false);
+    },
+  );
+});
+
+test('the region shrink is falsifiable: expanding to the text ends reds case ②', async () => {
+  expect(caseTwoHolds(shipped)).toBe(true);
+  await withVariant(
+    (source) => spliceBlock(
+      source,
+      '// ---- REGION SHRINK',
+      '// ---- end region shrink ----',
+      ENDPOINT_EXPANDING_REGION,
+    ),
+    (mod) => {
+      expect(caseTwoHolds(mod)).toBe(false);
+    },
+  );
+});
