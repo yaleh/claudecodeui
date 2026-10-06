@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '@/modules/auth';
 import { IS_PLATFORM } from '@/shared/utils';
 import { expireAuthSession, isAuthTokenExpired } from '@/shared/authToken';
+import { invalidateSessionHosts, setSessionHostsConnection } from '@/shared/hooks/useSessionHosts';
 import type { ServerEvent } from '@/shared/types';
 
 
@@ -173,6 +174,43 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       listenersRef.current.delete(listener);
     };
   }, []);
+
+  // The session-hosts store's bridge to this socket. The server announces that
+  // the host listing changed with a `hosts_changed` frame; the store answers by
+  // re-reading `GET /api/session-hosts`, so the pushed signal and the REST read
+  // can never disagree about the shape of a host. The frame carries a revision
+  // and the store drops one it has already applied, which is what makes a
+  // re-delivered frame free.
+  //
+  // The synthetic reconnect event is the same instruction without a revision:
+  // every frame sent while the socket was down was never delivered, so the store
+  // re-reads at once rather than waiting out the (long) connected fallback
+  // interval. The bridge is mounted here rather than inside the store because
+  // the store must not import this provider — that would close a cycle — while
+  // this provider is already the page's single socket consumer.
+  useEffect(() => subscribe((event) => {
+    if (event.kind === 'hosts_changed') {
+      invalidateSessionHosts(typeof event.rev === 'number' ? event.rev : undefined);
+      return;
+    }
+    if (event.kind === 'websocket_reconnected') {
+      invalidateSessionHosts();
+    }
+  }), [subscribe]);
+
+  // The store's fallback interval depends on whether the socket is up: long when
+  // it is (the frames are the signal), short when it is not (nothing else would
+  // report a change). The cleanup puts the store back to "disconnected" when the
+  // provider goes away, so a later mount does not inherit a long interval it has
+  // no socket to justify.
+  useEffect(() => {
+    setSessionHostsConnection(isConnected);
+    return () => {
+      if (isConnected) {
+        setSessionHostsConnection(false);
+      }
+    };
+  }, [isConnected]);
 
   const value: WebSocketContextType = useMemo(() =>
   ({

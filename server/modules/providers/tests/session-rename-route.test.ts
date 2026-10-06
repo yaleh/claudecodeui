@@ -10,6 +10,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import providerRouter from '@/modules/providers/provider.routes.js';
+import { sessionHostManager } from '@/modules/session-hosts/index.js';
 import { connectedClients } from '@/modules/websocket/index.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -92,7 +93,20 @@ test('renaming a session through the route records it as manual and lists the ne
     const connection = new FakeConnection();
     connectedClients.add(connection as never);
 
-    const response = await rename(baseUrl, 'cli-rename-1', { summary: 'Renamed From The UI' });
+    // The session-hosts listing is read by the sidebar's resident-mark rows, and a rename changes the name
+    // that row publishes. So the rename has to announce a listing revision the same way a host transition
+    // does — otherwise the mark's row waits out the fallback poll instead of catching up in the next beat.
+    // The composition root turns this announcement into the `hosts_changed` frame; what this reading fixes
+    // is the rename path's own half: the manager really is told.
+    const revisions: number[] = [];
+    const unsubscribe = sessionHostManager.onChange((rev) => revisions.push(rev));
+
+    let response: Awaited<ReturnType<typeof rename>>;
+    try {
+      response = await rename(baseUrl, 'cli-rename-1', { summary: 'Renamed From The UI' });
+    } finally {
+      unsubscribe();
+    }
 
     assert.equal(response.status, 200);
     const payload = await response.json() as { data: { sessionId: string; summary: string } };
@@ -101,6 +115,11 @@ test('renaming a session through the route records it as manual and lists the ne
     assert.equal(await listedTitle(baseUrl, 'cli-rename-1'), 'Renamed From The UI');
     assert.equal(connection.frames.length, 1);
     assert.equal(connection.frames[0].sessionId, 'cli-rename-1');
+    assert.equal(
+      revisions.length,
+      1,
+      `a rename must announce exactly one listing revision; the manager saw ${revisions.length}`,
+    );
   });
 });
 
@@ -109,7 +128,17 @@ test('renaming a session that does not exist changes nothing and tells no one', 
     const connection = new FakeConnection();
     connectedClients.add(connection as never);
 
-    const response = await rename(baseUrl, 'never-existed', { summary: 'Renamed From The UI' });
+    // The control for the case above: a rename that found nothing must announce no listing revision, so the
+    // "exactly one" there is a reading of the successful path rather than of a manager that always fires.
+    const revisions: number[] = [];
+    const unsubscribe = sessionHostManager.onChange((rev) => revisions.push(rev));
+
+    let response: Awaited<ReturnType<typeof rename>>;
+    try {
+      response = await rename(baseUrl, 'never-existed', { summary: 'Renamed From The UI' });
+    } finally {
+      unsubscribe();
+    }
 
     assert.equal(response.status, 404);
     const payload = await response.json() as { error: { code: string } };
@@ -120,6 +149,7 @@ test('renaming a session that does not exist changes nothing and tells no one', 
       'a rename must not create the session it could not find',
     );
     assert.deepEqual(connection.frames, []);
+    assert.equal(revisions.length, 0, 'a rename that changed nothing must announce nothing');
   });
 });
 

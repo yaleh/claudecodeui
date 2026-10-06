@@ -4,8 +4,8 @@
  * THE CLAIM, IN ONE SENTENCE. When `GET /api/session-hosts` says a session is held
  * (`occupiedBy: { jobId, pid }`), the composer refuses to send — its input is disabled, a notice names the
  * holder and the command that frees it, the status bar offers no [Start], and the send path itself refuses
- * even when it is called directly. When the holder goes away, the very next poll puts all of that back,
- * in the same mounted tree, with no reload.
+ * even when it is called directly. When the holder goes away, the very next listing update puts all of
+ * that back, in the same mounted tree, with no reload.
  *
  * WHY A REFUSAL AND NOT A HINT. The CLI exits 1 on a `--resume` of a session a bg job holds and says so
  * only on stderr, which this app drops — so before this, the user typed a message and got
@@ -15,13 +15,14 @@
  * Without the second arm the first one would also pass against a composer that never sends anything.
  *
  * THE STORE IS THE REAL ONE. Unlike its siblings in this directory, this file does NOT mock
- * `@/shared/hooks/useSessionHosts`. The whole second half of the AC is about the poll — "no reload, no
- * remount, the next tick restores" — and a mocked snapshot source would make that half unmeasurable:
- * the test would be swapping a fixture variable, not watching a poller pick up a new answer. So the real
- * module-level store is driven through a stubbed global `fetch` that answers `/api/session-hosts` from a
- * listing this file mutates, and the fake timer queue is advanced by exactly one poll interval to make
- * the release arrive the way it arrives in the browser. Every request the store makes is counted, so
- * "the poll really ran" is read rather than assumed.
+ * `@/shared/hooks/useSessionHosts`. The whole second half of the AC is about the listing being re-read —
+ * "no reload, no remount, the next update restores" — and a mocked snapshot source would make that half
+ * unmeasurable: the test would be swapping a fixture variable, not watching the real store pick up a new
+ * answer. So the real module-level store is driven through a stubbed global `fetch` that answers
+ * `/api/session-hosts` from a listing this file mutates, and the release is delivered the way the browser
+ * delivers one now: an announced change (`invalidateSessionHosts`, the signal the websocket bridge passes
+ * on) folded into the store's short coalescing beat. Every request the store makes is counted, so "the
+ * store really re-read the listing" is read rather than assumed.
  *
  * WHAT IS COMPOSED HERE, AND WHAT IS NOT. `ChatInterface` is not rendered: it wants websocket, session
  * protection and task-settings providers, and none of them is part of this claim. The harness below wires
@@ -64,6 +65,7 @@ import trChat from '@/modules/i18n/locales/tr/chat.json';
 import zhCNChat from '@/modules/i18n/locales/zh-CN/chat.json';
 import zhTWChat from '@/modules/i18n/locales/zh-TW/chat.json';
 import { resetChatDrafts } from '@/shared/chatDrafts';
+import { invalidateSessionHosts } from '@/shared/hooks/useSessionHosts';
 import type { ChatMessage, LLMProvider, Project, ProjectSession, SessionHostsSnapshot } from '@/shared/types';
 
 /* ─── The fixture the listing is built from ──────────────────────────────── */
@@ -205,8 +207,8 @@ vi.mock('@/modules/chat/hooks/useVoiceInput', () => ({
 /**
  * What the next `/api/session-hosts` poll answers with, and what the client actually did.
  *
- * `listing` is assigned between phases; `requests` counts only the listing reads, so the composer's own
- * incidental traffic (drafts, commands, capabilities) cannot make the poll evidence noisy.
+ * `listing` is assigned between phases; `listingRequests` counts only the listing reads, so the composer's
+ * own incidental traffic (drafts, commands, capabilities) cannot make the re-read evidence noisy.
  */
 const harness = {
   listing: null as SessionHostsSnapshot | null,
@@ -387,23 +389,33 @@ const occupiedNotice = (container: HTMLElement) =>
 
 const startControl = (container: HTMLElement) => container.querySelector('[data-resident-start]');
 
-/** Lets the store's first read and its effects land, without touching the poll clock. */
+/** Lets the store's first read and its effects land, without touching the clock. */
 async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
   });
 }
 
-/** Advances exactly one poll interval and lets the resulting read land. */
-async function tick(): Promise<void> {
+/**
+ * How far past an announcement the store's coalescing window is allowed to run.
+ *
+ * Longer than the store's own coalescing beat (250ms), and far shorter than the
+ * shortest fallback interval (2s with the websocket down) — so a re-read below can
+ * only have come from the announcement, never from a timer.
+ */
+const COALESCE_BEAT_MS = 300;
+
+/** Delivers a listing change the way the websocket bridge does, and drains the re-read. */
+async function announceListingChange(): Promise<void> {
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(1000);
+    invalidateSessionHosts();
+    await vi.advanceTimersByTimeAsync(COALESCE_BEAT_MS);
   });
 }
 
 /* ─── AC5: the read-only state, and its release ──────────────────────────── */
 
-test('AC5: a held session is read-only, and the next poll after the release restores it in place', async () => {
+test('AC5: a held session is read-only, and the next listing update after the release restores it in place', async () => {
   harness.listing = occupiedListing();
 
   // The hook returns a fresh object every render — a `handleSubmit` captured once would be the
@@ -427,7 +439,7 @@ test('AC5: a held session is read-only, and the next poll after the release rest
 
   assert.ok(
     harness.listingRequests >= 1,
-    'the real store must have polled the listing, or the reading below is of a fixture, not a poll',
+    'the real store must have read the listing, or the reading below is of a fixture, not a store read',
   );
 
   assert.equal(
@@ -495,16 +507,16 @@ test('AC5: a held session is read-only, and the next poll after the release rest
     'a held session emits no frame at all — a disabled textarea is a hint, not an enforcement',
   );
 
-  /* ── Phase 2: released, and picked up by the poll ── */
+  /* ── Phase 2: released, and picked up by the next announced update ── */
 
   const nodeBeforeRelease = textarea(container);
   harness.listing = releasedListing();
   const requestsBeforeRelease = harness.listingRequests;
-  await tick();
+  await announceListingChange();
 
   assert.ok(
     harness.listingRequests > requestsBeforeRelease,
-    'the tick really re-read the listing — without this the restore below could be a local default',
+    'the announced change really re-read the listing — without this the restore below could be a local default',
   );
   // `assert.ok(x === y)` rather than `assert.equal(x, y)` for every assertion whose operands are DOM
   // nodes: a failing `assert.equal` hands the node to the reporter as `actual`, and serializing a

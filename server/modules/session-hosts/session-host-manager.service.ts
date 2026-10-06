@@ -398,6 +398,62 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   /** How each close is settling, so `shutdown()` can await the whole set. */
   const pendingCloseByHost = new Map<string, Promise<void>>();
 
+  /**
+   * Subscribers told whenever the host listing changes, and the revision that
+   * numbers each change.
+   *
+   * The listing used to have no event at all — a client could only re-read
+   * `GET /api/session-hosts` on a timer — which is why the browser polled it once
+   * a second. The revision is what lets a client tell a frame it has already
+   * acted on from a fresh one (frames can arrive out of order across a
+   * reconnect), so it is bumped by the announcement rather than derived from the
+   * host records: two changes that leave the records identical are still two
+   * changes a reader has to observe.
+   */
+  const changeListeners = new Set<(rev: number) => void>();
+  let listingRev = 0;
+
+  /**
+   * Announces one change to the host listing.
+   *
+   * Called once from the end of every write that can move what a reader of
+   * `snapshot()` sees. The internal callers are the state machine's own
+   * transitions (`deriveState`, `closeHost`, and the binding writes that do not
+   * go through them); the external one is the providers module's session
+   * create/rename paths, which change the listing's `sessions[]` half without
+   * touching a host. A listener that throws is isolated rather than allowed to
+   * unwind a caller's state transition — the announcement is a notification, not
+   * a step the state machine depends on.
+   *
+   * Public because it is the composition root's wire between this manager and
+   * the websocket broadcast, and because the providers module reaches it through
+   * this module's barrel.
+   */
+  function notifyHostsChanged(): void {
+    listingRev += 1;
+    for (const listener of changeListeners) {
+      try {
+        listener(listingRev);
+      } catch (error) {
+        console.error('[session-hosts] a host-listing listener threw', error);
+      }
+    }
+  }
+
+  /**
+   * Subscribes to host-listing changes. Returns the unsubscribe function.
+   *
+   * Consumed by the composition root, which forwards each revision to the
+   * websocket broadcast. The listener receives the new revision so the frame it
+   * produces can be de-duplicated by a client that has already applied it.
+   */
+  function onChange(listener: (rev: number) => void): () => void {
+    changeListeners.add(listener);
+    return () => {
+      changeListeners.delete(listener);
+    };
+  }
+
   function policyFor(mode: HostMode): LifecyclePolicy {
     return mode === 'resident' ? residentPolicy : perRunPolicy;
   }
@@ -537,21 +593,25 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
    * the lease that just went away, and is used only to name the close when the
    * removal emptied the set: a turn ending is `turn-complete`, anything else
    * releasing its last claim is `released`.
+   *
+   * Returns whether the recomputation closed the host. A close announces itself
+   * through `closeHost`, so the caller uses this to avoid announcing the same
+   * transition a second time.
    */
-  function deriveState(
+  function applyDerivedState(
     host: ProcessHost,
     binding: SessionBinding,
     releasedKind: HostLease['kind'] | null,
-  ): void {
+  ): boolean {
     if (host.state === 'closed') {
-      return;
+      return false;
     }
 
     if (binding.leases.some((lease) => lease.kind === 'turn')) {
       host.state = 'busy';
       binding.state = 'busy';
       clearQuietClose(host);
-      return;
+      return false;
     }
 
     binding.state = 'idle';
@@ -559,7 +619,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     if (held) {
       host.state = 'lingering';
       armQuietClose(host, binding);
-      return;
+      return false;
     }
 
     if (binding.leases.length > 0) {
@@ -567,7 +627,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
       // mode's statement that this process is meant to sit here between turns.
       host.state = 'idle';
       armQuietClose(host, binding);
-      return;
+      return false;
     }
 
     if (host.state === 'starting') {
@@ -577,16 +637,39 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
       // so this state is not reachable through the application; it exists so
       // that opening a host and arming its clock are not the same act.
       armQuietClose(host, binding);
-      return;
+      return false;
     }
 
     if (policyFor(host.mode).closeWhenLeasesEmpty) {
       closeHost(host.hostId, releasedKind === 'turn' ? 'turn-complete' : 'released');
-      return;
+      return true;
     }
 
     host.state = 'idle';
     armQuietClose(host, binding);
+    return false;
+  }
+
+  /**
+   * Recomputes a host's state and announces the change exactly once.
+   *
+   * A recomputation that closes the host announces through `closeHost`; every
+   * other recomputation is one change to the listing — the state word, the lease
+   * set and `lastActivityAt` are all things `snapshot()` publishes — so it is
+   * announced here once. Callers guard against a closed host before calling, so
+   * the early return below is a safety net rather than a path.
+   */
+  function deriveState(
+    host: ProcessHost,
+    binding: SessionBinding,
+    releasedKind: HostLease['kind'] | null,
+  ): void {
+    if (host.state === 'closed') {
+      return;
+    }
+    if (!applyDerivedState(host, binding, releasedKind)) {
+      notifyHostsChanged();
+    }
   }
 
   /**
@@ -636,22 +719,26 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     driverByHostId.delete(hostId);
     if (!driver) {
       pendingCloseByHost.set(hostId, Promise.resolve());
-      return;
+    } else {
+      try {
+        // A driver that rejects is not a shutdown failure: the host is gone
+        // either way, and the reason it was closed is already recorded.
+        pendingCloseByHost.set(
+          hostId,
+          Promise.resolve(driver.closeHost(host, reason)).then(
+            () => undefined,
+            () => undefined,
+          ),
+        );
+      } catch {
+        pendingCloseByHost.set(hostId, Promise.resolve());
+      }
     }
 
-    try {
-      // A driver that rejects is not a shutdown failure: the host is gone
-      // either way, and the reason it was closed is already recorded.
-      pendingCloseByHost.set(
-        hostId,
-        Promise.resolve(driver.closeHost(host, reason)).then(
-          () => undefined,
-          () => undefined,
-        ),
-      );
-    } catch {
-      pendingCloseByHost.set(hostId, Promise.resolve());
-    }
+    // One announcement per close, after the record is fully torn down: a
+    // listener that re-reads the snapshot must see the closed host whole, not a
+    // record with its state flipped and its bindings still attached.
+    notifyHostsChanged();
   }
 
   /**
@@ -763,7 +850,14 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     }
 
     found.binding.lastActivityAt = now();
-    deriveState(found.host, found.binding, null);
+    // Re-derived so the quiet window is re-counted from the new activity, but
+    // deliberately *not* announced: this runs on every message a process emits
+    // (a streamed frame, a tool call), and the only listing field it moves is
+    // `lastActivityAt`, which no client reads. Announcing here would put a
+    // `hosts_changed` frame on the wire per streamed frame — the one-second poll
+    // this change removes, restated as a push. `applyDerivedState` is the
+    // announcement-free half of `deriveState`.
+    applyDerivedState(found.host, found.binding, null);
     return true;
   }
 
@@ -793,6 +887,9 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     }
 
     found.binding.peerName = peerName;
+    // `peerName` is published by the listing, so a rebind of the address is a
+    // change a reader has to observe even though no state word moved.
+    notifyHostsChanged();
     return true;
   }
 
@@ -1008,6 +1105,9 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     }
 
     if (host.bindings.size > 0) {
+      // The host survived the detach, so nothing goes through `closeHost`: the
+      // listing changed here (a binding left it) and is announced here.
+      notifyHostsChanged();
       return true;
     }
 
@@ -1137,6 +1237,12 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
       if (!turn.settled && host.state !== 'closed') {
         turn.lingering = true;
         host.state = 'lingering';
+        // The held-stdin window outlived its macrotask: the host moved from
+        // `busy` to `lingering`, which is the change announced here. A run that
+        // settles inside that macrotask closes instead, and `closeHost`
+        // announces that one — so a turn end is exactly one announcement
+        // whichever shape it takes.
+        notifyHostsChanged();
       }
     });
     turn.settleGate.unref?.();
@@ -1231,6 +1337,9 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     hosts.set(host.hostId, host);
     hostIdByAppSession.set(appSessionId, host.hostId);
     perRunTurns.set(host.hostId, turn);
+    // A new host is in the listing before its first frame is observed; the
+    // announcement is what lets a client see the turn start without a poll.
+    notifyHostsChanged();
 
     let runPromise: Promise<unknown>;
     try {
@@ -1481,6 +1590,8 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   }
 
   return {
+    onChange,
+    notifyHostsChanged,
     openHost,
     bindSession,
     unbindSession,

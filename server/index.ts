@@ -25,7 +25,7 @@ import {
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
 } from '@/modules/providers/index.js';
-import { activityStore, BOOT_ID, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
+import { activityStore, BOOT_ID, broadcastHostsChanged, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -184,6 +184,17 @@ createWebSocketServer(server, {
 // here. Without this, an unattended turn is still carried (its frames go to the
 // last writer, as before the seam existed); it is simply not a run.
 sessionHostManager.setUnattendedRunOpener((input) => chatRunRegistry.openUnattendedRun(input));
+
+// The host listing's push wire. The manager owns the revision and announces
+// every change to it; this is the one subscriber, and it turns each revision
+// into a `hosts_changed` invalidation frame on the shared connection registry.
+// It lives here for the same reason the opener above does: the manager is
+// imported by the websocket module, so it cannot import the broadcast back — the
+// composition root, where both are in scope, is the only place the edge can be
+// drawn without a cycle. Consumers of the frame (the browser's session-hosts
+// store) re-read `GET /api/session-hosts` rather than receiving a second copy of
+// the listing.
+sessionHostManager.onChange((rev) => broadcastHostsChanged(rev));
 
 // The debug agent's half of the same seam, and deliberately the *same* route: a
 // scenario's unattended turn opens a run by asking the session-host manager,

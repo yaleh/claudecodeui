@@ -310,6 +310,24 @@ export type SessionUpsertedEvent = {
 };
 
 /**
+ * The `hosts_changed` invalidation frame, built only by
+ * `modules/websocket/services/hosts-changed-broadcast.service.ts`.
+ *
+ * An invalidation rather than a payload: `rev` is the session-host manager's
+ * listing revision, and a client that has already applied that revision ignores
+ * a repeat of it. The listing itself is deliberately absent — `GET
+ * /api/session-hosts` remains the only face that builds it — so the browser
+ * re-reads that endpoint instead of receiving a second, driftable copy of the
+ * view.
+ */
+export type HostsChangedEvent = {
+  kind: 'hosts_changed';
+  /** The manager's listing revision; strictly increasing across one server run. */
+  rev: number;
+  timestamp: string;
+};
+
+/**
  * Provider-neutral message envelope used in REST responses and realtime channels.
  *
  * Every provider-specific message must be converted into this shape before being

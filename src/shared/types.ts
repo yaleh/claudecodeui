@@ -538,7 +538,7 @@ export type ActivitySnapshotFrame = {
 /**
  * One frame received from the chat websocket. The server guarantees every
  * frame carries a `kind` (provider message kinds plus gateway kinds such as
- * `chat_subscribed`, `session_upserted`, `loading_progress`,
+ * `chat_subscribed`, `session_upserted`, `hosts_changed`, `loading_progress`,
  * `protocol_error`). The synthetic `websocket_reconnected` kind is injected
  * client-side when the socket re-opens after a drop.
  */
@@ -550,6 +550,23 @@ export type ServerEvent = {
   /** Identity of the run `seq` belongs to; see `NormalizedMessage.runId`. */
   runId?: string;
   [key: string]: unknown;
+};
+
+/**
+ * The `hosts_changed` invalidation frame, mirrored from the server's
+ * `HostsChangedEvent`.
+ *
+ * It carries no listing — only the session-host manager's revision — because
+ * `GET /api/session-hosts` stays the one place the snapshot is built. The
+ * session-hosts store reads `rev` to tell a frame it has already applied from a
+ * fresh one and then re-reads that endpoint, so the push and the REST read can
+ * never disagree about the shape of a host.
+ */
+export type HostsChangedEvent = {
+  kind: 'hosts_changed';
+  /** The manager's listing revision; strictly increasing across one server run. */
+  rev: number;
+  timestamp: string;
 };
 
 /**
