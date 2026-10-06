@@ -508,9 +508,14 @@ const readAllTextNodes = (page: Page): Promise<string> => page.evaluate(() => {
  */
 const firstLanding = (page: Page): StartupLanding => ({
   label: () => 'the account form or the app shell',
-  present: async (budgetMs) =>
-    (await appears(page.locator('#username'), budgetMs))
-    || (await appears(page.getByRole('button', { name: 'Settings', exact: true }).first(), budgetMs)),
+  present: async (budgetMs) => {
+    // One budget for BOTH probes, or a blank page spends the whole probe window on the first probe and the guard
+    // reaches its deadline without ever replaying — the one thing the deadline exists to leave room for.
+    const startedAt = Date.now();
+    if (await appears(page.locator('#username'), budgetMs)) return true;
+    const remainingMs = Math.max(1, budgetMs - (Date.now() - startedAt));
+    return appears(page.getByRole('button', { name: 'Settings', exact: true }).first(), remainingMs);
+  },
 });
 
 /** Boots one state in a fresh browser context seeded with a fresh data directory. */
