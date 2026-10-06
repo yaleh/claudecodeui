@@ -1,7 +1,7 @@
 ---
 id: AC-289
 title: 面向调用方的服务端文案统一为英文：message、note、explanation、description 字段里不再有中文
-status: draft
+status: active
 kind: criterion
 goal: GOAL-024
 criterion: for f in server/modules/mcp-gateway/tests/mcp-english-only.test.ts;
@@ -18,4 +18,15 @@ expect: 读数：(a)
   1 输出缺失的文件名。
 origin: 本会话（2026-10-06）对 ChatGPT 与 Gemini 接入真实经验的 MCP 接口契约审计，及人 yale
   同日指令：把审计清单落成 quay goal。
+activatedAt: 2026-10-06T12:19:21.326Z
+statusLog:
+  - at: 2026-10-06T12:19:21.326Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-06T12:19:21.326Z
 ---
