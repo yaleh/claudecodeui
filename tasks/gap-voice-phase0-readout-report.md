@@ -1,7 +1,7 @@
 ---
 id: gap-voice-phase0-readout-report
 title: 阶段 0 读数报告脚本：从本机语音数据计算退出判据（段数、标签数、手改比例、置信度 AUROC、标记数、错词形态清单），只输出聚合、不含原文与音频
-status: ready
+status: done
 labels:
   - gap
 parent: null
