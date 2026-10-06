@@ -2,7 +2,7 @@
 id: gap-ac289-english-only-server-copy
 title: 服务端文案统一为英文（AC-289）：message/note/explanation/hostNote/description/instructions/授权页无
   CJK，用户数据原样返回，判据 server/modules/mcp-gateway/tests/mcp-english-only.test.ts
-status: ready
+status: done
 labels:
   - gap
   - defect
