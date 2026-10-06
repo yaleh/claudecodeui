@@ -2,7 +2,7 @@
 id: gap-mcp-tool-annotations-audit
 title: "CloudCLI MCP tools/list: audit
   readOnlyHint/destructiveHint/openWorldHint annotations for accuracy"
-status: ready
+status: done
 labels:
   - gap
 parent: null
