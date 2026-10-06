@@ -129,6 +129,7 @@
       "INVALID_BASE_URL": "The voice provider's base URL is not valid — correct it in the voice provider settings.",
       "OVERSIZE": "The recording is too large to upload — record a shorter clip and try again.",
       "UNSUPPORTED_MIME": "This audio format is not supported — try a different file, or record with the microphone.",
+      "ENGINE_UNAVAILABLE": "The local speech engine is not available on this server — check that it is installed, or choose another voice provider.",
       "unknown": "The transcription failed — try again, or check the voice provider settings."
     }
   },

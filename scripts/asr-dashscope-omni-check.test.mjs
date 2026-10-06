@@ -60,6 +60,7 @@ const SHIPPING_FILES = [
   'shared/asr/list/multimodal/multimodal.asr-provider.ts',
   'shared/asr/list/openai-compatible/openai-compatible.asr-provider.ts',
   'shared/asr/list/dashscope-omni/dashscope-omni.asr-provider.ts',
+  'shared/asr/list/sensevoice-local/sensevoice-local.asr-provider.ts',
 ];
 
 /** The module under test: every mutation below but one is applied to this file. */

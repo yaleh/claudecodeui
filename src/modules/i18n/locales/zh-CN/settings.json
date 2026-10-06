@@ -77,7 +77,11 @@
     "dataClear": "清空语音数据",
     "dataClearConfirm": "确认，全部删除",
     "dataClearCancel": "取消",
-    "dataCleared": "已删除 {{count}} 条语音记录。"
+    "dataCleared": "已删除 {{count}} 条语音记录。",
+    "providerLocalTitle": "{{provider}} 在本服务器上运行",
+    "providerLocalNotice": "该识别器运行在托管本服务器的机器上。它不需要密钥和地址——音频不会离开本机——因此下方的共享后端字段对它不适用。",
+    "providerBuild": "引擎构建：{{buildId}}",
+    "providerUnavailable": "该识别器在此无法运行：{{reason}}"
   },
   "quickSettings": {
     "title": "快速设置",
