@@ -61,13 +61,18 @@ uncapped and says so on stderr.
 Wired in at:
 
 - `npm run test:client` (`vitest run`);
-- the client phase of `scripts/test.sh`, which is what quay's fan-in runs.
+- the client phase of `scripts/test.sh`, which is what quay's fan-in runs;
+- `npm run test:server` (a `tsx --test` run over the server glob);
+- `npm run test:scripts` (a `node --test` run over `scripts/**/*.test.mjs`).
 
-Both are **opt-in call sites**, which is exactly how the 2026-09-25 incident got past it: the
-pane ran a bare `npx vitest run`, and nothing in that command line reaches this script.
+The first two are **opt-in call sites**, which is exactly how the 2026-09-25 incident got past it:
+the pane ran a bare `npx vitest run`, and nothing in that command line reaches this script.
 
-The server phase (`node --test`) is **not** capped: it is many short processes under a
-concurrency clamp and has no memory incident on record.
+The server phase (`node --test`) used to be **uncapped** — many short processes under a
+concurrency clamp, with no memory incident on record — but the two npm entry points above now
+wrap it too, after a session OOM'd at 8G on 2026-10-06 (see "Running tests from a Claude
+session"). `scripts/test.sh`'s own server phase is still uncapped on purpose; that section's
+"Not done" subsection says why.
 
 ### The per-worker V8 heap ceiling (`vitest.config.ts`)
 
@@ -724,4 +729,46 @@ script refuses on a slice with no limit and on a missing plugin. **Not yet verif
 run — that `start-drivers.js` and the workers it spawns inherit `QUAY_MEMORY_SLICE` (workers are
 `claude` sessions, and env inheritance through them was not checked). Confirm after the first start
 that `test.sh` scopes appear under `quay-fleet.slice`.
+
+## Running tests from a Claude session
+
+A Claude session runs under its own cgroup with `MemoryMax=8GiB`
+(`### Resident scopes: claude-session-scope.service.ts` above). `node --test` defaults its file
+concurrency to `availableParallelism() - 1` — 127 on a 128-core host — so a bare multi-file
+`--test` fan-out can exceed 8G and the kernel OOM-kills the **whole session**: 2026-10-06, a
+34-file `tsx --test` invocation returned `Exit code 137` about 1.5s in, killing session
+`db94ee35-…`. Pick the shape by how much you are about to run:
+
+| What you are running | How |
+|---|---|
+| One or a few files | `npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test <file…>` — a couple of processes stay inside 8G |
+| Many files, a directory, or a glob | `bash scripts/with-memory-cap.sh … --test --test-concurrency=<N>` — the memory cap **and** the concurrency clamp are both required; either alone is not enough |
+| This task's own acceptance | `bash scripts/test.sh --for-task <id>` |
+| The full suite | Do **not** run it from a session — leave it to quay's fan-in. If you must, wrap it in `with-memory-cap.sh` |
+| Experiments that launch Chromium/Playwright or a real server | Always `bash scripts/with-memory-cap.sh` |
+| A long measurement that must outlive the session | A separate `systemd-run --user` service — and **pass the environment explicitly**: a service with no `DATABASE_PATH` makes two environment-dependent server tests fail spuriously |
+
+`npm run test:server` and `npm run test:scripts` both follow the second row — each wraps its
+runner in `with-memory-cap.sh` with `--test-concurrency=16` (the ceiling `scripts/test.sh` also
+clamps to, and the only value with a measured wall-clock knee behind it).
+
+### Not done: scripts/test.sh scopes its own server phase
+
+Evaluated 2026-10-06 and deliberately not done; the reasoning is recorded so it is not re-litigated:
+
+1. The fan-in path is already inside the runner's own scope **and** the fleet slice
+   (`QUAY_TEST_SYSTEMD_RUN_LIMITS`, `MemoryMax=24G`) — it does not need another one.
+2. Running `bash scripts/test.sh` in full **from a session** still hits the 8G session cap — that is
+   a real risk, not a hypothetical one.
+3. But wrapping `test.sh`'s server phase in another `systemd-run --scope` would let the fan-in suite
+   escape the fleet slice's ceiling: `with-memory-cap.sh`'s own header notes a scope does **not** nest
+   under the caller's cgroup, so the limit has to travel via `QUAY_MEMORY_SLICE`. It would also stack a
+   second layer on top of the client phase's existing `QUAY_MEMORY_UNIT` + journal OOM attribution.
+4. `scripts/test.sh` is being changed by
+   `gap-suite-server-dispatch-longest-first-and-parallel-static-stages`; this task does not touch it.
+
+**Re-evaluation trigger:** once (1) and (2) above have landed, if the journal shows another
+`claudecodeui-session-*.scope … oom-kill` whose killed session's last command contains
+`scripts/test.sh`, file a new task (direction: wrap once at the entry point only, thread
+`QUAY_MEMORY_SLICE` through, and skip when already inside a limited scope).
 
