@@ -50,6 +50,11 @@ import {
   runtime as sensevoiceLocalRuntime,
   transcribe as sensevoiceLocalTranscribe,
 } from './list/sensevoice-local/sensevoice-local.asr-provider.js';
+import {
+  capabilities as sensevoiceWasmCapabilities,
+  id as sensevoiceWasmId,
+  transcribe as sensevoiceWasmTranscribe,
+} from './list/sensevoice-wasm/sensevoice-wasm.asr-provider.js';
 import type { TranscriptionTolerance } from './transcriptionWire.js';
 
 /** A provider id, as it is written in user-level configuration. */
@@ -850,6 +855,27 @@ const REGISTERED: readonly AsrAdapter[] = [
     transcribe: sensevoiceLocalTranscribe,
     runtime: sensevoiceLocalRuntime,
     ensureRuntime: sensevoiceLocalEnsureRuntime,
+  },
+  // APPENDED LAST, for the reason the two rows above give and one of its own.
+  //
+  // The shared half: `listProviders()[0]` is the recogniser an id-less deployment resolves to and the
+  // row the client reads a trim decision off (see the comment on `REGISTERED`), so a new selectable
+  // provider goes at the END and the shipped default does not move.
+  //
+  // THIS ROW'S OWN HALF IS THAT ITS ENGINE RUNS ON A DIFFERENT MACHINE FROM EVERY OTHER ROW'S. The
+  // four above run on a service or on this host; this one runs in the user's own browser, which is
+  // what its `locality: 'local-client'` declares. The consequence a reader of THIS list has to know
+  // is that its readiness is NOT readable from here: there is one engine per browser, so unlike the
+  // `sensevoice-local` row above it registers no `runtime` and no `ensureRuntime` — the server cannot
+  // report a fact about a device it cannot see, and a row that claimed otherwise would put a second,
+  // ambiguous "local engine" status into the health payload the settings form renders. The client's
+  // own availability hook asks the browser instead. It likewise declares no `wire` (there is no wire
+  // to name), no `allowedBaseUrl` (there is no address to hold to a rule) and no `credentials` (there
+  // is no key, which is the declaration the settings form reads to decide not to render one).
+  {
+    id: sensevoiceWasmId,
+    capabilities: sensevoiceWasmCapabilities,
+    transcribe: sensevoiceWasmTranscribe,
   },
 ];
 

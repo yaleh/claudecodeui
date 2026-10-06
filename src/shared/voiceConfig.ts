@@ -19,6 +19,7 @@
  * the origin.
  */
 
+import { id as voiceClientAsrProviderId } from '@shared/asr/list/sensevoice-wasm/sensevoice-wasm.asr-provider';
 import { getStoredAuthToken } from '@/shared/authToken';
 import { api } from '@/shared/api';
 
@@ -238,6 +239,22 @@ function clearLegacyVoiceConfig(): void {
  */
 export function readVoiceConfig(): VoiceConfig {
   return { ...config };
+}
+
+/**
+ * Whether the user's selected recogniser is the one that runs in this browser.
+ *
+ * THE ENABLE SWITCH FOR THE CLIENT PATH IS THE PROVIDER SELECTION, not a new field. A boolean in
+ * this document would have to travel to the server and back (the store validates the document
+ * field-by-field, so a field the server does not know is dropped on the next save), and it would be a
+ * second answer to a question `providerId` already answers: a user who selects the on-device
+ * recogniser has enabled it, and one who selects another has not. What the field would NOT have
+ * carried is the one thing that makes this a helper rather than a comparison at each call site — the
+ * ID ITSELF, which belongs to the adapter and is imported from it here rather than copied. A second
+ * copy of that string in this file is exactly the kind of fact that goes stale silently.
+ */
+export function isVoiceClientAsrSelected(): boolean {
+  return readVoiceConfig().providerId === voiceClientAsrProviderId;
 }
 
 /**

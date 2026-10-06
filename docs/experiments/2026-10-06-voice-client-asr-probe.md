@@ -353,3 +353,17 @@ node serve.mjs --isolated
 工装 `experiments/voice-client-asr-probe/` 只测不改：**不动 `src/`、`server/`、`shared/`**，
 **不入库模型权重 / 音频 / 构建产物**（`git ls-files experiments/voice-client-asr-probe` 里没有任何
 `.onnx / .wav / .wasm / .bin`）。
+
+## 13. 产品实现的接线（`gap-voice-client-asr-wasm-adapter` 交付，供 §10 真机复核启用）
+
+本节只写「怎么把客户端路径打开」，**不含任何读数**——真机的读数按 AC 由 yale 写进 §10。
+
+- **开关是选识别器，不是一个新开关。** 在设置页把识别器选成 `sensevoice-wasm`（`locality: 'local-client'`）才走客户端路径；选别的仍完全不碰。客户端路径下 `useVoiceAvailable` 读引擎自己的 `available`（四个变量配齐但模型还没下载也算可用，否则首下 8–10 分钟里麦克风会被误藏），`useVoiceInput` 按片段走客户端、按下面两条规则回退服务端。
+- **四个构建期变量，缺一整条路径不启用**（`import.meta.env`，all-four-or-nothing；缺哪个就把哪个名字写进用户可见的原因里，不半开）：
+  - `VITE_VOICE_CLIENT_MODEL_URL` → `model.int8.onnx`（239 233 841 B，sha256 `c71f0ce0…cd51`）
+  - `VITE_VOICE_CLIENT_TOKENS_URL` → 同目录的 `tokens.txt`
+  - `VITE_VOICE_CLIENT_ORT_SCRIPT_URL` → onnxruntime-web 1.30.0 的入口 js（运行时 `import()` 加载，不进应用包）
+  - `VITE_VOICE_CLIENT_ORT_WASM_PATHS` → 该发行版 `.wasm` / worker 文件所在目录前缀（写进 `ort.env.wasm.wasmPaths`）
+  模型与 `tokens.txt` 就是 §1 用的那两份，ort-web 1.30.0 的取法见 `experiments/voice-client-asr-probe/README.md` 的两行 curl。四个 URL 都由部署方自己托管，仓库不入库。
+- **首次下载与二次打开怎么读**：下载**先校验 sha256、后写 Cache API**（探针那版是先写后校验，本实现在产品里补上了）；之后每次打开先读缓存并重新校验哈希，命中则**零网络请求**。进度与降级提示从 `observeVoiceClientAsrEngine({ onProgress, onNotice })` 取（`useVoiceAvailable` 只是个布尔，不看进度）。
+- **两条回退怎么人为触发**（都先在 `window` 上发一条 `voice-client-asr:fallback` 事件，不静默）：引擎不可用——不设上面四个变量，或让页面拿不到 `caches` / `crypto.subtle`（非 HTTPS 打开）；单条片段太慢——把页面 CPU 压到 §6 那个量级，让**某一条**片段的实时因子超过 1.0，其余片段仍留在客户端（判据按片段，不按平均）。

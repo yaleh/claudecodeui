@@ -24,8 +24,18 @@ import {
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import { VOICE_FRAME_PROCESSOR_NAME, type VoiceFrameMessage } from '@/modules/chat/audio/voiceFrameProcessor';
 import { voiceFrameProcessorUrl } from '@/modules/chat/audio/voiceFrameProcessorUrl';
+import {
+  clientAsrSegmentTimeoutMs,
+  installVoiceClientAsrEngine,
+  routeClientAsrSegment,
+} from '@/modules/chat/audio/voiceClientAsrWorker';
 import { api, captureRawVoice, effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
-import { hydrateVoiceRawCapture, isVoiceRawCaptureEnabled, readVoiceConfig } from '@/shared/voiceConfig';
+import {
+  hydrateVoiceRawCapture,
+  isVoiceClientAsrSelected,
+  isVoiceRawCaptureEnabled,
+  readVoiceConfig,
+} from '@/shared/voiceConfig';
 import { labelsFor, type VoiceSourceSegment } from '@/shared/voiceEditLabels';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
@@ -803,20 +813,13 @@ export function useVoiceInput(
   };
 
   /**
-   * One segment's journey: upload, parse, repair.
+   * One segment, recognised by the SERVER: upload, parse, repair.
    *
    * Throwing is how the pipeline is told to retry, and `refusals` is where the structured reason is
    * left so a segment that runs out of retries can still report the code the recogniser sent.
    */
-  const transcribeSegment = (session: CaptureSession, job: SegmentJob): Promise<string> =>
+  const transcribeViaServer = (session: CaptureSession, job: SegmentJob): Promise<string> =>
     (async () => {
-      // A refusal the recogniser already gave is definitive, and the pipeline's retries are for
-      // transient failures. Re-asking a provider that has answered would spend a second request (and
-      // for a metered provider, a second charge) on a question whose answer is not going to change, so
-      // the remembered refusal is re-thrown without a call: the segment still exhausts its retries and
-      // is still reported once, but only one upload is ever made.
-      const remembered = session.refusals.get(job.index);
-      if (remembered) throw remembered;
       const response = await transcribeVoice(
         job.blob,
         `${SEGMENT_BASE_NAME}-${job.index + 1}.wav`,
@@ -860,6 +863,96 @@ export function useVoiceInput(
         });
       }
       return repaired;
+    })();
+
+  /**
+   * One segment, recognised by THIS DEVICE, or null when the server should take it.
+   *
+   * THE ROUTING DECIDES, NOT THIS FUNCTION. `routeClientAsrSegment` is the policy — it recognises on
+   * the device, measures the segment, and either returns the result or names why it left; null here
+   * means "not mine", and the caller falls through to the upload path. The decision is not duplicated
+   * here, because a second copy of "when do we fall back" is a second answer that can drift.
+   *
+   * A REFUSAL FROM THE DEVICE IS KEPT. `NO_SPEECH_DETECTED` from the model, or a container the engine
+   * cannot read, is remembered exactly as the server's own refusal is: it is a definitive answer about
+   * this clip, and re-asking the server would spend a request (and a metered charge) on a question the
+   * user already has an answer to — while also uploading audio the user asked to keep on the device.
+   */
+  const transcribeOnDevice = async (session: CaptureSession, job: SegmentJob): Promise<string | null> => {
+    // Idempotent, and the first thing a client-path listen does: with no engine installed the adapter
+    // answers `ENGINE_UNAVAILABLE` and the routing sends this segment to the server, which is the
+    // fail-closed behaviour rather than a special case here.
+    installVoiceClientAsrEngine();
+    const config = readVoiceConfig();
+    const durationSec = job.endSec - job.startSec;
+    const route = await routeClientAsrSegment({
+      request: {
+        audio: {
+          bytes: new Uint8Array(await job.blob.arrayBuffer()),
+          mimeType: 'audio/wav',
+          fileName: `${SEGMENT_BASE_NAME}-${job.index + 1}.wav`,
+          durationSec,
+        },
+      },
+      // A recogniser that runs in this tab reaches no address, so the invocation carries the
+      // deployment's values for the fields the seam requires and nothing else. `timeoutMs` is the one
+      // field the client path reads, and it is derived from the segment rather than from a provider's
+      // published deadline.
+      invocation: {
+        baseUrl: config.baseUrl,
+        apiKey: '',
+        model: config.sttModel,
+        timeoutMs: clientAsrSegmentTimeoutMs(durationSec),
+        fetchImpl: (...args) => fetch(...args),
+      },
+      durationSec,
+      segmentIndex: job.index,
+    });
+
+    if (route.to === 'server') return null;
+    if (!route.result.ok) {
+      const failure: VoiceTranscriptionFailure = {
+        code: route.result.code,
+        ...(route.result.status === undefined ? {} : { status: route.result.status }),
+      };
+      session.refusals.set(job.index, failure);
+      throw failure;
+    }
+
+    const repaired = repairIdentifiers(route.result.text, candidatesRef.current);
+    if (isVoiceDebugEnabled()) {
+      // The same reading the server path logs, tagged with the path that produced it: a reading taken
+      // on the device and a reading taken on the server are not interchangeable, and a log that could
+      // not tell them apart would make the two look like a regression of one another.
+      console.debug('[voice] identifier fidelity', {
+        path: 'client',
+        after: identifierFidelity(route.result.text, repaired),
+      });
+    }
+    return repaired;
+  };
+
+  /**
+   * One segment's journey: the device when it is selected and can answer, the server otherwise.
+   *
+   * The remembered refusal is checked HERE rather than inside either path, because it is about the
+   * SEGMENT rather than about the recogniser that refused it: whichever path answered first has
+   * answered, and the pipeline's retries are for transient failures.
+   */
+  const transcribeSegment = (session: CaptureSession, job: SegmentJob): Promise<string> =>
+    (async () => {
+      // A refusal the recogniser already gave is definitive, and the pipeline's retries are for
+      // transient failures. Re-asking a provider that has answered would spend a second request (and
+      // for a metered provider, a second charge) on a question whose answer is not going to change, so
+      // the remembered refusal is re-thrown without a call: the segment still exhausts its retries and
+      // is still reported once, but only one upload is ever made.
+      const remembered = session.refusals.get(job.index);
+      if (remembered) throw remembered;
+      if (isVoiceClientAsrSelected()) {
+        const onDevice = await transcribeOnDevice(session, job);
+        if (onDevice !== null) return onDevice;
+      }
+      return transcribeViaServer(session, job);
     })();
 
   /** Settles one outcome: record it, commit what is now contiguous, and close out if the stop waits. */
