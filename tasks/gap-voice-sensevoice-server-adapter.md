@@ -2,7 +2,7 @@
 id: gap-voice-sensevoice-server-adapter
 title: 服务端 SenseVoice 适配器：把打补丁的 sherpa-onnx 作为 sensevoice-local 识别器接进 ASR
   缝，输出文本与逐 token 置信度和时间（子进程 worker、构建产物固定、健康检查）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -163,4 +163,15 @@ fan-in suite red was attributed: the new ENGINE_UNAVAILABLE code makes the error
 - run_id：wk-prod-anchor
 - session_id：e611924f-e22f-4496-92a3-ba61055e394d
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-sensevoice-server-adapter~wk-prod-anchor~1791249132076-02cd06.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-sensevoice-server-adapter-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-10-06T01:58:11.496Z — 停派终止（失败无法归因，⛔ 不再重派）**
+
+- 阻碍原因：exited-not-landed 失败无法归因（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (parser extracted 0 of 2 failing lines and attributed none to a file); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=33556 server/shared/tests/quay-test-script.test.ts passed=false end_ms=1791251814000
+- run_id：wk-prod-anchor
+- session_id：17e84e98-4d40-4051-83bd-314f3fc20afa
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-sensevoice-server-adapter~wk-prod-anchor~1791251597105-a5585e.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-sensevoice-server-adapter-wk-prod-anchor.log
