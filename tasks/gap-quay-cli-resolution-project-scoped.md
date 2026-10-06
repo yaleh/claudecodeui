@@ -1,7 +1,7 @@
 ---
 id: gap-quay-cli-resolution-project-scoped
 title: 修复 CloudCLI 服务端定位 quay CLI 不稳：改为按目标项目 projectRoot 解析 .quay/plugin/bin/quay
-status: todo
+status: ready
 labels:
   - gap
   - defect
