@@ -1,7 +1,7 @@
 ---
 id: AC-270
 title: 人工关卡：外部客户端经 OAuth 绑定并调用成功由人确认，之后 GOAL-021 才算达成
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-021
 criterion: grep -q '^外部客户端验收：通过' docs/proposals/cloudcli-mcp-external-client.md
@@ -21,6 +21,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-06T01:52:18.503Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
