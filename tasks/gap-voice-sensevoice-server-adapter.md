@@ -2,7 +2,7 @@
 id: gap-voice-sensevoice-server-adapter
 title: 服务端 SenseVoice 适配器：把打补丁的 sherpa-onnx 作为 sensevoice-local 识别器接进 ASR
   缝，输出文本与逐 token 置信度和时间（子进程 worker、构建产物固定、健康检查）
-status: needs-human
+status: ready
 labels:
   - gap
 parent: null
@@ -146,7 +146,13 @@ L_G 该轴有读数：同一批片段上适配器输出与补丁引擎记录的�
 - src/modules/i18n/locales/zh-CN/chat.json
 - src/modules/i18n/locales/zh-TW/chat.json
 - tasks/gap-voice-sensevoice-server-adapter.md
+- server/modules/voice/tests/voice-error-classification.test.ts
+- server/modules/voice/tests/voice-error-classification.false-forms.test.ts
+- scripts/asr-dashscope-omni-check.test.mjs
 
+## Notes
+
+fan-in suite red was attributed: the new ENGINE_UNAVAILABLE code makes the error vocabulary 14 members, so the AC-149 pins (`vocab.length === 13`, table-row tokens source=12/14, "thirteen") and the omni check's copied fixture (missing sensevoice-local module) went red. Fixed on branch task/gap-voice-sensevoice-server-adapter in commit a89e19a4. Verified locally: voice-error-classification.test.ts exit 0, voice-error-classification.false-forms.test.ts 7/7 pass, `node --test scripts/asr-dashscope-omni-check.test.mjs` 14/14 pass.
 
 ## Needs-Human
 
