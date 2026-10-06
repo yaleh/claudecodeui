@@ -44,13 +44,92 @@ goal_ac: AC-228
 
 ## AC
 
-- [ ] AC1 判据绿且稳定：连续 3 次 `npx playwright test e2e/access-tokens-settings.spec.ts` 均 exit 0，逐次登记 `duration`（均 < 55s 且有明显余量）与 (a)–(e) 读数。红态基线：2026-10-06T07:19:55Z 台账 exit 1，工件 `quay-e2e-3M5fId`。
-- [ ] AC2 红已定位到判据自身的引导鲁棒性，而非担保为假：`## Evidence` 里逐字登记 3M5fId 的 `watchdog-state.json`（`fired:true / ceilingMs:55000 / crossed at 55007ms`）与 `error-context.md`（`Channel closed` + `Complete Setup` 处 `Target page...closed`，指到 `:222`），以及 trace 里 `POST /api/user/git-config` 的 `-1` 与 ~12.35s 的第二次 `GET /` 全量重载。
-- [ ] AC3 承重（引导有界、状态驱动）：`grep -nE "Complete Setup" e2e/access-tokens-settings.spec.ts` 命中的点击位于一个有界循环内（含每次的 deadline/预算判断），不是一次性写死两击；引导走法在耗尽时抛具名错误（`grep` 命中该错误构造点，且其消息含页面证据）。
-- [ ] AC4 承重（预算与门限相称）：首跑引导/导航每一步都有显式或有界预算，实现在 55s 看门狗以内自证失败（抛具名错误）而非骑到看门狗；spec 内不存在无界裸 `click()` 的引导步，用例预算不超过门限。
-- [ ] AC5 载重读数不弱化（承重）：(a)–(e) 的 `expect` 逐字保留——`grep -cE "PLAINTEXT_PATTERN|toContainText\(prefix\)|\['30', '7', '90'\]|toBe\(401\)|RETIRED_BUTTON_TEXT|RETIRED_DOCS_PATH|docsAnchors" e2e/access-tokens-settings.spec.ts` ≥ 现行值；不 stub、不 API 直建令牌。
-- [ ] AC6 假形态三条仍红（承重）：(i) 列表行渲染完整明文 ⇒ (b) 的 `documentHits`/`textHits` 断言红；(ii) 保留旧创建按钮/文档链接 ⇒ (e) 红；(iii) 吊销只改前端、不调 DELETE ⇒ (d) 的 `expect(revokedResponse.status).toBe(401)` 红。逐条登记变异 diff、失败断言逐字、退出码与恢复命令，恢复后复绿。
-- [ ] AC7 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内（若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写）。
+- [x] AC1 判据绿且稳定：连续 3 次 `npx playwright test e2e/access-tokens-settings.spec.ts` 均 exit 0，逐次登记 `duration`（均 < 55s 且有明显余量）与 (a)–(e) 读数。红态基线：2026-10-06T07:19:55Z 台账 exit 1，工件 `quay-e2e-3M5fId`。
+- [x] AC2 红已定位到判据自身的引导鲁棒性，而非担保为假：`## Evidence` 里逐字登记 3M5fId 的 `watchdog-state.json`（`fired:true / ceilingMs:55000 / crossed at 55007ms`）与 `error-context.md`（`Channel closed` + `Complete Setup` 处 `Target page...closed`，指到 `:222`），以及 trace 里 `POST /api/user/git-config` 的 `-1` 与 ~12.35s 的第二次 `GET /` 全量重载。
+- [x] AC3 承重（引导有界、状态驱动）：`grep -nE "Complete Setup" e2e/access-tokens-settings.spec.ts` 命中的点击位于一个有界循环内（含每次的 deadline/预算判断），不是一次性写死两击；引导走法在耗尽时抛具名错误（`grep` 命中该错误构造点，且其消息含页面证据）。
+- [x] AC4 承重（预算与门限相称）：首跑引导/导航每一步都有显式或有界预算，实现在 55s 看门狗以内自证失败（抛具名错误）而非骑到看门狗；spec 内不存在无界裸 `click()` 的引导步，用例预算不超过门限。
+- [x] AC5 载重读数不弱化（承重）：(a)–(e) 的 `expect` 逐字保留——`grep -cE "PLAINTEXT_PATTERN|toContainText\(prefix\)|\['30', '7', '90'\]|toBe\(401\)|RETIRED_BUTTON_TEXT|RETIRED_DOCS_PATH|docsAnchors" e2e/access-tokens-settings.spec.ts` ≥ 现行值；不 stub、不 API 直建令牌。
+- [x] AC6 假形态三条仍红（承重）：(i) 列表行渲染完整明文 ⇒ (b) 的 `documentHits`/`textHits` 断言红；(ii) 保留旧创建按钮/文档链接 ⇒ (e) 红；(iii) 吊销只改前端、不调 DELETE ⇒ (d) 的 `expect(revokedResponse.status).toBe(401)` 红。逐条登记变异 diff、失败断言逐字、退出码与恢复命令，恢复后复绿。
+- [x] AC7 契约面：`npm run lint` 退出 **0**；`npm run typecheck` 退出 **0**；`git diff --name-only $(git merge-base develop HEAD) HEAD` 全部落在 `## Touches` 内（若被迫写 Touches 之外的文件，先用 task_write 加进 Touches 再写）。
+
+## Evidence
+
+**AC1 — 合并 develop 后在任务树上连续 3 次绿（每次 `npx playwright test e2e/access-tokens-settings.spec.ts`，exit 0）：**
+
+| run | duration | exit | (a) | (b) | (c) | (d) live | (d) revoked | (e) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 20.2s | 0 | `-> 201; plaintext matches ccp_<64 hex> = true` | `hits in content = 0, in body.innerText = 0, in localStorage = false, in sessionStorage = false; row shows prefix "ccp_da51"` | `option values = ["7","30","90"]; default = 30` | `-> 200` | `-> 401` | `contains "New API Key" = false; contains "api-docs.html" = false; anchors to it = 0` |
+| 2 | 20.5s | 0 | 同上 | 同上，prefix `ccp_8fd4` | 同上 | `-> 200` | `-> 401` | 同上 |
+| 3 | 20.1s | 0 | 同上 | 同上，prefix `ccp_b69a` | 同上 | `-> 200` | `-> 401` | 同上 |
+
+三次均 exit 0、均 < 55s（余量 ≈35s）；(a)–(e) 的逐字 `console.log` 行见上表。红态基线：`2026-10-06T07:19:55Z` 台账 exit 1，工件 `quay-e2e-3M5fId`。
+
+**AC2 — 红定位到判据自身的引导鲁棒性（读 `~/.cache/quay-e2e-tmp/quay-e2e-3M5fId/` 自己运行留下的工件）：**
+
+- `watchdog-state.json` 逐字：
+  ```json
+  {"armed": true, "fired": true, "ceilingMs": 55000, "detail": "ceiling crossed at 55007ms"}
+  ```
+- `test-results/access-tokens-settings-per-305e9-evocation-really-rejects-it/error-context.md` 逐字：
+  ```
+  Error: Channel closed
+  Error: locator.click: Target page, context or browser has been closed
+    - waiting for getByRole('button', { name: 'Complete Setup' })
+  > 222 |       await page.getByRole('button', { name: 'Complete Setup' }).click();
+  ```
+- `trace.zip` 的 `1-trace.network`：`POST http://127.0.0.1:30557/api/user/git-config` → `"time":-1`（被随后导航中止，`startedDateTime 2026-10-06T07:19:12.823Z`）；第二次文档 `GET http://127.0.0.1:30557/` → `"status":200` 且 `"_monotonicTime":12348.85`（另一条 `12348.045`）——即 ~12.35s 的 Vite 全量重载，把引导复位回 `currentStep=0`。
+
+**AC6 — 三条假形态真跑、真红（提交 `8304fed4` 之后再变异，每条 `git checkout -- <file>` 恢复，恢复后复绿 `1 passed (20.2s)` exit 0）：**
+
+(i) 列表行渲染完整明文 ⇒ (b) 红。变异 diff：
+```
++      // MUTATION (i): persist the one-time plaintext so the row can render it after a reload.
++      window.localStorage.setItem('e2e-mutation-plaintext', payload.token.plaintext);   [useCredentialsSettings.ts]
+-                  <code className="text-xs text-muted-foreground">{token.tokenPrefix}</code>
++                  {/* MUTATION (i): the row renders the full one-time plaintext, not just its prefix. */}
++                  <code className="text-xs text-muted-foreground">{window.localStorage.getItem('e2e-mutation-plaintext') || token.tokenPrefix}</code>   [AccessTokensSection.tsx]
+```
+逐字失败行：`(b) after reload: plaintext hits in content = 1, in body.innerText = 1, in localStorage = true, in sessionStorage = false; ...` 与
+```
+    Expected: 0
+    Received: 1
+    > 436 |     expect(documentHits).toBe(0);
+```
+退出码 **1**；恢复命令：`git checkout -- src/modules/settings/hooks/useCredentialsSettings.ts src/modules/settings/tabs/api-settings/sections/AccessTokensSection.tsx`。
+
+(ii) 保留旧创建按钮/文档链接 ⇒ (e) 红。变异 diff（`AccessTokensSection.tsx` 头部保留）：
+```
++      {/* MUTATION (ii): the retired API-key entry point (old button text + its docs link) is kept. */}
++      <div>
++        <button type="button">New API Key</button>
++        <a href="api-docs.html">API documentation</a>
++      </div>
+```
+逐字失败行：
+```
+    > 458 |     expect(finalText).not.toContain(RETIRED_BUTTON_TEXT);
+```
+退出码 **1**；恢复命令：`git checkout -- src/modules/settings/tabs/api-settings/sections/AccessTokensSection.tsx`。
+
+(iii) 吊销只改前端、不调 DELETE ⇒ (d) 的红 401 断言。变异 diff（`useCredentialsSettings.ts`：`revokeAccessToken` 不再 `api.settings.revokeAccessToken(...)`，改为把 id 记入 `localStorage['e2e-mutation-revoked-ids']`，`fetchData` 里把该集合叠加成 `revokedAt`）：
+```
++const MUTATION_REVOKED_KEY = 'e2e-mutation-revoked-ids';
++      // MUTATION (iii): overlay the browser-only revocations onto the server list.
++      const revokedIds = new Set(readMutationRevokedIds());
++      setAccessTokens((tokensPayload.tokens || []).map((token) => ( ... revokedAt: new Date().toISOString() ... )));
+-      const response = await api.settings.revokeAccessToken(tokenId);
++    // MUTATION (iii): mark the token revoked in the browser only; no DELETE reaches the server.
++    window.localStorage.setItem(MUTATION_REVOKED_KEY, JSON.stringify([...revokedIds]));
+```
+逐字失败行：`(d) after revoke: id=1 row still present and marked Revoked; token-info -> 200` 与
+```
+    Expected: 401
+    Received: 200
+    > 452 |     expect(revokedResponse.status).toBe(401);
+```
+退出码 **1**；恢复命令：`git checkout -- src/modules/settings/hooks/useCredentialsSettings.ts`。
+
+**AC7 — 契约面。** `npm run lint` exit 0（仅既有 warning，无 error）；`npm run typecheck` exit 0；`e2e/` 不在 `tsconfig.json` 的 include 内，spec 另以 standalone `tsc --noEmit --strict ... e2e/access-tokens-settings.spec.ts` 校验，exit 0；`git diff --name-only $(git merge-base develop HEAD) HEAD` = `e2e/access-tokens-settings.spec.ts`（⊆ `## Touches`）。
 
 ## DoD
 
