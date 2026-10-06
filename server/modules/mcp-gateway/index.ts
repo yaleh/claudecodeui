@@ -52,6 +52,24 @@ export type {
   McpToolRegistration,
 } from './mcp-gateway.audit.js';
 
+// The single failure envelope (AC-284): `MCP_ERROR_CODES` is the canonical code
+// vocabulary the gateway decides for itself; `mcpErrorResult` builds the
+// `{ isError: true, structuredContent: { code, message, retryable, details? } }`
+// result every failure path returns; `toMcpErrorResult` normalizes a thrown
+// `McpToolError` / JSON-bodied `Error` / bare `Error` onto that shape;
+// `McpToolError` is what a tool handler throws to reach it directly. The audited
+// wrapper (AC-244) and every tool module's refusal path consume these;
+// `tests/mcp-error-envelope.test.ts` reads the vocabulary as the expected code
+// per probe class. Consumers import from HERE, never from the file directly.
+export {
+  isMcpErrorCode,
+  MCP_ERROR_CODES,
+  mcpErrorResult,
+  McpToolError,
+  toMcpErrorResult,
+} from './mcp-error-envelope.js';
+export type { McpErrorCode, McpErrorDetails, McpErrorEnvelope } from './mcp-error-envelope.js';
+
 export { createMcpLoopbackGuard, isLoopbackRemoteAddress, readMcpOauthEnabled } from './mcp-gateway.loopback.js';
 
 // The OAuth discovery documents (AC-262): `readOAuthMetadataGate` / `readMcpDcrMode`

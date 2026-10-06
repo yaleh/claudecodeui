@@ -248,15 +248,22 @@ const nodeFetch: FetchLike = (url, init) =>
 type ToolCall = { isError: boolean; text: string; payload: AnyRecord | null };
 
 function parseToolResult(result: unknown): ToolCall {
-  const call = result as { content?: unknown; isError?: boolean };
+  const call = result as { content?: unknown; isError?: boolean; structuredContent?: unknown };
   const blocks = Array.isArray(call.content) ? call.content : [];
   const text = blocks.map((block) => (block as { type?: string; text?: string }).text ?? '').join('');
   let payload: AnyRecord | null = null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    payload = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
-  } catch {
-    payload = null;
+  // AC-284: a FAILURE now carries its machine fields in `structuredContent`
+  // (`{ code, message, retryable, details? }`) instead of a JSON string stuffed
+  // into the text. Read that first; a SUCCESS payload is still the text body.
+  if (call.isError === true && typeof call.structuredContent === 'object' && call.structuredContent !== null) {
+    payload = call.structuredContent as AnyRecord;
+  } else {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      payload = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
+    } catch {
+      payload = null;
+    }
   }
   return { isError: call.isError === true, text, payload };
 }

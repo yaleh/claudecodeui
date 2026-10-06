@@ -49,6 +49,7 @@ import type {
   SessionHostManager,
 } from '@/modules/session-hosts/index.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 
 // --------------------------- injected services ---------------------------
@@ -146,16 +147,14 @@ export type SessionClosePayload = {
 /** The structured refusal code `session_close` raises when a lease blocks it. */
 export const SESSION_HAS_ACTIVE_LEASES_CODE = 'SESSION_HAS_ACTIVE_LEASES';
 
-/** A structured refusal as the JSON body the audit wrapper turns into `isError` text. */
-function refusal(body: Record<string, unknown>): Error {
-  return new Error(JSON.stringify(body));
-}
-
 /** Reads and validates `session_start`'s arguments. */
 export function readSessionStartInput(args: Record<string, unknown>): McpSessionStartInput {
   const session = args.session;
   if (typeof session !== 'string' || session.trim().length === 0) {
-    throw new Error('"session" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"session" is required and must be a non-empty string.',
+    );
   }
   return { session };
 }
@@ -164,7 +163,10 @@ export function readSessionStartInput(args: Record<string, unknown>): McpSession
 export function readSessionCloseInput(args: Record<string, unknown>): McpSessionCloseInput {
   const session = args.session;
   if (typeof session !== 'string' || session.trim().length === 0) {
-    throw new Error('"session" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"session" is required and must be a non-empty string.',
+    );
   }
   // Only a literal `true` authorises the force-close; anything else (including a
   // missing field) leaves the leases blocking, so the safe reading is the default.
@@ -187,11 +189,11 @@ function leasesBlockingMessage(blocking: HostLease[]): string {
   for (const lease of blocking) {
     counts.set(lease.kind, (counts.get(lease.kind) ?? 0) + 1);
   }
-  const parts = [...counts.entries()].map(([kind, count]) => `${kind}×${count}`);
-  return `该常驻会话持有 ${parts.join('、')}，关闭会终止其后台工作；如需强行关闭请传 force: true。`;
+  const parts = [...counts.entries()].map(([kind, count]) => `${kind}x${count}`);
+  return `This resident session holds ${parts.join(', ')}; closing it would end that background work — pass force: true to close anyway.`;
 }
 
-/** The leases a resident close must honour: the two kinds that mean后台工作, in a fixed order. */
+/** The leases a resident close must honour: the two kinds that mean background work, in a fixed order. */
 function blockingLeases(leases: HostLease[]): HostLease[] {
   return leases.filter((lease) => lease.kind === 'cron' || lease.kind === 'background-task');
 }
@@ -221,7 +223,7 @@ export async function buildSessionStart(
 ): Promise<SessionStartPayload> {
   const outcome = await deps.hosts.start(input.session);
   if (!outcome.ok) {
-    throw refusal({ code: outcome.code, message: outcome.message });
+    throw new McpToolError(outcome.code, outcome.message);
   }
   return {
     hostId: outcome.hostId,
@@ -259,9 +261,7 @@ export function buildSessionClose(
   if (live?.mode === 'resident') {
     const blocking = blockingLeases(live.leases);
     if (blocking.length > 0 && input.force !== true) {
-      throw refusal({
-        code: SESSION_HAS_ACTIVE_LEASES_CODE,
-        message: leasesBlockingMessage(blocking),
+      throw new McpToolError(SESSION_HAS_ACTIVE_LEASES_CODE, leasesBlockingMessage(blocking), false, {
         leases: blocking,
       });
     }
@@ -269,7 +269,7 @@ export function buildSessionClose(
 
   const outcome = deps.hosts.close(input.session);
   if (!outcome.ok) {
-    throw refusal({ code: outcome.code, message: outcome.message });
+    throw new McpToolError(outcome.code, outcome.message);
   }
   return {
     hostId: outcome.hostId,

@@ -42,6 +42,7 @@ import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
 import type { ControlStopTaskOutcome } from '@/modules/providers/index.js';
 import type { HostLease } from '@/shared/types.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import type { McpControlCaller } from './mcp-session-send.js';
 
@@ -156,21 +157,22 @@ const NO_HOST_MESSAGE = '该会话当前没有宿主，没有后台任务或计�
 export function readSessionBackgroundInput(args: Record<string, unknown>): McpSessionBackgroundInput {
   const session = args.session;
   if (typeof session !== 'string' || session.trim().length === 0) {
-    throw new Error('"session" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"session" is required and must be a non-empty string.',
+    );
   }
   const stopTaskId = args.stopTaskId;
   if (stopTaskId === undefined || stopTaskId === null) {
     return { session };
   }
   if (typeof stopTaskId !== 'string' || stopTaskId.trim().length === 0) {
-    throw new Error('"stopTaskId" must be a non-empty string when given.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"stopTaskId" must be a non-empty string when given.',
+    );
   }
   return { session, stopTaskId };
-}
-
-/** A structured refusal as the JSON body the audit wrapper turns into `isError` text. */
-function refusal(body: Record<string, unknown>): Error {
-  return new Error(JSON.stringify(body));
 }
 
 /** Projects a lease into the report shape, or null for a lease kind that is not background work. */
@@ -213,10 +215,8 @@ export async function buildSessionBackground(
   const sessionId = input.session;
   const session = deps.sessions.getSessionById(sessionId);
   if (!session || typeof session.provider !== 'string' || session.provider.length === 0) {
-    throw refusal({
-      code: 'SESSION_NOT_FOUND',
+    throw new McpToolError(MCP_ERROR_CODES.SESSION_NOT_FOUND, `No session has id "${sessionId}".`, false, {
       session: sessionId,
-      message: `找不到会话 "${sessionId}"。`,
     });
   }
 
@@ -251,24 +251,27 @@ export async function buildSessionBackground(
   // (b) The control scope is owned HERE, before the control service is reached,
   // so a read-only token's stop never increments the control service's count.
   if (!ctx.principal.scopes.includes(SESSION_CONTROL_SCOPE)) {
-    throw refusal({
-      code: 'SCOPE_DENIED',
-      session: sessionId,
-      taskId,
-      message: '停止后台任务需要 cloudcli:session:control。',
-    });
+    // The in-handler check uses the SAME code the audited wrapper's generic
+    // scope check does (`INSUFFICIENT_SCOPE`), so "the token lacks a scope"
+    // reads identically wherever it is caught (AC-284 / AC-286).
+    throw new McpToolError(
+      MCP_ERROR_CODES.INSUFFICIENT_SCOPE,
+      `Stopping a background task requires the ${SESSION_CONTROL_SCOPE} scope.`,
+      false,
+      { session: sessionId, taskId },
+    );
   }
 
   // (c) The id must be in the snapshot BEFORE the control service is reached, so
   // an unknown id is reported as not-found and is never misread as stopped.
   const before = readSnapshot();
   if (!before.tasks.some((task) => task.id === taskId)) {
-    throw refusal({
-      code: 'TASK_NOT_FOUND',
-      session: sessionId,
-      taskId,
-      message: `该会话没有 id 为 "${taskId}" 的后台任务或计划。`,
-    });
+    throw new McpToolError(
+      MCP_ERROR_CODES.TASK_NOT_FOUND,
+      `This session has no background task or schedule with id "${taskId}".`,
+      false,
+      { session: sessionId, taskId },
+    );
   }
 
   const outcome = await deps.control.stopTask(
@@ -295,21 +298,25 @@ export async function buildSessionBackground(
     const code = outcome === 'unsupported' ? 'STOP_UNSUPPORTED' : outcome === 'timeout' ? 'STOP_TIMEOUT' : 'STOP_ERROR';
     const message =
       outcome === 'unsupported'
-        ? '该会话的常驻进程不支持停止这个后台任务（请求未被放置）。'
+        ? "This session's resident host does not support stopping this background task (the request was not placed)."
         : outcome === 'timeout'
-          ? '停止后台任务的请求超时，未确认停止。'
-          : '停止后台任务时出错，未确认停止。';
-    throw refusal({ code, session: sessionId, taskId, remaining: readSnapshot().tasks, message });
+          ? 'The stop request timed out; the stop was not confirmed.'
+          : 'The stop request failed; the stop was not confirmed.';
+    throw new McpToolError(code, message, false, {
+      session: sessionId,
+      taskId,
+      remaining: readSnapshot().tasks,
+    });
   }
 
   // The control service's own refusals pass through unchanged, never as success.
   const refusalMessage =
     outcome === 'forbidden'
-      ? '调用方无权停止该会话的后台任务。'
+      ? "The caller is not allowed to stop this session's background tasks."
       : outcome === 'SESSION_NOT_FOUND'
-        ? `找不到会话 "${sessionId}"。`
-        : '该 provider 不支持后台任务控制。';
-  throw refusal({ code: outcome, session: sessionId, taskId, message: refusalMessage });
+        ? `No session has id "${sessionId}".`
+        : 'This provider does not support background-task control.';
+  throw new McpToolError(outcome, refusalMessage, false, { session: sessionId, taskId });
 }
 
 // --------------------------- registration ---------------------------

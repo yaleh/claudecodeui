@@ -528,9 +528,10 @@ test('(a) tools/list is exactly the stage-3 read tools, none of them a write too
       const refusal = await harness.call(name, args);
       console.log(`[a] ${name} -> isError=${refusal.isError} text=${JSON.stringify(refusal.text)}`);
       assert.equal(refusal.isError, true, `${name} must refuse until AC-247/AC-248 land`);
-      assert.ok(
-        refusal.text.includes(MCP_TOOL_NOT_IMPLEMENTED_CODE),
-        `${name} must name ${MCP_TOOL_NOT_IMPLEMENTED_CODE} in its refusal`,
+      assert.equal(
+        refusal.structured?.code,
+        MCP_TOOL_NOT_IMPLEMENTED_CODE,
+        `${name} must carry ${MCP_TOOL_NOT_IMPLEMENTED_CODE} in its refusal envelope`,
       );
     }
   });

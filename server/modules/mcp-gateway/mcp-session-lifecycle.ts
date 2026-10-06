@@ -44,6 +44,7 @@ import { z } from 'zod';
 import type { providerCapabilitiesService, providerModelsService } from '@/modules/providers/index.js';
 import type { LLMProvider } from '@/shared/types.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import type { McpControlCaller, McpControlRefusalCode, McpControlSeam } from './mcp-session-send.js';
 
@@ -203,16 +204,14 @@ export type SessionInterruptPayload = {
  */
 const NO_RUN_TO_ABORT_MESSAGE = '该会话当前没有正在运行的运行，没有可中止的运行。';
 
-/** A structured refusal as the JSON body the audit wrapper turns into `isError` text. */
-function refusal(body: Record<string, unknown>): Error {
-  return new Error(JSON.stringify(body));
-}
-
 /** Reads and validates `session_create`'s arguments. */
 export function readSessionCreateInput(args: Record<string, unknown>): McpSessionCreateInput {
   const project = args.project;
   if (typeof project !== 'string' || project.trim().length === 0) {
-    throw new Error('"project" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"project" is required and must be a non-empty string.',
+    );
   }
   const message = typeof args.message === 'string' ? args.message : undefined;
   const provider = typeof args.provider === 'string' ? (args.provider as LLMProvider) : undefined;
@@ -226,7 +225,10 @@ export function readSessionCreateInput(args: Record<string, unknown>): McpSessio
 export function readSessionInterruptInput(args: Record<string, unknown>): McpSessionInterruptInput {
   const session = args.session;
   if (typeof session !== 'string' || session.trim().length === 0) {
-    throw new Error('"session" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"session" is required and must be a non-empty string.',
+    );
   }
   return { session };
 }
@@ -239,7 +241,7 @@ export function readSessionInterruptInput(args: Record<string, unknown>): McpSes
  *
  * The `project` argument is an id already (the target gate resolved it), so the
  * only lookup left is id -> project row, and a miss is a structured
- * `TARGET_NOT_FOUND` thrown BEFORE anything is created — an id that names no
+ * `PROJECT_NOT_FOUND` thrown BEFORE anything is created — an id that names no
  * project must not mint a session. The row is created through the injected
  * `sessions.create`; the lifecycle preference, when asked for, is stored BEFORE
  * the send, because a resident session must be resident at dispatch time rather
@@ -262,10 +264,7 @@ export async function buildSessionCreate(
 ): Promise<SessionCreatePayload> {
   const entry = deps.projects.list().find((project) => project.id === input.project);
   if (entry === undefined) {
-    throw refusal({
-      code: 'TARGET_NOT_FOUND',
-      message: `没有 id 为 "${input.project}" 的项目。`,
-    });
+    throw new McpToolError(MCP_ERROR_CODES.PROJECT_NOT_FOUND, `No project has id "${input.project}".`);
   }
 
   const provider = input.provider ?? ('claude' as LLMProvider);
@@ -277,11 +276,12 @@ export async function buildSessionCreate(
   if (input.permissionMode !== undefined) {
     const supported = deps.capabilities?.getProviderCapabilities(provider)?.permissionModes ?? [];
     if (!supported.includes(input.permissionMode)) {
-      throw refusal({
-        code: 'UNSUPPORTED_PERMISSION_MODE',
-        supported: [...supported],
-        message: `该 provider 不支持权限模式 "${input.permissionMode}"；支持：${supported.join(', ')}。`,
-      });
+      throw new McpToolError(
+        MCP_ERROR_CODES.UNSUPPORTED_PERMISSION_MODE,
+        `Provider "${provider}" does not support permission mode "${input.permissionMode}"; supported: ${supported.join(', ') || 'none'}.`,
+        false,
+        { supported: [...supported] },
+      );
     }
   }
 
@@ -318,7 +318,7 @@ export async function buildSessionCreate(
       : { sessionId: created.sessionId, content: message, options: { permissionMode: input.permissionMode } },
   );
   if (!sent.ok) {
-    throw refusal({ code: sent.code, message: sent.message, sessionId: created.sessionId });
+    throw new McpToolError(sent.code, sent.message, false, { sessionId: created.sessionId });
   }
   return { sessionId: created.sessionId, runId: sent.runId };
 }
@@ -350,7 +350,7 @@ export async function buildSessionInterrupt(
   const result = await deps.control.abort(caller, { sessionId: input.session });
 
   if (!result.ok) {
-    throw refusal({ code: result.code, message: result.message });
+    throw new McpToolError(result.code, result.message);
   }
   if (result.aborted) {
     return { aborted: true };

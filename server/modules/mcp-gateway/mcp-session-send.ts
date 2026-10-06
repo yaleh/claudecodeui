@@ -10,8 +10,9 @@
  *
  * What this module owns is the ADAPTER half: the caller is the token's owner
  * (`{ userId, via: 'mcp' }`), the control service's structured refusals are
- * translated into JSON-bodied errors the audit wrapper turns into an `isError`
- * result, and the two facts the control service cannot state — the run's
+ * translated into {@link McpToolError}s the audit wrapper renders as the one
+ * failure envelope (AC-284; the control service's `RUN_IN_PROGRESS` becomes the
+ * gateway's `SESSION_BUSY`), and the two facts the control service cannot state — the run's
  * recorded `source` and, on `RUN_IN_PROGRESS`, the id of the run that is still
  * in flight — are read back from the run registry.
  *
@@ -34,6 +35,7 @@ import { z } from 'zod';
 
 import type { LLMProvider, NormalizedMessage } from '@/shared/types.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import { MCP_RUN_GET_MAX_WAIT_SECONDS } from './mcp-run-get.js';
 import type { McpRunGetDeps, RunGetPayload } from './mcp-run-get.js';
@@ -189,18 +191,25 @@ export type SessionSendPayload = {
   run?: RunGetPayload;
 };
 
-/** The hint a `RUN_IN_PROGRESS` refusal carries. `run_get` and `稍后重试` are load-bearing. */
-const RUN_IN_PROGRESS_HINT = '该会话已有运行在进行；改用 run_get 查询它的进展，或稍后重试。';
+/** The hint a `SESSION_BUSY` refusal carries. `run_get` is load-bearing. */
+const RUN_IN_PROGRESS_HINT =
+  'This session already has a run in progress; use run_get to follow it, or retry later.';
 
 /** Reads and validates `session_send`'s arguments. */
 export function readSessionSendInput(args: Record<string, unknown>): McpSessionSendInput {
   const session = args.session;
   if (typeof session !== 'string' || session.trim().length === 0) {
-    throw new Error('"session" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"session" is required and must be a non-empty string.',
+    );
   }
   const message = args.message;
   if (typeof message !== 'string' || message.length === 0) {
-    throw new Error('"message" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"message" is required and must be a non-empty string.',
+    );
   }
   const waitSeconds =
     typeof args.waitSeconds === 'number' && Number.isFinite(args.waitSeconds) && args.waitSeconds > 0
@@ -215,11 +224,6 @@ function effectiveWaitSeconds(waitSeconds: number | undefined): number {
     return 0;
   }
   return Math.min(waitSeconds, MCP_RUN_GET_MAX_WAIT_SECONDS);
-}
-
-/** A structured refusal as the JSON body the audit wrapper turns into `isError` text. */
-function refusal(body: Record<string, unknown>): Error {
-  return new Error(JSON.stringify(body));
 }
 
 /**
@@ -276,9 +280,10 @@ async function resolveSendOptions(
  * `buildRunGet` (capped at {@link MCP_RUN_GET_MAX_WAIT_SECONDS}) and merges its
  * reading under `run`.
  *
- * A refusal is thrown as a JSON-bodied error, which BOTH registration seams turn
- * into an `isError` result. `RUN_IN_PROGRESS` is widened with the in-flight
- * run's id (the control service's message does not carry one) and a hint naming
+ * A refusal is thrown as a {@link McpToolError}, which the audited seam renders
+ * as the one failure envelope. `SESSION_BUSY` (the gateway's code for the
+ * control service's `RUN_IN_PROGRESS`) is widened with the in-flight run's id
+ * (the control service's message does not carry one) and a hint naming
  * `run_get` as the way to follow it.
  *
  * Consumers: `registerMcpWriteTools` (the registered handler) and this module's
@@ -301,16 +306,18 @@ export async function buildSessionSend(
     if (result.code === 'RUN_IN_PROGRESS') {
       // The current run's id is read from the registry: the control service's
       // refusal message states the fact but not the id, and this is the one
-      // reading that tells the caller WHICH run to follow.
+      // reading that tells the caller WHICH run to follow. The busier's
+      // vocabulary (`RUN_IN_PROGRESS`) is normalized to the gateway's one code
+      // for the class (`SESSION_BUSY`), so every tool naming "the session is
+      // busy" says the same thing (AC-284).
       const current = deps.runs.getRun(input.session);
-      throw refusal({
-        code: 'RUN_IN_PROGRESS',
+      const message = result.message.trim().length > 0 ? result.message : RUN_IN_PROGRESS_HINT;
+      throw new McpToolError(MCP_ERROR_CODES.SESSION_BUSY, message, true, {
         runId: current?.runId ?? null,
-        message: result.message,
         hint: RUN_IN_PROGRESS_HINT,
       });
     }
-    throw refusal({ code: result.code, message: result.message });
+    throw new McpToolError(result.code, result.message, true);
   }
 
   const source = deps.runs.getRun(input.session)?.source ?? 'mcp';
