@@ -204,10 +204,11 @@ sib3 access-tokens exit=0
 
 ### AC8 diff 与 Touches 逐条对齐
 ```
-$ git diff --stat develop...HEAD
- e2e/mcp-settings.spec.ts | 228 ++++++++++++++++++++++++++++++++++++++++++++++-
- 1 file changed, 226 insertions(+), 2 deletions(-)
+$ git diff --name-only develop...HEAD
+e2e/mcp-settings.spec.ts
+tasks/gap-ac254-boot-guard-mcp-settings-criterion.md
+
 $ git diff --stat develop HEAD -- server/ src/ shared/
 (空输出)
 ```
-`## Touches` 两条：`e2e/mcp-settings.spec.ts` 出现在 `develop...HEAD` 三点 diff 里（唯一一条，+226/-2）；`tasks/gap-ac254-boot-guard-mcp-settings-criterion.md` 的 tick 由 `task_write` 写在 **develop** 上（`423f3897`），经退出前的 pre-merge（`merge develop`）并入任务分支 —— 本任务文件在分支与 develop 上内容相同，**落在 merge base 上，故不出现在三点 diff 里**（`ledger-files-sit-at-the-merge-base-not-in-the-branch-delta`）。两点 diff `git diff --stat develop HEAD` 同为空（两侧内容一致）。出货源码 `server/`、`src/`、`shared/` 逐字空输出，零改动。
+`## Touches` 两条与 `develop...HEAD` 两条逐条对齐：`e2e/mcp-settings.spec.ts`（实现，`git diff --stat develop...HEAD -- e2e/mcp-settings.spec.ts` = 1 file changed, 226 insertions(+), 2 deletions(-)）与 `tasks/gap-ac254-boot-guard-mcp-settings-criterion.md`（ABI 的 AC tick）。`task_write` 的 tick 提交落在主检出的 `author` 分支上（不在 worker 的 worktree 里），按既定的 worker 退出把它 cherry-pick 进任务分支 —— 这既是 fan-in 的 ac-precheck 读 `<worktree>/tasks/<id>.md` 所必需，也正是让三点 diff 与 `## Touches` 呈现 2↔2 的原因（`ac8-diff-touches-alignment-needs-the-abi-tick-cherry-picked`）；用 `git diff --name-only`（不随内容微调漂移）而非 `--stat` 行数记录。出货源码 `server/`、`src/`、`shared/` 逐字空输出，零改动。
