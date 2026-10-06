@@ -7,7 +7,7 @@ import { useWebSocket } from '@/shared/context/WebSocketContext';
 import { subscribeToUserPreferences } from '@/shared/userSettings';
 import { getSessionTitle } from '@/shared/utils';
 import { usePaletteOps } from '@/modules/command-palette';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ServerEvent, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ServerEvent, ActiveSidebarRename, PendingSidebarDeletion, SessionHiddenByProjectFilter, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
 import {
   filterProjects,
   getAllSessions,
@@ -58,6 +58,16 @@ type SessionUpsertedEvent = ServerEvent & {
   project?: { projectId: string; displayName: string } | null;
 };
 
+/**
+ * The Conversations feed has to match what a reload of the same feed returns, and
+ * `GET /api/providers/sessions/recent` applies the project's name rules with
+ * neither of the Projects list's exemptions: no keepSessionIds, no browser-local
+ * "show hidden". Judging with an empty set and `isShowingHidden = false` is what
+ * keeps the live list from being the more permissive of the two — being more
+ * permissive is exactly the reported bug.
+ */
+const NO_EXEMPT_SESSION_IDS: ReadonlySet<string> = new Set();
+
 type UseSidebarControllerArgs = {
   projects: Project[];
   selectedProject: Project | null;
@@ -73,6 +83,12 @@ type UseSidebarControllerArgs = {
   onLoadMoreSessions?: (projectId: string) => Promise<void> | void;
   // `projectId` is the DB-assigned identifier; callbacks use that post-migration.
   onProjectDelete?: (projectId: string) => void;
+  /**
+   * The project rows' session-name rules as a predicate, supplied by the module
+   * that owns the rule runtime. Absent means "no rules anywhere" and leaves the
+   * live feed exactly as it was before the filter existed.
+   */
+  isSessionHiddenByProjectFilter?: SessionHiddenByProjectFilter;
   setCurrentProject: (project: Project) => void;
   setSidebarVisible: (visible: boolean) => void;
   sidebarVisible: boolean;
@@ -92,6 +108,7 @@ export function useSidebarController({
   onSessionDelete,
   onLoadMoreSessions,
   onProjectDelete,
+  isSessionHiddenByProjectFilter,
   setCurrentProject,
   setSidebarVisible,
   sidebarVisible,
@@ -343,11 +360,18 @@ export function useSidebarController({
     void fetchArchivedSessions();
   }, [fetchArchivedSessions]);
 
-  // A session renamed anywhere — this client, another browser, the CLI — arrives
-  // as a `session_upserted`. The Conversations list holds its own copy of every
-  // row's title, so without this it kept showing the name a session had when the
-  // page was last listed. Patching in place (rather than reloading the feed)
-  // also preserves the pages loaded past the first.
+  // A session renamed or created anywhere — this client, another browser, the
+  // CLI — arrives as a `session_upserted`. The Conversations list holds its own
+  // copy of every row, so without this it kept showing the name a session had
+  // when the page was last listed. Patching in place (rather than reloading the
+  // feed) also preserves the pages loaded past the first.
+  //
+  // The project's name rules apply to this feed exactly as they do to a reload:
+  // a session whose current name matches is neither inserted nor kept, so a
+  // worker session created while the user sits on Conversations never appears.
+  // The predicate and the project rows come from the parent (see
+  // SessionHiddenByProjectFilter); judging is done by the delta's own summary,
+  // which for a session row is the same coalesced name the reload filters on.
   //
   // Archived rows are deliberately not covered: the server's upsert builder
   // returns null for an archived row, so no event for one ever reaches a client.
@@ -359,7 +383,8 @@ export function useSidebarController({
     }
 
     const upsert = event as SessionUpsertedEvent;
-    if (!upsert.sessionId || !upsert.session) {
+    const sessionId = upsert.sessionId;
+    if (!sessionId || !upsert.session) {
       return;
     }
 
@@ -369,7 +394,7 @@ export function useSidebarController({
 
     setRecentConversations((previous) => {
       const index = previous.findIndex(
-        (conversation) => conversation.sessionId === upsert.sessionId,
+        (conversation) => conversation.sessionId === sessionId,
       );
       const byRecency = (a: RecentConversationListItem, b: RecentConversationListItem) => {
         const left = Date.parse(a.lastActivity ?? '');
@@ -377,7 +402,34 @@ export function useSidebarController({
         return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0);
       };
 
+      // Which project's rules judge this row: the one the delta names, else the
+      // one the row already belongs to. No project means no rules, and a row the
+      // reload would not list either way; the rest of the handler decides.
+      const claimedProjectId = upsert.project?.projectId
+        ?? (index >= 0 ? previous[index].projectId : null);
+      const judgedProject = claimedProjectId
+        ? projects.find((candidate) => candidate.projectId === claimedProjectId)
+        : undefined;
+      // Unlike the Projects list there is no fall-back to a known earlier title: a
+      // live-inserted row is titled by the session id when it has no name, and a
+      // rule may legitimately match ids, so falling back would keep a row the
+      // reload drops — the asymmetry this feed is being brought in line with.
+      const summary = typeof upsert.session?.summary === 'string' ? upsert.session.summary : '';
+      const isHidden = Boolean(
+        judgedProject
+        && isSessionHiddenByProjectFilter?.(
+          judgedProject,
+          { id: String(sessionId), summary },
+          NO_EXEMPT_SESSION_IDS,
+          false,
+        ),
+      );
+
       if (index < 0) {
+        // Nothing to insert: the reload this feed must match would not list it.
+        if (isHidden) {
+          return previous;
+        }
         // A session created while this list was already loaded (New Session →
         // first message) is in no page the list holds. The delta carries the
         // project, so insert the row and let recency place it. Without a project
@@ -389,7 +441,7 @@ export function useSidebarController({
         const inserted = [
           ...previous,
           {
-            sessionId: upsert.sessionId as string,
+            sessionId,
             provider: upsert.provider,
             projectId: upsert.project.projectId,
             projectDisplayName: upsert.project.displayName,
@@ -401,10 +453,17 @@ export function useSidebarController({
 
         // A full page whose newest-sorted slot is the tail means the row belongs
         // to a page not loaded yet; load-more will bring it in.
-        if (previous.length >= 40 && inserted[inserted.length - 1].sessionId === upsert.sessionId) {
+        if (previous.length >= 40 && inserted[inserted.length - 1].sessionId === sessionId) {
           return previous;
         }
         return inserted;
+      }
+
+      // A row that has since been named into a rule leaves the list. The header
+      // count is left alone: it is re-derived from the server by the next reload,
+      // and the membership is what has to match.
+      if (isHidden) {
+        return previous.filter((conversation) => conversation.sessionId !== sessionId);
       }
 
       // Input/output in a session bumps its `lastActivity` on the server; take
@@ -435,7 +494,10 @@ export function useSidebarController({
       // to its sorted place. Stable sort keeps rows with equal times in order.
       return next.sort(byRecency);
     });
-  }), [subscribe]);
+    // `projects` is a dependency rather than a ref: the handler judges new deltas
+    // against the rules it was last rendered with, and a rules edit re-subscribes
+    // instead of leaving a window where a stale rule set decides.
+  }), [subscribe, projects, isSessionHiddenByProjectFilter]);
 
   useEffect(() => {
     if (searchMode !== 'conversations' || debouncedSearchQuery.length >= 2) {

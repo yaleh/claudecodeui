@@ -24,8 +24,9 @@ import {
 import { voicePlayer } from '@/modules/chat/utils/voicePlayer';
 import { VOICE_FRAME_PROCESSOR_NAME, type VoiceFrameMessage } from '@/modules/chat/audio/voiceFrameProcessor';
 import { voiceFrameProcessorUrl } from '@/modules/chat/audio/voiceFrameProcessorUrl';
-import { captureRawVoice, effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
-import { hydrateVoiceRawCapture, isVoiceRawCaptureEnabled } from '@/shared/voiceConfig';
+import { api, captureRawVoice, effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
+import { hydrateVoiceRawCapture, isVoiceRawCaptureEnabled, readVoiceConfig } from '@/shared/voiceConfig';
+import { labelsFor, type VoiceSourceSegment } from '@/shared/voiceEditLabels';
 import { identifierFidelity } from '@/shared/identifierFidelity';
 import { repairIdentifiers } from '@/shared/identifierRepair';
 import { StreamingVad, type VadEvent } from '@/shared/voiceEndpoint';
@@ -246,6 +247,29 @@ async function refusalDetail(response: Response): Promise<VoiceTranscriptionFail
     return { status: response.status, code, upstreamCode };
   } catch {
     return { status: response.status };
+  }
+}
+
+/**
+ * The record id out of a recogniser answer, when the deployment kept a record for it.
+ *
+ * THE HANDLE THE CORRECTION NEEDS, and the reason a `clone()` is taken here at all: the id rides on
+ * the transcription answer (the store wrote the record before answering) but it is NOT part of the
+ * transcript envelope the wire parser reads, so it has to be picked up beside that parse rather than
+ * out of it. Absent is the ordinary case for a user who turned recording off — the store wrote
+ * nothing, so there is no id — and it is answered as null rather than as an error, because a
+ * dictation that kept no record is a dictation that succeeded.
+ *
+ * The clone is taken ONLY when the user's own `voiceDataRecording` says records are being kept, so a
+ * user who turned recording off pays no second read of the body on every segment.
+ */
+async function readRecordId(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.clone().json()) as { recordId?: unknown } | null;
+    const recordId = body?.recordId;
+    return typeof recordId === 'string' && recordId !== '' ? recordId : null;
+  } catch {
+    return null;
   }
 }
 
@@ -516,6 +540,16 @@ type CaptureSession = {
   firstTextLatencyMs: number | null;
   /** Cumulative usage the recogniser returned, when it returned any. */
   usage: VoiceUsage | null;
+  /**
+   * The voice-data record each ordinal's transcription was kept in, when the deployment kept one.
+   *
+   * ONE RECORD PER SEGMENT, because the store writes one per transcription and the server answers
+   * each segment's upload with its own id — so a correction is written back per segment rather than
+   * per listen. An ordinal is absent here when the user turned `voiceDataRecording` off (the store
+   * wrote nothing, so there is no id) or when the recogniser's answer carried none; a label whose
+   * ordinal has no record has nowhere to go and is dropped rather than written somewhere else.
+   */
+  recordIds: Map<number, string>;
 };
 
 type UseVoiceInputOptions = {
@@ -593,6 +627,15 @@ export function useVoiceInput(
   const [clipPlayState, setClipPlayState] = useState<VoiceClipPlayState>(NOTHING_PLAYING);
 
   const sessionRef = useRef<CaptureSession | null>(null);
+  // The listen whose text is in the composer, kept AFTER the session is closed because the send it
+  // is waiting for arrives later: the user stops the mic, edits the box, and presses send, and the
+  // correction is derived from the two texts at that moment. It holds the session's OWN `parts` and
+  // `recordIds` by reference, so a segment that settled between the commit and the send is included
+  // without this ref having to be refreshed. See `writeSentLabels`.
+  const lastListenRef = useRef<{
+    segments: VoiceSourceSegment[];
+    recordIds: Map<number, string>;
+  } | null>(null);
   const cancelledRef = useRef(false);
   const startingRef = useRef(false);
   // Mirrors the clip slot for callbacks that must not be re-created on every clip change,
@@ -695,6 +738,11 @@ export function useVoiceInput(
       if (full && session.firstTextLatencyMs === null && session.firstCutAt !== null) {
         session.firstTextLatencyMs = Date.now() - session.firstCutAt;
       }
+      // The listen this text belongs to, remembered for the send that will later derive the
+      // correction from it. Set HERE, where text actually reaches the composer, rather than when the
+      // session was created: a listen the user cancelled before it said anything must leave no
+      // listen behind for a later send to be compared against.
+      lastListenRef.current = { segments: session.parts, recordIds: session.recordIds };
       if (!cancelledRef.current) onTranscriptRef.current(full, false);
     }
   };
@@ -779,11 +827,21 @@ export function useVoiceInput(
         session.refusals.set(job.index, refusal);
         throw refusal;
       }
-      // Taken before the body is read for the transcript, and only when a reading will be produced:
-      // a normal dictation neither clones the answer nor looks for usage in it.
+      // Both taken before the body is read for the transcript, because both live BESIDE the envelope
+      // that parse consumes. The record id is only looked for when the deployment is keeping
+      // records — a user who turned `voiceDataRecording` off has none to find, so neither the clone
+      // nor the parse happens for them — and the usage probe only under the debug switch, so a
+      // normal dictation on a default deployment pays no second read at all.
+      const recordProbe = readVoiceConfig().voiceDataRecording === false ? null : readRecordId(response);
       const usageProbe = isVoiceDebugEnabled() ? readUsage(response) : null;
       const raw = await parseTranscriptionResponse(response, 'strict');
       if (usageProbe) session.usage = accumulateUsage(session.usage, await usageProbe);
+      if (recordProbe) {
+        const recordId = await recordProbe;
+        // Absent is ordinary rather than an error: the store is optional, and a transcription the
+        // deployment did not keep is a transcription that succeeded.
+        if (recordId !== null) session.recordIds.set(job.index, recordId);
+      }
       const text = raw.trim();
       if (!text) {
         // A well-formed answer with no words in it is the server's own `NO_SPEECH_DETECTED`, named
@@ -978,6 +1036,7 @@ export function useVoiceInput(
         firstCutAt: null,
         firstTextLatencyMs: null,
         usage: null,
+        recordIds: new Map(),
       };
       sessionRef.current = session;
       // Resolve the capture engine, then build the segmenter against the rate it reports. The sink
@@ -1122,6 +1181,7 @@ export function useVoiceInput(
         firstCutAt: null,
         firstTextLatencyMs: null,
         usage: null,
+        recordIds: new Map(),
       };
       sessionRef.current = session;
       setState('transcribing');
@@ -1212,7 +1272,70 @@ export function useVoiceInput(
   // recording*. Deliberately false once the stop has been pressed — the transcribing tail is the
   // recorder draining, not a live request the user is being kept waiting on — and false at idle.
   const inFlight = state === 'recording' && pendingRequests > 0;
-  return { state, inFlight, toggle, stop, transcribeFile, clipSlot, clipPlayState, toggleClipPlayback };
+
+  /**
+   * Writes the user's own correction back to the records this listen's segments were kept in.
+   *
+   * CALLED AT SEND, with the text the user actually sent, because that is the only moment the pair
+   * exists: the recogniser's words are what the listen committed, and the sent text is what the user
+   * left in the box, and the two are only both known once they have stopped editing. See
+   * `labelsFor` for what is derived from the difference.
+   *
+   * IT NEVER COSTS THE SEND. The message the user asked to send has already gone by the time this
+   * runs, and everything here is a best-effort side channel: a store that answered `404` (the record
+   * was evicted by the ceiling, or cleared, since the listen), a failed request, and a deployment
+   * that wired no such route all leave the same trace — the label was not kept — and none of them
+   * may surface to a user who never asked for labels in the first place. The synchronous `try` is
+   * for the seam itself rather than for the network: this runs inside the submit handler, and a
+   * throw from the transport's own construction would otherwise take the send with it.
+   *
+   * IT IS GATED ON THE USER'S OWN SWITCH, read here rather than captured earlier so that turning
+   * recording off in another tab takes effect on the next send: `voiceDataRecording === false` means
+   * nothing was written for this listen, so there is nothing to write back to. That gate is also
+   * what keeps the whole path — no labels computed, no request built — off for a user who declined.
+   */
+  const writeSentLabels = useCallback((finalText: string) => {
+    const listen = lastListenRef.current;
+    if (listen === null || listen.segments.length === 0) return;
+    if (readVoiceConfig().voiceDataRecording === false) return;
+
+    const labels = labelsFor(listen.segments, finalText);
+    // One request per RECORD rather than per label: a segment's transcriptions were kept in that
+    // segment's own record, so the pairs that came from it are the ones that belong beside its audio.
+    const bySegment = new Map<number, typeof labels>();
+    for (const label of labels) {
+      const existing = bySegment.get(label.segmentIndex);
+      if (existing) existing.push(label);
+      else bySegment.set(label.segmentIndex, [label]);
+    }
+
+    for (const [segmentIndex, segmentLabels] of bySegment) {
+      const recordId = listen.recordIds.get(segmentIndex);
+      // A label with no record has nowhere to go. It is dropped rather than written against another
+      // segment's record, which would put one segment's words beside another's audio.
+      if (recordId === undefined) continue;
+      try {
+        void api.voice.writeLabels(recordId, { finalText, labels: segmentLabels }).catch(() => {
+          // The label was not kept. Nothing is shown: the user asked to send a message, not to
+          // contribute a label, and a correction that failed to file itself is not a failed send.
+        });
+      } catch {
+        // The transport threw before returning a promise — the same outcome by a different route.
+      }
+    }
+  }, []);
+
+  return {
+    state,
+    inFlight,
+    toggle,
+    stop,
+    transcribeFile,
+    clipSlot,
+    clipPlayState,
+    toggleClipPlayback,
+    writeSentLabels,
+  };
 }
 
 /**

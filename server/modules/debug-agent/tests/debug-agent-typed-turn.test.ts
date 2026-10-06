@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,12 +21,14 @@ import type { AnyRecord, LLMProvider, ProviderRuntimeWriter } from '@/shared/typ
 import {
   armDebugAgentScenario,
   DEBUG_AGENT_PROVIDER_ID,
+  evaluateScenarioExpectations,
   readDebugAgentGate,
   type DebugAgentRunReading,
   type DebugAgentScenario,
   type DebugAgentScenarioEvaluation,
 } from '../index.js';
-import { readTranscriptRows } from '../debug-agent.runtime.js';
+import { releaseDebugAgentRun, runDebugAgentScenario } from '../debug-agent.engine.js';
+import { buildMessageRow, readTranscriptRows, writeTranscript } from '../debug-agent.runtime.js';
 
 /**
  * The criterion for a typed turn: the prompt a person sends through the chat
@@ -804,5 +807,109 @@ function registerCriteria(): void {
       path.join(REPO_ROOT, SELF_RELATIVE_PATH),
       'the running module must be the file the criterion command names',
     );
+  });
+
+  /**
+   * The `await-release` step, read on the artifact rather than on the walk's word.
+   *
+   * The step exists so a criterion can say "the events behind this point fire once
+   * my own reading window has closed" instead of trusting a fixed clock offset that
+   * a loaded host outruns. What has to hold for that is exactly two things, and
+   * both are read off the file: the walk STOPS at the barrier — the row behind it
+   * is not on disk while the step is un-released, no matter how long the caller
+   * waits — and it GOES ON once the release is stated. A build where the step were
+   * a no-op would pass the second reading alone, which is why the first one is
+   * taken first, and why the assertion after the release is a row count and not the
+   * run's own verdict.
+   *
+   * Driven directly, with no gate and no database: `runDebugAgentScenario` walks a
+   * transcript file and nothing else, so the reading needs neither, and keeping it
+   * out of a child process keeps it fast enough to run beside the socket arms.
+   */
+  test('an await-release step holds the walk until the release is stated, and then lets it go', async () => {
+    const scratch = mkdtempSync(path.join(os.tmpdir(), 'debug-agent-release-barrier-'));
+    const transcriptPath = path.join(scratch, 'walk.jsonl');
+    const sessionId = 'release-barrier-provider-session';
+    const appSessionId = 'release-barrier-app-session';
+    const timestamp = new Date().toISOString();
+
+    try {
+      writeTranscript(transcriptPath, [
+        buildMessageRow({
+          sessionId,
+          cwd: scratch,
+          role: 'user',
+          text: 'seed row the walk chains onto',
+          uuid: randomUUID(),
+          parentUuid: null,
+          timestamp,
+        }),
+      ]);
+      const seedRows = readTranscriptRows(transcriptPath).length;
+
+      const scenario: DebugAgentScenario = {
+        version: 1,
+        dialect: 'claude',
+        home: 'gate',
+        transcript: { mode: 'per-row-jsonl' },
+        seed: { title: 'release barrier fixture', userText: 'seed row the walk chains onto' },
+        steps: [
+          { at: 0, op: 'row', role: 'assistant', text: 'the row in front of the barrier' },
+          { at: 10, op: 'await-release' },
+          { at: 20, op: 'row', role: 'assistant', text: 'the row behind the barrier' },
+        ],
+        expect: { rows: { delta: 2 }, content: { mustContain: ['the row behind the barrier'] } },
+      };
+
+      const walk = runDebugAgentScenario({
+        scenario,
+        sessionId,
+        appSessionId,
+        cwd: scratch,
+        transcriptPath,
+        writer: { send: () => undefined },
+        normalizeMessage: () => [],
+        forwardFrames: () => undefined,
+      });
+
+      // Long enough that a walk which never parked would have written both rows.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.equal(
+        readTranscriptRows(transcriptPath).length,
+        seedRows + 1,
+        'the barrier must hold the walk: only the row in front of it may be on disk while it is un-released',
+      );
+
+      assert.equal(releaseDebugAgentRun(appSessionId), 1, 'the release must wake the one waiter parked at the barrier');
+
+      const reading = await walk;
+      assert.equal(
+        readTranscriptRows(transcriptPath).length,
+        seedRows + 2,
+        'once released, the walk must write the row behind the barrier',
+      );
+      assert.equal(
+        releaseDebugAgentRun(appSessionId),
+        0,
+        'a second release, after the run has ended, must report that it woke nobody rather than fail',
+      );
+
+      // The barrier is a step like any other as far as the artifact is concerned:
+      // it adds nothing, so a scenario's own row count still describes the walk.
+      const evaluation = evaluateScenarioExpectations({
+        scenario,
+        transcriptPath,
+        reading,
+        sessionId,
+        normalizeMessage: () => [],
+      });
+      assert.deepEqual(
+        evaluation.failures,
+        [],
+        `the barrier must not disturb the artifact's own verdict: ${JSON.stringify(evaluation.failures)}`,
+      );
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
   });
 }

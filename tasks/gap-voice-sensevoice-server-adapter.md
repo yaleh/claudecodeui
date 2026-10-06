@@ -146,7 +146,13 @@ L_G 该轴有读数：同一批片段上适配器输出与补丁引擎记录的�
 - src/modules/i18n/locales/zh-CN/chat.json
 - src/modules/i18n/locales/zh-TW/chat.json
 - tasks/gap-voice-sensevoice-server-adapter.md
+- server/modules/voice/tests/voice-error-classification.test.ts
+- server/modules/voice/tests/voice-error-classification.false-forms.test.ts
+- scripts/asr-dashscope-omni-check.test.mjs
 
+## Notes
+
+fan-in suite red was attributed: the new ENGINE_UNAVAILABLE code makes the error vocabulary 14 members, so the AC-149 pins (`vocab.length === 13`, table-row tokens source=12/14, "thirteen") and the omni check's copied fixture (missing sensevoice-local module) went red. Fixed on branch task/gap-voice-sensevoice-server-adapter in commit a89e19a4. Verified locally: voice-error-classification.test.ts exit 0, voice-error-classification.false-forms.test.ts 7/7 pass, `node --test scripts/asr-dashscope-omni-check.test.mjs` 14/14 pass.
 
 ## Needs-Human
 
@@ -157,4 +163,15 @@ L_G 该轴有读数：同一批片段上适配器输出与补丁引擎记录的�
 - run_id：wk-prod-anchor
 - session_id：e611924f-e22f-4496-92a3-ba61055e394d
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-sensevoice-server-adapter~wk-prod-anchor~1791249132076-02cd06.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-sensevoice-server-adapter-wk-prod-anchor.log
+
+## Needs-Human
+
+**执行 2026-10-06T01:58:11.496Z — 停派终止（失败无法归因，⛔ 不再重派）**
+
+- 阻碍原因：exited-not-landed 失败无法归因（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 3 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (parser extracted 0 of 2 failing lines and attributed none to a file); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=33556 server/shared/tests/quay-test-script.test.ts passed=false end_ms=1791251814000
+- run_id：wk-prod-anchor
+- session_id：17e84e98-4d40-4051-83bd-314f3fc20afa
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-sensevoice-server-adapter~wk-prod-anchor~1791251597105-a5585e.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-sensevoice-server-adapter-wk-prod-anchor.log
