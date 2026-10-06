@@ -1,7 +1,7 @@
 ---
 id: gap-session-hosts-poll-to-ws-invalidate
 title: session-hosts 每秒轮询改为 WS 失效通知（hosts.changed {rev}）+ 慢速兜底轮询
-status: ready
+status: todo
 labels:
   - gap
 parent: null
@@ -24,11 +24,11 @@ extra:
 
 ## Plan
 
-1. 服务端 `session-host-manager.service.ts`：加 `onChange` + `rev`，在全部状态赋值点与 bind/unbind/closeHost 处触发；加 manager 级测试（每类转换恰好一次通知、订阅可取消）。
-2. 服务端广播：在 websocket 模块新增 hosts 变更广播（沿用 `connectedClients`/`WS_OPEN_STATE`，经 barrel 导出）；`server/index.ts`（composition root）把 `sessionHostManager.onChange` 接到该广播；会话创建/改名/改模式路径（`sessions.service.ts` 等已调用 `broadcastSessionUpserted*` 之处）同样触发。模块边界按 backend-module-standards：session-hosts 不得直接 import websocket 内部文件，一律经 composition root 注入。
+1. 服务端 `session-host-manager.service.ts`：加 `onChange` + `rev`，在全部状态赋值点与 bind/unbind/closeHost 处触发；在已有的 `session-host-lifecycle.test.ts` 里加 manager 级测试（每类转换恰好一次通知、订阅可取消）。
+2. 服务端广播：在 websocket 模块新增 hosts 变更广播服务（沿用 `connectedClients`/`WS_OPEN_STATE`，经 barrel 导出）；`server/index.ts`（composition root）把 `sessionHostManager.onChange` 接到该广播；会话创建/改名/改模式路径（`sessions.service.ts` 等已调用 `broadcastSessionUpserted*` 之处）同样触发。模块边界按 backend-module-standards：session-hosts 不得直接 import websocket 内部文件，一律经 composition root 注入。
 3. 前端 `useSessionHosts.ts`：保持模块级单例 store，把 WS 帧桥接进来（由挂在 `WebSocketProvider` 之下的一个小订阅点调用 store 的 `invalidate(rev)`）；实现 rev 去重 + 250ms 合并、连接状态感知的兜底间隔（30s/2s）、连上即拉。按 frontend-module-standards 放置。
 4. 改写两个把 1000ms 间隔写死的测试（`hostSnapshotFailure.test.ts`、`occupiedSessionReadOnly.test.tsx`）为「帧驱动 + 兜底」模型；e2e `activity-dock-*.spec.ts` 里「面板不得取自 session-hosts 轮询」的断言保持成立，需复跑确认。
-5. 注意：每新增一个 `server/**/*.test.ts` 都会触发 quay-test-script 对 server 测试文件数的固定计数红灯（整个 fleet 红、driver 报 UNATTRIBUTABLE 并停止重派）——新增测试文件时必须同步上调 known/unknown 两个数字，并把该脚本列入 Touches。若可行，优先把新测试写进已有测试文件以避免新增。
+5. **不要新增 `server/**/*.test.ts` 文件**：该套件对 server 测试文件总数有固定计数，每新增一个文件都会让 fleet 红灯（driver 报 UNATTRIBUTABLE 并停止重派）。服务端广播的测试并入已有的 `server/modules/websocket/tests/activity-protocol.test.ts`，manager 测试并入 `session-host-lifecycle.test.ts`。若确实要新增，须先找到并同步上调该计数点，并把它列入 Touches。
 
 ## AC
 
@@ -38,7 +38,7 @@ extra:
 - [ ] WS 断开时轮询回退到 ≤ 2s 间隔；WS 重连（`websocket_reconnected`）后立即拉取一次且状态收敛（单元测试用 fake timers 断言间隔与立即拉取）。
 - [ ] 服务端 manager 的 `onChange` 对每类状态转换恰好通知一次、可取消订阅；`hosts_changed` 帧只发给 `readyState === OPEN` 的连接（`node --experimental-strip-types --test` 单文件，exit 0）。
 - [ ] `GET /api/session-hosts` 的响应形状与 `toHostView` 投影不变（`server/modules/session-hosts/tests/session-hosts-routes.test.ts` 原样通过，不改断言）。
-- [ ] 改写后的 `hostSnapshotFailure.test.ts` 与 `occupiedSessionReadOnly.test.tsx` 通过，且 `grep -n "1000" ` 这两个文件里不再有对轮询间隔的写死假设；`npm run typecheck` 与 oxlint（含 boundaries 规则）exit 0。
+- [ ] 改写后的 `hostSnapshotFailure.test.ts` 与 `occupiedSessionReadOnly.test.tsx` 通过，且这两个文件里不再有对 1000ms 轮询间隔的写死假设；`npm run typecheck` 与 oxlint（含 boundaries 规则）exit 0。
 
 ## DoD
 
@@ -47,11 +47,10 @@ extra:
 ## Touches
 
 - server/modules/session-hosts/session-host-manager.service.ts
-- server/modules/session-hosts/index.ts
 - server/modules/session-hosts/tests/session-host-lifecycle.test.ts
 - server/modules/websocket/services/hosts-changed-broadcast.service.ts
 - server/modules/websocket/index.ts
-- server/modules/websocket/tests/hosts-changed-broadcast.test.ts
+- server/modules/websocket/tests/activity-protocol.test.ts
 - server/modules/providers/services/sessions.service.ts
 - server/index.ts
 - server/shared/types.ts
