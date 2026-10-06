@@ -11,9 +11,11 @@
  * WHAT IS STORED. One record per successful transcription: a JSON document naming the provider and
  * the recognised text (with the recogniser's per-token facts when it produced them) plus the
  * segment audio that produced them. A record is exactly `{ recordId, ts, providerId, buildId?,
- * segments }`, where each segment is `{ index, audioFile, text, tokens? }`. Three keys are RESERVED
- * for later tasks and deliberately never written here — `finalText`, `labels` and `flagStats`, which
- * the correction-feedback track fills. Nothing this module writes is a credential: the audio and
+ * segments }`, where each segment is `{ index, audioFile, text, tokens? }`. A record may carry a
+ * `flagStats` document beside those segments — the confidence shadow's per-threshold mark counts,
+ * written for a recogniser that declared per-token confidence. Two keys are RESERVED for later
+ * tasks and deliberately never written here — `finalText` and `labels`, which the correction-
+ * feedback track fills. Nothing this module writes is a credential: the audio and
  * the text are the user's own, and the settings document — keys, tokens, request headers — is never
  * a field of a record.
  *
@@ -47,6 +49,7 @@ import path from 'node:path';
 import type { VoiceSettings } from '@/shared/types.js';
 
 import type { AsrToken } from '../../../shared/asr/asrRegistry.js';
+import type { ConfidenceFlagStats } from '../../../shared/asr/confidenceFlags.js';
 
 /**
  * The directory's own name, under the database's parent — `~/.cloudcli/voice-data` by default.
@@ -107,9 +110,11 @@ export type VoiceDataSegment = {
 /**
  * One transcription, as it is stored.
  *
- * The three trailing keys are RESERVED and never written by this task: the correction-feedback
- * track fills `finalText`/`labels` and the confidence-flag shadow fills `flagStats`. They are named
- * here so a reader of a written record — and the later writer — has one shape to agree on.
+ * The trailing keys are `finalText` and `labels`, which are RESERVED and never written by this
+ * module: the correction-feedback track fills them. `flagStats` is the confidence shadow's own
+ * document and IS written — by the service, when the selected recogniser declared per-token
+ * confidence — and absent otherwise, the same absence-not-placeholder rule the rest of the record
+ * follows.
  */
 export type VoiceDataRecord = {
   recordId: string;
@@ -118,12 +123,12 @@ export type VoiceDataRecord = {
   providerId: string;
   buildId?: string;
   segments: VoiceDataSegment[];
-  /** Reserved for the correction loop; not written by this task. */
+  /** Reserved for the correction loop; not written by this module. */
   finalText?: string;
-  /** Reserved for the correction loop; not written by this task. */
+  /** Reserved for the correction loop; not written by this module. */
   labels?: unknown;
-  /** Reserved for the confidence-flag shadow stats; not written by this task. */
-  flagStats?: unknown;
+  /** The confidence shadow's mark counts, when the recogniser declared per-token confidence. */
+  flagStats?: ConfidenceFlagStats;
 };
 
 /** What one successful transcription hands the store. */
@@ -141,6 +146,16 @@ export type VoiceDataRecordInput = {
   buildId?: string;
   text: string;
   tokens?: AsrToken[];
+  /**
+   * The confidence shadow's mark counts for this transcription, when one was computed.
+   *
+   * THE SERVICE DECIDES WHETHER THIS EXISTS, and the store only keeps what it is handed: whether
+   * the selected recogniser declared per-token confidence is a fact about the adapter, which this
+   * module never sees. Absent therefore means "there was nothing to count" — a recogniser that
+   * declared no confidence, or a caller that never computed the shadow — and the field is left off
+   * the record rather than written empty, so a reader can tell the two apart from the file alone.
+   */
+  flagStats?: ConfidenceFlagStats;
   /** The audio this transcription was made from, exactly as it was uploaded. */
   audio: Uint8Array;
 };
@@ -383,6 +398,9 @@ function recordToStore(directory: string, input: VoiceDataRecordInput): VoiceDat
         ...(input.tokens === undefined ? {} : { tokens: input.tokens }),
       },
     ],
+    // Kept verbatim when the caller computed it, omitted when it did not — the same
+    // absence-not-placeholder rule the segment's `tokens` and the record's `buildId` follow.
+    ...(input.flagStats === undefined ? {} : { flagStats: input.flagStats }),
   };
 
   const recordPath = path.join(directory, `${stem}${RECORD_EXTENSION}`);

@@ -24,6 +24,10 @@ import {
   listProviders,
   tryResolve,
 } from '../../../shared/asr/asrRegistry.js';
+// THE CONFIDENCE SHADOW, as a VALUE import: this is the one place the live statistics are computed,
+// so the pure function has to be callable here. It lives in the `shared/asr` tree the falsification
+// criterion copies wholesale, so importing it does not add an edge to a module that tree lacks.
+import { flagStats } from '../../../shared/asr/confidenceFlags.js';
 import type { AsrAdapter, AsrCapabilities, AsrErrorCode, AsrFailure, AsrSuccess } from '../../../shared/asr/asrRegistry.js';
 // The wire's own vocabulary for how much of an upstream answer is allowed to be malformed, which
 // this path names below. A TYPE import deliberately: what the wire implements — the request it
@@ -1283,6 +1287,19 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         if (result.tokens !== undefined) speech.tokens = result.tokens;
         if (result.meta?.buildId !== undefined) speech.meta = { buildId: result.meta.buildId };
 
+        // THE CONFIDENCE SHADOW, computed only where it means something. `tokens.confidence` is the
+        // RECOGNISER'S OWN DECLARATION, and the three remote recognisers declare `false`: for them
+        // there is no confidence to count, so no `flagStats` is produced and the record keeps the
+        // shape it has always had rather than gaining an all-zero document. A recogniser that does
+        // declare it returns tokens carrying confidence (the invariant board holds it to that), and
+        // the pure function turns them into the same per-threshold counts the offline experiment
+        // (`experiments/voice-index-loop/sim/sv-eval2.mjs`) reads — one calibre, two callers. The
+        // `.tokens.confidence` access is why this lives here and not in the store: the store is
+        // handed no adapter and could not decide it.
+        const flags = adapter.capabilities.tokens.confidence
+          ? flagStats(speech.text, result.tokens ?? [])
+          : undefined;
+
         // THE USER-DATA RECORD, WRITTEN AFTER THE ATTEMPT IS ANSWERED AND NEVER INSTEAD OF IT.
         //
         // It is a DIFFERENT object from the capture row `logAttempt` writes above: that row is the
@@ -1303,6 +1320,7 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
               ...(speech.meta?.buildId === undefined ? {} : { buildId: speech.meta.buildId }),
               text: speech.text,
               ...(speech.tokens === undefined ? {} : { tokens: speech.tokens }),
+              ...(flags === undefined ? {} : { flagStats: flags }),
               audio: input.audio.bytes,
             });
             if (stored !== null) {

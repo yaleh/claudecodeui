@@ -9,6 +9,7 @@ import express from 'express';
 
 import type { VoiceSettings } from '@/shared/types.js';
 
+import { listProviders, type AsrAdapter } from '../../../../shared/asr/asrRegistry.js';
 import { createVoiceDataStore } from '../voice-data.js';
 import { createVoiceRouter } from '../voice.routes.js';
 import { createVoiceService, createVoiceSettingsService } from '../voice.service.js';
@@ -28,6 +29,14 @@ import { createVoiceService, createVoiceSettingsService } from '../voice.service
  * route reading (the `DELETE`) goes through a real express app so "the route answers with a count"
  * is a real HTTP answer. `voice.capture` is never wired, so a case that accidentally depended on the
  * diagnostic seam would fail rather than pass quietly.
+ *
+ * THE CONFIDENCE AXIS NEEDS AN ADAPTER NOBODY SHIPPED. Every recogniser in the registry declares
+ * `tokens.confidence: false`, so "a declaring recogniser writes `flagStats`" is unreachable through
+ * the shipping declarations alone — the criterion would pass on a registry that could never produce
+ * the reading it claims to test. The last case therefore registers a stand-in that declares the
+ * capability and answers tokens carrying confidence, drives the SHIPPING service through it, and
+ * removes it again; the paired undeclared reading is the shipping openai-compatible recogniser,
+ * whose declaration is the reason its record has no `flagStats` at all.
  */
 
 const defaults = {
@@ -165,7 +174,10 @@ test('a default-settings transcription writes one record and its segment audio, 
     // The reserved keys belong to later tasks and are NOT written here.
     assert.ok(!('finalText' in record), 'finalText is reserved, not written by this task');
     assert.ok(!('labels' in record), 'labels is reserved, not written by this task');
-    assert.ok(!('flagStats' in record), 'flagStats is reserved, not written by this task');
+    // `flagStats` is NOT reserved: the shipping recogniser this case selects declares no per-token
+    // confidence, so there is nothing to count and the key is left off rather than written empty.
+    // (The declaring-recogniser case below is the other half — the same key IS written there.)
+    assert.ok(!('flagStats' in record), 'the openai-compatible recogniser declares no confidence');
 
     // The credential never becomes a record's bytes: the sentinel key was on the settings document
     // and nowhere on disk. (The audio/text are the user's own; the key is not.)
@@ -333,6 +345,95 @@ test('DELETE /api/voice/data answers the deleted count over HTTP, and 200/0 for 
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('a confidence-declaring recogniser writes flagStats; the shipping one does not (paired)', async () => {
+  const parent = makeTempParent();
+  // The registry hands out its own module-private array (typed `readonly`, mutable at runtime);
+  // pushing here is what makes a declaration the shipped set does not contain testable. The pop in
+  // `finally` is the leak guard: node:test runs this file's cases sequentially in one process, so no
+  // other case can observe the stand-in, and none is left behind for the next one either.
+  const registry = listProviders() as AsrAdapter[];
+  const FAKE_ID = 'criterion-confidence-fake';
+  const declaring: AsrAdapter = {
+    id: FAKE_ID,
+    capabilities: {
+      acceptsMime: ['audio/wav'],
+      maxInlineRequestBytes: 25 * 1024 * 1024,
+      oversize: 'reject',
+      honors: { prompt: false, language: false, context: false },
+      billing: 'audio-seconds',
+      pauseCues: 'neutral',
+      style: 'verbatim',
+      oneShot: true,
+      transport: 'direct',
+      // The one declaration the shipped registry has nowhere: per-token confidence.
+      tokens: { confidence: true, timestamps: false },
+      locality: 'local-server',
+    },
+    transcribe: async () => ({
+      ok: true,
+      text: '你好 API',
+      style: 'verbatim',
+      transformations: [],
+      providerId: FAKE_ID,
+      // One high token and one low, adjacent: the low one is the Latin half of the text.
+      tokens: [
+        { text: '你好', confidence: 0.91 },
+        { text: '▁API', confidence: 0.42 },
+      ],
+    }),
+  };
+
+  registry.push(declaring);
+  try {
+    const { service, directory } = makeService(parent);
+
+    const declared = await service.transcribe({
+      audio: { bytes: AUDIO, mimeType: 'audio/wav', fileName: 'segment-1.wav' },
+      overrides: {},
+      settings: { ...EMPTY_SETTINGS, providerId: FAKE_ID },
+    });
+    assert.equal(declared.ok, true, 'a confidence-declaring recogniser still transcribes');
+    assert.ok(declared.ok && typeof declared.value.recordId === 'string', 'and still writes a record');
+
+    const records = filesWith(directory, '.json');
+    assert.equal(records.length, 1);
+    const flagStats = readJson(path.join(directory, records[0])).flagStats as
+      | { chars: number; byTheta: Array<Record<string, number>> }
+      | undefined;
+    assert.ok(flagStats, 'the record carries flagStats for a confidence-declaring recogniser');
+    assert.equal(flagStats.chars, '你好 API'.length);
+    assert.equal(flagStats.byTheta.length, 4, 'one row per default threshold');
+
+    // Known answer, at the integration level: `▁API` is the only token below every threshold, it
+    // slices to ` API` (Latin), and the text is six characters — so one merged Latin mark and a rate
+    // of 100/6 at each of the four thresholds. A count that could never be anything but zero would
+    // make "flagStats exists" vacuous, so the values are read out and not just the key.
+    assert.deepEqual(flagStats.byTheta.map((row) => row.theta), [0.5, 0.6, 0.7, 0.8]);
+    assert.deepEqual(flagStats.byTheta.map((row) => row.flags), [1, 1, 1, 1]);
+    assert.deepEqual(flagStats.byTheta.map((row) => row.flagsLatin), [1, 1, 1, 1]);
+    assert.equal(flagStats.byTheta[0].flagsPer100Chars, 100 / 6);
+
+    // The PAIRED undeclared reading: the SAME service and directory, with the settings naming no
+    // provider so the first registered recogniser — the shipping openai-compatible one, which
+    // declares no confidence — is selected. Its write path is identical, and it produces no key.
+    const undeclared = await service.transcribe({
+      audio: { bytes: AUDIO, mimeType: 'audio/wav', fileName: 'segment-2.wav' },
+      overrides: {},
+      settings: EMPTY_SETTINGS,
+    });
+    assert.equal(undeclared.ok, true, 'the undeclared recogniser transcribes too');
+    const second = filesWith(directory, '.json').filter((name) => name !== records[0]);
+    assert.equal(second.length, 1);
+    assert.ok(
+      !('flagStats' in readJson(path.join(directory, second[0]))),
+      'a recogniser that declared no confidence leaves the key off',
+    );
+  } finally {
+    assert.equal(registry.pop(), declaring, 'the stand-in is removed so it cannot leak to another case');
     rmSync(parent, { recursive: true, force: true });
   }
 });
