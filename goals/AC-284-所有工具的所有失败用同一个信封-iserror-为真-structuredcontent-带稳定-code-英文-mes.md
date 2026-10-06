@@ -2,7 +2,7 @@
 id: AC-284
 title: 所有工具的所有失败用同一个信封：isError 为真，structuredContent 带稳定 code、英文
   message、retryable、details
-status: draft
+status: active
 kind: criterion
 goal: GOAL-024
 criterion: for f in server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts;
@@ -23,4 +23,15 @@ expect: "真实 HTTP 加 MCP SDK
   以退出码 1 输出缺失的文件名。"
 origin: 本会话（2026-10-06）对 ChatGPT 与 Gemini 接入真实经验的 MCP 接口契约审计，及人 yale
   同日指令：把审计清单落成 quay goal。
+activatedAt: 2026-10-06T12:15:25.754Z
+statusLog:
+  - at: 2026-10-06T12:15:25.754Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-06T12:15:25.754Z
 ---
