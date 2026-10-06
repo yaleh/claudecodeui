@@ -42,12 +42,26 @@ export type {
 // `startMcpAuditRetention` runs the 90-day sweep at startup and daily. The
 // transport registers AC-245+'s tools through `withMcpAudit`; this module's
 // criterion drives each export directly.
-export { recordMcpToolCall, startMcpAuditRetention, summarizeToolArgs, withMcpAudit } from './mcp-gateway.audit.js';
+// AC-288 adds two more: `McpToolInputSchema` is what a registration may declare
+// (a raw shape, or a built schema carrying a bound or an object-level refine),
+// and `installMcpCallDispatcher` replaces the SDK's `tools/call` handler with the
+// audited one so validation failures and unknown names reach the one envelope
+// instead of the SDK's text-only protocol error. The transport calls the
+// dispatcher once per mount; `tests/mcp-invalid-argument.test.ts` reads its two
+// branches and `McpToolInputSchema` is the type the read-tool seam widens to.
+export {
+  installMcpCallDispatcher,
+  recordMcpToolCall,
+  startMcpAuditRetention,
+  summarizeToolArgs,
+  withMcpAudit,
+} from './mcp-gateway.audit.js';
 export type {
   McpAuditOutcome,
   McpAuditRetentionOptions,
   McpToolCallReading,
   McpToolHandler,
+  McpToolInputSchema,
   McpToolRegistrar,
   McpToolRegistration,
 } from './mcp-gateway.audit.js';
@@ -61,18 +75,27 @@ export type {
 // wrapper (AC-244) and every tool module's refusal path consume these;
 // `tests/mcp-error-envelope.test.ts` reads the vocabulary as the expected code
 // per probe class. Consumers import from HERE, never from the file directly.
+//
+// AC-288 adds the two readings that branch is missing: `invalidArgumentFields`
+// renders a `ZodError` as the `INVALID_ARGUMENT` envelope's `{ path, problem }`
+// list, and `unknownToolResult` is the envelope an unregistered tool name gets.
+// The audited wrapper (through `installMcpCallDispatcher`) is their consumer;
+// `tests/mcp-invalid-argument.test.ts` reads both off the wire.
 export {
+  invalidArgumentFields,
   isMcpErrorCode,
   MCP_ERROR_CODES,
   mcpErrorResult,
   McpToolError,
   toMcpErrorResult,
+  unknownToolResult,
 } from './mcp-error-envelope.js';
 export type {
   McpErrorCode,
   McpErrorDescriptor,
   McpErrorDetails,
   McpErrorEnvelope,
+  McpInvalidField,
 } from './mcp-error-envelope.js';
 
 export { createMcpLoopbackGuard, isLoopbackRemoteAddress, readMcpOauthEnabled } from './mcp-gateway.loopback.js';

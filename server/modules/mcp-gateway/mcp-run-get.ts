@@ -47,6 +47,7 @@ import { z } from 'zod';
 import type { NormalizedMessage } from '@/shared/types.js';
 import type { ActivityProtocolSnapshot, ChatRunLookupResult } from '@/modules/websocket/index.js';
 
+import type { McpToolInputSchema } from './mcp-gateway.audit.js';
 import { formatMcpTime } from './mcp-gateway.read-tools.js';
 import type { McpReadToolDeps, McpReadToolSeam, McpTime } from './mcp-gateway.read-tools.js';
 
@@ -356,7 +357,12 @@ export type McpRunGetRegistration = {
   name: string;
   description: string;
   requiredScope: string;
-  inputSchema: z.ZodRawShape;
+  /**
+   * AC-288: passed down from the one stage-3 body table, which holds a raw shape
+   * OR a built schema carrying a constraint a raw shape cannot express. `run_get`
+   * itself still declares a raw shape; the wider type is what the table hands over.
+   */
+  inputSchema: McpToolInputSchema;
   outputSchema: z.ZodRawShape;
 };
 

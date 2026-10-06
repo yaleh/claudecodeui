@@ -39,6 +39,7 @@
  */
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 
 // --------------------------- the code vocabulary ---------------------------
 
@@ -241,6 +242,119 @@ export function mcpErrorResult(
     isError: true,
     structuredContent: envelope,
   };
+}
+
+// --------------------------- the AC-288 field detail ---------------------------
+
+/**
+ * One offending argument, as `INVALID_ARGUMENT.details.fields` reports it: the
+ * dotted path the caller used (`message`, `mode`, `items.0.name`) and ONE short
+ * English reason — never zod's raw issue object, and never its sentence.
+ *
+ * The reason is a small fixed vocabulary a caller can branch on
+ * (`required`, `expected string`, `must be one of "latest","outline"`, `must be
+ * >= 1`, or the message a `.refine()` supplied) rather than prose a human has to
+ * re-parse.
+ */
+export type McpInvalidField = {
+  /** The argument's path, dot-joined; `''` means the argument object itself. */
+  path: string;
+  /** One short English reason, non-empty and never CJK. */
+  problem: string;
+};
+
+/** One issue out of a `ZodError`, typed from the schema so this file restates no zod internals. */
+type ZodIssueLike = z.ZodError['issues'][number];
+
+/** CJK ideographs, kana and Hangul — the same class the criteria read "English" against. */
+const CJK_PATTERN = /[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]/;
+
+/** The reason for a path the caller did not supply, or supplied as `undefined`. */
+const MISSING_PROBLEM = 'required';
+
+/** The fallback reason when an issue carries no usable English sentence. */
+const UNREADABLE_PROBLEM = 'is not accepted';
+
+/** Resolves the value a zod issue's `path` points at, walking objects and arrays. */
+function valueAtPath(args: unknown, path: ReadonlyArray<PropertyKey>): unknown {
+  let current: unknown = args;
+  for (const segment of path) {
+    if (current === null || typeof current !== 'object') {
+      return undefined;
+    }
+    current = (current as Record<PropertyKey, unknown>)[segment];
+  }
+  return current;
+}
+
+/**
+ * Renders one zod issue as the field's `problem`.
+ *
+ * `args` is the caller's ORIGINAL argument object, because zod v4 files a MISSING
+ * property and a wrong-typed one under the same `invalid_type` code: only the
+ * caller's own value tells `required` from `expected <type>`. A `custom` issue
+ * (an object-level `.refine()`) carries its sentence, but it is passed through
+ * the same English guard as everything else, so a refine written in CJK cannot
+ * put CJK in a `problem`.
+ */
+function problemForIssue(issue: ZodIssueLike, args: unknown): string {
+  switch (issue.code) {
+    case 'invalid_type':
+      return valueAtPath(args, issue.path) === undefined ? MISSING_PROBLEM : `expected ${issue.expected}`;
+    case 'invalid_value':
+      return `must be one of ${issue.values.map((value) => JSON.stringify(value)).join(', ')}`;
+    case 'too_small':
+      return `must be ${issue.inclusive ? '>=' : '>'} ${String(issue.minimum)}`;
+    case 'too_big':
+      return `must be ${issue.inclusive ? '<=' : '<'} ${String(issue.maximum)}`;
+    default:
+      return englishProblem(issue.message);
+  }
+}
+
+/** The message itself when it is a usable English sentence, else a fixed English reason. */
+function englishProblem(message: string): string {
+  const trimmed = message.trim();
+  return trimmed.length > 0 && !CJK_PATTERN.test(trimmed) ? trimmed : UNREADABLE_PROBLEM;
+}
+
+/**
+ * Maps a `ZodError` to the `INVALID_ARGUMENT` envelope's per-field detail (AC-288):
+ * one `{ path, problem }` per issue, in issue order. `path` is dot-joined and
+ * array indices are plain segments (`items.0.name`); a root-level issue reports
+ * an empty path.
+ *
+ * Consumers: `mcp-gateway.audit.ts` (the audited wrapper's validation branch)
+ * and `tests/mcp-invalid-argument.test.ts`, which asserts the exact
+ * `{ path: 'message', problem: 'required' }` reading AC-288 names.
+ */
+export function invalidArgumentFields(error: z.ZodError, args: unknown): McpInvalidField[] {
+  return error.issues.map((issue) => ({
+    path: issue.path.map((segment) => String(segment)).join('.'),
+    problem: problemForIssue(issue, args),
+  }));
+}
+
+/** How much of a tool name an `UNKNOWN_TOOL` sentence repeats before it is clamped. */
+const MAX_QUOTED_TOOL_NAME = 80;
+
+/**
+ * The `UNKNOWN_TOOL` envelope for a name the gateway does not register (AC-288).
+ * It is the SAME family as every other failure — `code` / `message` / `retryable`
+ * in `structuredContent` — so a caller branches on `code` instead of parsing the
+ * SDK's `Tool X not found` sentence out of a text body.
+ *
+ * The name is quoted from the caller, so it is clamped before it reaches the
+ * sentence: a caller cannot enlarge the envelope by naming a huge tool.
+ *
+ * Consumers: `mcp-gateway.audit.ts`'s `installMcpCallDispatcher`.
+ */
+export function unknownToolResult(tool: string): CallToolResult {
+  const named = tool.length > MAX_QUOTED_TOOL_NAME ? `${tool.slice(0, MAX_QUOTED_TOOL_NAME)}...` : tool;
+  return mcpErrorResult(
+    MCP_ERROR_CODES.UNKNOWN_TOOL,
+    `No tool named "${named}" is registered on this gateway.`,
+  );
 }
 
 /**

@@ -28,6 +28,7 @@ import { z } from 'zod';
 
 import type { QuaySnapshot } from '@/modules/quay/index.js';
 
+import type { McpToolInputSchema } from './mcp-gateway.audit.js';
 import type {
   McpReadToolDeps,
   McpReadToolSeam,
@@ -387,7 +388,13 @@ export type McpOverviewRegistration = {
   name: string;
   description: string;
   requiredScope: string;
-  inputSchema: z.ZodRawShape;
+  /**
+   * AC-288: `registerMcpReadTools` passes this down from the one stage-3 body
+   * table, which now holds a raw shape OR a built schema carrying a constraint a
+   * raw shape cannot express. The two tools this module registers still declare a
+   * raw shape; the wider type is only what the shared table hands over.
+   */
+  inputSchema: McpToolInputSchema;
   outputSchema: z.ZodRawShape;
 };
 
