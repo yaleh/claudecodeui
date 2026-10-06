@@ -2,7 +2,7 @@
 id: gap-voice-sensevoice-server-adapter
 title: 服务端 SenseVoice 适配器：把打补丁的 sherpa-onnx 作为 sensevoice-local 识别器接进 ASR
   缝，输出文本与逐 token 置信度和时间（子进程 worker、构建产物固定、健康检查）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -97,7 +97,7 @@ depends_on:
 
 **i18n 键**：`en/settings.json` 与 `zh-CN/settings.json` 各含新增的 4 个 `voiceSettings.*` 键（`providerLocalTitle` / `providerLocalNotice` / `providerBuild` / `providerUnavailable`），两边键集互为子集；`ENGINE_UNAVAILABLE` 的错误文案按 `chat.json` 的既有约定加进了 12 个 locale，因为该 code 是用户可见的。**既有缺口（非本任务）**：`zh-CN/settings.json` 比 `en` 少 10 个 `voiceSettings.*` 键（`provider` / `providerCredentials` / `providerEndpoint` / `providerApiKey` / `providerModel` / …），这 10 个都不是本次新增的，本任务未触碰。
 
-**声明了但没写的 Touches 路径**（三个，记录以免被当成漏改）：`shared/asr/list/index.ts` 不存在也不需要——三个兄弟 provider 目录同样没有 barrel，注册表按路径直接 import；`server/modules/voice/voice.routes.ts` 与 `src/shared/voiceConfig.ts` 未改动，健康读出走的是 `voice.service.ts` 的 `runtime()` 分支，provider 选择沿用的是既有的 `providerId` 机制。
+**声明了但没写的 Touches 路径**（三个，记录以免被当成漏改）：`shared/asr/list/index.ts` 不存在也不需要——三个兄弟 provider 目录同样没有 barrel，注册表按路径直接 import；`server/modules/voice/voice.routes.ts` 与 `src/shared/voiceConfig.ts` 未改动，健康读出走的是 `voice.service.ts` 的 `runtime()` 分支，provider 选择沿用的是既有的 `providerId` 机制。另：原 Touches 里的 `scripts/asr-capability-check.mjs` 只作为 AC4 的检查命令运行、本身未改动，故移出声明；实际被改的检查脚本是 `scripts/asr-health-provider-check.mjs`（给探针夹具的文件表补上 `dashscope-omni` 与 `sensevoice-local` 两个模块，否则 `shared/asr/asrRegistry.ts` 的 import 在夹具里抛错，行为读数恒为 unavailable）。
 
 ## DoD
 
@@ -124,7 +124,7 @@ L_G 该轴有读数：同一批片段上适配器输出与补丁引擎记录的�
 - scripts/sensevoice/worker.py (new)
 - scripts/sensevoice/manifest.json (new)
 - scripts/sensevoice/README.md (new)
-- scripts/asr-capability-check.mjs
+- scripts/asr-health-provider-check.mjs
 - scripts/asr-second-adapter-check.mjs
 - scripts/asr-second-adapter-check.test.mjs
 - src/modules/settings/tabs/VoiceSettingsTab.tsx
@@ -146,3 +146,15 @@ L_G 该轴有读数：同一批片段上适配器输出与补丁引擎记录的�
 - src/modules/i18n/locales/zh-CN/chat.json
 - src/modules/i18n/locales/zh-TW/chat.json
 - tasks/gap-voice-sensevoice-server-adapter.md
+
+
+## Needs-Human
+
+**执行 2026-10-06T01:15:34.854Z — 停派终止（失败无法归因，⛔ 不再重派）**
+
+- 阻碍原因：exited-not-landed 失败无法归因（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (parser extracted 0 of 4 failing lines and attributed none to a file); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=77532 server/modules/voice/tests/voice-error-classification.false-forms.test.ts passed=false end_ms=1791249297782
+- run_id：wk-prod-anchor
+- session_id：e611924f-e22f-4496-92a3-ba61055e394d
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-voice-sensevoice-server-adapter~wk-prod-anchor~1791249132076-02cd06.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-voice-sensevoice-server-adapter-wk-prod-anchor.log

@@ -104,6 +104,13 @@ quay-e2e-RHTPBc  (23:48:57Z, tree 829496b7): … Received:    46801
 - [x] AC5 兄弟判据不回归：`npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"` exit 0 且其墙钟 ≤ 40000（该 spec 与 AC-194 共享）。
 - [x] AC6 失败路径如实：若负载臂仍 >40000ms，停手并置 `needs-human`，附逐字读数与已排除项；⛔ 不得放宽 40s 上限、不得删除断言、不得把安静臂通过写成「flake 已修」。
 
+## DoD
+
+真实落地判据：**在判据今天变红的那个条件**（宿主同时跑 ≥20 路兄弟 e2e，`load1` 由 ~14 抬到 ~67）下，出货命令 `npx playwright test e2e/activity-dock-background.spec.ts -g "AC-199"` 逐字不变、退出 0，且自印 `AC-199 wall clock ≤ 40000`——本轮实测 25007ms / 32419ms，与安静臂 12933–14156ms 有可见差距（≈1.9–2.4×），证明负载真的造出来了。取假形态：回退释放握手（恢复固定 12s 时钟偏移、删掉 `await-release` 障碍）或回退启动预热，同一负载构造必须重新越过 40s——这正是四次红 artifact 的 46.7–49.9s、以及立案杠杆隔离实测（回退杠杆 1 → 23525ms、回退杠杆 2 → 37884ms）的读数。40s 上限、`ac3.main` / `ac4.backgrounded` / `ac6.partition` / `ac7.falseForm` 四条读数、以及 `goals/AC-199-…md` 的 `criterion:` / `expect:` 一字未改；兄弟 AC-194 判据同文件重跑 exit 0 且 `AC-194 wall clock: 16548ms` ≤ 40000。
+
+L_D 该轴仍暗，理由：本任务只把 AC-199 判据的固定开销做成负载不敏感（`await-release` 确定性释放握手 + 削减 webServer 引导与浏览器启动的固定开销），不新增会话或坞的领域能力。
+L_G 该轴仍暗，理由：同上；判定面仍由既有四条真实浏览器读数承担，本任务不新增领域读数。
+
 ## Evidence
 
 ### AC1 — 红态真因（本轮重读，逐字）
@@ -190,6 +197,25 @@ post  : 8115ms webServer 引导完成 | 18208ms beforeAll | 18362ms ac3.main | 1
 ### 改动文件（全部在 Touches 内）
 
 `e2e/activity-dock-background.spec.ts`、`server/modules/debug-agent/debug-agent.engine.ts`、`server/modules/debug-agent/debug-agent.routes.ts`、`server/modules/debug-agent/debug-agent.scenario.ts`、`server/modules/debug-agent/tests/debug-agent-control-plane.test.ts`、`server/modules/debug-agent/tests/debug-agent-typed-turn.test.ts`。
+
+### 续做轮复测 — 2026-10-06
+
+本轮在合并 develop 后的树上重跑；实现文件与 `6cc8b657` 逐字相同（`git diff 6cc8b657..HEAD -- e2e/ server/` = 0 行），本轮只改任务体（补 `## DoD` 段）。
+
+安静臂（3 次，出货命令逐字，exit 全 0）：`AC-199 wall clock` = 12933 / 13264 / 14156 ms（整轮 13.70 / 13.99 / 14.94 s），`load1` 起 ~26，全部 ≤ 40000。
+
+负载臂（2 次，20 路并发 `npx playwright test`，判据在其启动 3s 后开跑；并发放大 10 个兄弟 spec ×2：`activity-dock-background -g AC-194` / `session-filter` / `sidebar-resize` / `activity-dock-truthful` / `transcript-edge-layout` / `transcript-follow` / `transcript-global-scrollbar` / `transcript-rail-geometry` / `transcript-work-segments` / `mobile-composer-send-key`）：
+
+| run | 宿主 `load1`（前→后） | exit | `AC-199 wall clock` | 整轮 |
+|---|---|---|---|---|
+| 1 | 13.85 → 66.58 | 0 | 25007ms | 25.1s |
+| 2 | 46.69 → 67.47 | 0 | 32419ms | 32.4s |
+
+可见差距：安静 12933–14156ms vs 负载 25007 / 32419ms（≈1.9–2.4×），两臂区间不重叠。负载臂第 2 次的 `client warm-up` 由安静 ~2.0s 涨到 19.2s，即固定启动开销确实被负载压到。（早期用 6 路并发的两次负载臂在本机 128 核上被吸收——13437 / 13710ms，无明显差距，见 `/tmp/ac199-load-1`、`/tmp/ac199-load-2`；故提高到 20 路。）
+
+AC5 兄弟判据：`npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"` → exit 0，`AC-194 wall clock: 16548ms` ≤ 40000。
+
+AC4 读数（本轮负载臂逐字）：`ac3.main click-instant: before=running after=running green=true`、`ac7.falseForm click-instant: before=running after=stopped green=false`、`ac4.backgrounded: bgTask=task-bg state=running toolUseId=0b8fd11c-d508-47c3-9a15-d6a3a9b7c4c6 foreground=0b8fd11c-d508-47c3-9a15-d6a3a9b7c4c6`（两值相等）、`ac6.partition: dockState=unreachable stopDisabled=true bgDisabled=true reasons=[…×3]`。
 
 ## Touches
 
