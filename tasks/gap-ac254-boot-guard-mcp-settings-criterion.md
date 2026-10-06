@@ -210,4 +210,4 @@ $ git diff --stat develop...HEAD
 $ git diff --stat develop HEAD -- server/ src/ shared/
 (空输出)
 ```
-（以上为 tick 落地前的读数；`tasks/gap-ac254-boot-guard-mcp-settings-criterion.md` 由 `task_write` 写入，并在退出前的 pre-merge（`merge develop`）中并入任务分支 —— 届时分支 delta 恰为 `## Touches` 的两条，无多无少。出货源码 `server/`、`src/`、`shared/` 逐字空输出，零改动。）
+`## Touches` 两条：`e2e/mcp-settings.spec.ts` 出现在 `develop...HEAD` 三点 diff 里（唯一一条，+226/-2）；`tasks/gap-ac254-boot-guard-mcp-settings-criterion.md` 的 tick 由 `task_write` 写在 **develop** 上（`423f3897`），经退出前的 pre-merge（`merge develop`）并入任务分支 —— 本任务文件在分支与 develop 上内容相同，**落在 merge base 上，故不出现在三点 diff 里**（`ledger-files-sit-at-the-merge-base-not-in-the-branch-delta`）。两点 diff `git diff --stat develop HEAD` 同为空（两侧内容一致）。出货源码 `server/`、`src/`、`shared/` 逐字空输出，零改动。
