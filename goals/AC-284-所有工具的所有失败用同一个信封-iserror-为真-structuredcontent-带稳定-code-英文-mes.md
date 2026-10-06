@@ -2,7 +2,7 @@
 id: AC-284
 title: 所有工具的所有失败用同一个信封：isError 为真，structuredContent 带稳定 code、英文
   message、retryable、details
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-024
 criterion: for f in server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts;
@@ -30,6 +30,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-06T14:44:56.757Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

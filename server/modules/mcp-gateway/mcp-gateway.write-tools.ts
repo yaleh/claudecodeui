@@ -39,6 +39,7 @@ import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
 import { readSessionTurn } from '@/modules/providers/index.js';
 
 import type { McpPrincipal } from './mcp-gateway.auth.js';
+import { McpToolError } from './mcp-error-envelope.js';
 import { MCP_TOOL_NOT_IMPLEMENTED_CODE } from './mcp-gateway.read-tools.js';
 import { buildSelfTargetGuard } from './mcp-self-target.js';
 import type { SelfTargetDeps } from './mcp-self-target.js';
@@ -201,13 +202,11 @@ export type McpWriteToolSeam = (registration: McpWriteToolRegistration) => void;
  * `session_close`.
  */
 function notImplemented(name: McpStage4WriteToolName, owner: string): never {
-  throw new Error(
-    JSON.stringify({
-      code: MCP_TOOL_NOT_IMPLEMENTED_CODE,
-      tool: name,
-      owner,
-      message: `${name} is registered by AC-249 but its behaviour is delivered by ${owner}.`,
-    }),
+  throw new McpToolError(
+    MCP_TOOL_NOT_IMPLEMENTED_CODE,
+    `${name} is registered by AC-249 but its behaviour is delivered by ${owner}.`,
+    false,
+    { tool: name, owner },
   );
 }
 
@@ -266,7 +265,7 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
       const targetSessionId = typeof args.session === 'string' ? args.session : '';
       const decision = guard({ op: name, targetSessionId });
       if (!decision.allowed) {
-        throw new Error(JSON.stringify({ code: decision.code, message: decision.message }));
+        throw new McpToolError(decision.code, decision.message);
       }
       return handler(args, ctx);
     };

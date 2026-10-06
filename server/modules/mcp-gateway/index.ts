@@ -52,6 +52,24 @@ export type {
   McpToolRegistration,
 } from './mcp-gateway.audit.js';
 
+// The single failure envelope (AC-284): `MCP_ERROR_CODES` is the canonical code
+// vocabulary the gateway decides for itself; `mcpErrorResult` builds the
+// `{ isError: true, structuredContent: { code, message, retryable, details? } }`
+// result every failure path returns; `toMcpErrorResult` normalizes a thrown
+// `McpToolError` / JSON-bodied `Error` / bare `Error` onto that shape;
+// `McpToolError` is what a tool handler throws to reach it directly. The audited
+// wrapper (AC-244) and every tool module's refusal path consume these;
+// `tests/mcp-error-envelope.test.ts` reads the vocabulary as the expected code
+// per probe class. Consumers import from HERE, never from the file directly.
+export {
+  isMcpErrorCode,
+  MCP_ERROR_CODES,
+  mcpErrorResult,
+  McpToolError,
+  toMcpErrorResult,
+} from './mcp-error-envelope.js';
+export type { McpErrorCode, McpErrorDetails, McpErrorEnvelope } from './mcp-error-envelope.js';
+
 export { createMcpLoopbackGuard, isLoopbackRemoteAddress, readMcpOauthEnabled } from './mcp-gateway.loopback.js';
 
 // The OAuth discovery documents (AC-262): `readOAuthMetadataGate` / `readMcpDcrMode`
@@ -405,3 +423,37 @@ export type {
 // criterion, which mounts the gateway and compares `tools/list` against the table.
 export { MCP_TOOL_ANNOTATIONS, readMcpToolAnnotations } from './mcp-tool-annotations.js';
 export type { McpGatewayToolName } from './mcp-tool-annotations.js';
+
+// The audit READBACK (AC-304): the read side of the AC-244 log. `createMcpAuditReader`
+// projects one user's recent `mcp_audit_log` rows into the settings page's shape —
+// reusing each row's stored digest as `summary`, resolving the user through its
+// token ids, and (unless `includeReads` is set) filtering the annotated read-only
+// tools in SQL so the limit counts write rows. `readMcpAuditLimit` normalizes and
+// clamps the requested page size, and the three LIMIT constants are the one
+// statement of the bounds. Consumers: `server/modules/settings/settings.module.ts`
+// (the production assembly) and this module's criterion.
+export { createMcpAuditReader, readMcpAuditLimit } from './mcp-audit-route.js';
+export {
+  MCP_AUDIT_ROUTE_DEFAULT_LIMIT,
+  MCP_AUDIT_ROUTE_MAX_LIMIT,
+  MCP_AUDIT_ROUTE_MIN_LIMIT,
+} from './mcp-audit-route.js';
+export type { McpAuditReadDeps, McpAuditRouteEntry } from './mcp-audit-route.js';
+
+// The write-call notifications (AC-303). `createMcpWriteNotifier` is the core —
+// the read-only early-return (classified by the one annotations table), the
+// per-caller merge window, and the payload construction, over injected seams;
+// `createMcpWriteNotification` is the production assembly whose default sink
+// rides the EXISTING notification path (`notifyUserIfEnabled`) with no new
+// setting. The transport threads the seam from `McpGatewayDeps.writeNotifications`
+// into the audit wrapper's `ok` branch; `server/index.ts` supplies the
+// production assembly; this module's criterion drives every export directly.
+export { createMcpWriteNotification, createMcpWriteNotifier } from './mcp-write-notification.js';
+export type {
+  McpWriteNotification,
+  McpWriteNotificationDeps,
+  McpWriteNotificationInput,
+  McpWriteNotificationPayload,
+  McpWriteNotifier,
+  McpWriteNotifierDeps,
+} from './mcp-write-notification.js';

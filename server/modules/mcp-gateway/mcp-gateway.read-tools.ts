@@ -33,6 +33,7 @@ import { z } from 'zod';
 
 import type { HostMode, HostState, LLMProvider, NormalizedMessage, ProcessHost } from '@/shared/types.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import { isOverviewWired, registerMcpOverviewTools } from './mcp-overview-tools.js';
 import type { McpActivityReader, McpOverviewDeps, McpOverviewRegistration, McpQuayRunner } from './mcp-overview-tools.js';
 import { isRunGetWired, registerMcpRunGetTool } from './mcp-run-get.js';
@@ -404,7 +405,10 @@ export const MCP_TOOL_NOT_IMPLEMENTED_CODE = 'MCP_TOOL_NOT_IMPLEMENTED';
 function requireStringArgument(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`"${key}" is required and must be a non-empty string.`);
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      `"${key}" is required and must be a non-empty string.`,
+    );
   }
   return value;
 }
@@ -549,13 +553,11 @@ const runSchema = z.object({
  * criteria keep the exact tool behaviour they had.
  */
 function notImplemented(name: McpStage3ReadToolName, owner: string): never {
-  throw new Error(
-    JSON.stringify({
-      code: MCP_TOOL_NOT_IMPLEMENTED_CODE,
-      tool: name,
-      owner,
-      message: `${name} is registered by AC-245 but its behaviour is delivered by ${owner}.`,
-    }),
+  throw new McpToolError(
+    MCP_TOOL_NOT_IMPLEMENTED_CODE,
+    `${name} is registered by AC-245 but its behaviour is delivered by ${owner}.`,
+    false,
+    { tool: name, owner },
   );
 }
 
@@ -633,7 +635,7 @@ const TOOL_BODIES = {
       const rows = readRecentSessionRows(deps);
       const row = rows.find((candidate) => candidate.id === sessionId);
       if (!row) {
-        throw new Error(`Session "${sessionId}" was not found.`);
+        throw new McpToolError(MCP_ERROR_CODES.SESSION_NOT_FOUND, `No session has id "${sessionId}".`);
       }
 
       const running = new Set(deps.runs.listRunningRuns().map((run) => run.sessionId));

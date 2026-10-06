@@ -31,9 +31,11 @@
  *   (b) the control service's caller is the token's owner (non-null);
  *   (c) a resident session that is busy queues, handing over the driver's own
  *       queue-tail uuid;
- *   (d) a per-run session that is busy is refused with a structured
- *       `RUN_IN_PROGRESS` carrying the in-flight runId and a hint naming
- *       `run_get` and 稍后重试;
+ *   (d) a per-run session that is busy is refused with the gateway's one
+ *       "session busy" code, `SESSION_BUSY` (the control service's own word for
+ *       it, `RUN_IN_PROGRESS`, is normalized at the envelope boundary so every
+ *       tool naming "the session is busy" says the same thing), carrying the
+ *       in-flight runId and a hint naming `run_get`;
  *   (e) `waitSeconds: 40` returns at the 3rd second with the closing assistant
  *       message, NOT after the budget;
  *   (f) a token lacking `cloudcli:session:send` is denied, one `denied` audit
@@ -200,15 +202,22 @@ const nodeFetch: FetchLike = (url, init) =>
 type ToolCall = { isError: boolean; text: string; payload: AnyRecord | null };
 
 function parseToolResult(result: unknown): ToolCall {
-  const call = result as { content?: unknown; isError?: boolean };
+  const call = result as { content?: unknown; isError?: boolean; structuredContent?: unknown };
   const blocks = Array.isArray(call.content) ? call.content : [];
   const text = blocks.map((block) => (block as { type?: string; text?: string }).text ?? '').join('');
   let payload: AnyRecord | null = null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    payload = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
-  } catch {
-    payload = null;
+  // AC-284: a FAILURE now carries its machine fields in `structuredContent`
+  // (`{ code, message, retryable, details? }`) instead of a JSON string stuffed
+  // into the text. Read that first; a SUCCESS payload is still the text body.
+  if (call.isError === true && typeof call.structuredContent === 'object' && call.structuredContent !== null) {
+    payload = call.structuredContent as AnyRecord;
+  } else {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      payload = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
+    } catch {
+      payload = null;
+    }
   }
   return { isError: call.isError === true, text, payload };
 }
@@ -586,10 +595,15 @@ test('(d) a busy per-run session is refused with the in-flight runId and a run_g
     say(`(d) firstRunId=${firstRunId} errorBody=${JSON.stringify(body)} isError=${second.isError}`);
 
     assert.equal(second.isError, true, 'a per-run busy session must be refused');
-    assert.equal(body.code, 'RUN_IN_PROGRESS', 'the refusal must be a structured RUN_IN_PROGRESS');
-    assert.equal(body.runId, firstRunId, 'the refusal must carry the in-flight run id');
-    assert.match(String(body.hint), /run_get/, 'the hint must name run_get');
-    assert.match(String(body.hint), /稍后重试/, 'the hint must say 稍后重试');
+    assert.equal(
+      body.code,
+      'SESSION_BUSY',
+      'the refusal must use the gateway-wide "session busy" code (the control service says RUN_IN_PROGRESS)',
+    );
+    const details = body.details as AnyRecord;
+    assert.equal(details.runId, firstRunId, 'the refusal must carry the in-flight run id');
+    assert.match(String(details.hint), /run_get/, 'the hint must name run_get');
+    assert.match(String(details.hint), /retry later/, 'the hint must say the call may be retried later');
   });
 });
 

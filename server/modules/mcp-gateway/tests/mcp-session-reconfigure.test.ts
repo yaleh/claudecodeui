@@ -158,15 +158,22 @@ const nodeFetch: FetchLike = (url, init) =>
 type ToolCall = { isError: boolean; text: string; payload: AnyRecord | null };
 
 function parseToolResult(result: unknown): ToolCall {
-  const call = result as { content?: unknown; isError?: boolean };
+  const call = result as { content?: unknown; isError?: boolean; structuredContent?: unknown };
   const blocks = Array.isArray(call.content) ? call.content : [];
   const text = blocks.map((block) => (block as { type?: string; text?: string }).text ?? '').join('');
   let payload: AnyRecord | null = null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    payload = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
-  } catch {
-    payload = null;
+  // AC-284: a FAILURE now carries its machine fields in `structuredContent`
+  // (`{ code, message, retryable, details? }`) instead of a JSON string stuffed
+  // into the text. Read that first; a SUCCESS payload is still the text body.
+  if (call.isError === true && typeof call.structuredContent === 'object' && call.structuredContent !== null) {
+    payload = call.structuredContent as AnyRecord;
+  } else {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      payload = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
+    } catch {
+      payload = null;
+    }
   }
   return { isError: call.isError === true, text, payload };
 }
@@ -671,12 +678,12 @@ test('(c) a matrix-external permission mode is refused, while the WebSocket path
     assert.equal(bad.isError, true, 'an unsupported permission mode must be refused');
     assert.equal(bad.payload?.code, 'UNSUPPORTED_PERMISSION_MODE', 'the refusal must name the code');
     assert.deepEqual(
-      bad.payload?.supported,
+      bad.payload?.details?.supported,
       harness.permissionModes,
       'the refusal must list the provider-supported modes verbatim',
     );
-    assert.ok((bad.payload?.supported as string[]).includes('plan'), 'the list must carry the plan mode');
-    assert.ok((bad.payload?.supported as string[]).includes('auto'), 'the list must carry the auto mode');
+    assert.ok((bad.payload?.details?.supported as string[]).includes('plan'), 'the list must carry the plan mode');
+    assert.ok((bad.payload?.details?.supported as string[]).includes('auto'), 'the list must carry the auto mode');
     assert.equal(afterMcpRow?.permission_mode, null, 'the refused mode must not be written to the row');
     assert.equal(mcpWrites, 0, 'the refusal must not reach setSessionPermissionMode');
 

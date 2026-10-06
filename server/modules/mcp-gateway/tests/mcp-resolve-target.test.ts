@@ -175,17 +175,24 @@ const nodeFetch: FetchLike = (url, init) =>
 
 type ToolCall = { isError: boolean; text: string; body: AnyRecord | null };
 
-/** One tool result, with the JSON body the gateway encodes its refusals in. */
+/** One tool result, with the envelope the gateway encodes its refusals in. */
 function parseToolResult(result: unknown): ToolCall {
-  const call = result as { content?: unknown; isError?: boolean };
+  const call = result as { content?: unknown; isError?: boolean; structuredContent?: unknown };
   const blocks = Array.isArray(call.content) ? call.content : [];
   const text = blocks.map((block) => (block as { type?: string; text?: string }).text ?? '').join('');
   let body: AnyRecord | null = null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    body = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
-  } catch {
-    body = null;
+  // AC-284: a FAILURE carries `{ code, message, retryable, details? }` in
+  // `structuredContent` — never a JSON string in the text. Read that first; a
+  // SUCCESS payload is still rendered as the text body.
+  if (call.isError === true && typeof call.structuredContent === 'object' && call.structuredContent !== null) {
+    body = call.structuredContent as AnyRecord;
+  } else {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      body = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
+    } catch {
+      body = null;
+    }
   }
   return { isError: call.isError === true, text, body };
 }
@@ -426,8 +433,8 @@ test('(c) several title hits list every candidate and select none', { concurrenc
       false,
       'a refusal must not carry a chosen id',
     );
-    assert.ok(result.message.includes('请指定其中一个'), 'the message must ask the caller to choose');
-    assert.ok(result.message.includes('不要替用户挑一个'), 'the message must say the resolver will not choose');
+    assert.ok(result.message.includes('name exactly one'), 'the message must ask the caller to choose');
+    assert.ok(result.message.includes('will not pick'), 'the message must say the resolver will not choose');
   });
 });
 
@@ -438,17 +445,17 @@ test('(d) no hit names the query and the kind', { concurrency: false }, async ()
     for (const query of [UNKNOWN_QUERY, '', '   ']) {
       const result = expectFailure(resolveMcpTarget(query, 'session', fixture.deps));
       console.log(`[d] query=${JSON.stringify(query)} message=${JSON.stringify(result.message)}`);
-      assert.equal(result.code, 'TARGET_NOT_FOUND');
+      assert.equal(result.code, 'SESSION_NOT_FOUND');
       assert.deepEqual(result.candidates, [], 'a not-found carries no candidates');
       assert.equal(result.kind, 'session');
       assert.ok(result.message.includes(query.trim()), 'the message must name what was looked for');
-      assert.ok(result.message.includes('会话'), 'the message must name the kind it looked among');
+      assert.ok(result.message.includes('session'), 'the message must name the kind it looked among');
     }
 
     const project = expectFailure(resolveMcpTarget('nothing-like-this', 'project', fixture.deps));
     console.log(`[d] project query message=${JSON.stringify(project.message)}`);
     assert.equal(project.kind, 'project');
-    assert.ok(project.message.includes('项目'), 'the project refusal names the project kind');
+    assert.ok(project.message.includes('project'), 'the project refusal names the project kind');
   });
 });
 
@@ -491,7 +498,7 @@ test('(e) archived projects and sessions are never matched and never listed', { 
     const activeProjectQuery = resolveMcpTarget(ACTIVE_PROJECT_NAME, 'project', fixture.deps);
     console.log(`[e] archived project query result=${JSON.stringify(archivedProjectQuery)}`);
     console.log(`[e] active project query result=${JSON.stringify(activeProjectQuery)}`);
-    assert.equal(expectFailure(archivedProjectQuery).code, 'TARGET_NOT_FOUND');
+    assert.equal(expectFailure(archivedProjectQuery).code, 'PROJECT_NOT_FOUND');
     assert.equal(expectSuccess(activeProjectQuery), fixture.activeProjectId);
 
     // The archived session: unreachable by name, while the active one resolves.
@@ -499,7 +506,7 @@ test('(e) archived projects and sessions are never matched and never listed', { 
     const activeSessionQuery = resolveMcpTarget('Solo Active', 'session', fixture.deps);
     console.log(`[e] archived session query result=${JSON.stringify(archivedSessionQuery)}`);
     console.log(`[e] active session query result=${JSON.stringify(activeSessionQuery)}`);
-    assert.equal(expectFailure(archivedSessionQuery).code, 'TARGET_NOT_FOUND');
+    assert.equal(expectFailure(archivedSessionQuery).code, 'SESSION_NOT_FOUND');
     assert.equal(expectSuccess(activeSessionQuery), SESSION_SOLO_ACTIVE);
 
     // And the archived session is not smuggled into an ambiguity's candidate list.
@@ -526,8 +533,9 @@ test('(f) an unclear target leaves every write tool with zero service calls', { 
         console.log(`[f] ${name} session="${AMBIGUOUS_QUERY}" isError=${call.isError} body=${call.text}`);
         assert.equal(call.isError, true, `${name} must refuse an ambiguous target`);
         assert.equal(call.body?.code, 'TARGET_AMBIGUOUS');
-        assert.equal(call.body?.query, AMBIGUOUS_QUERY);
-        assert.ok(Array.isArray(call.body?.candidates), 'the refusal must carry the candidate list');
+        const details = call.body?.details as AnyRecord | undefined;
+        assert.equal(details?.query, AMBIGUOUS_QUERY, 'the refusal must name the query that was ambiguous');
+        assert.ok(Array.isArray(details?.candidates), 'the refusal must carry the candidate list');
       }
       console.log(
         `[f] after ambiguous: control=${JSON.stringify(spies.control)} host=${JSON.stringify(spies.host)}`,
@@ -540,9 +548,10 @@ test('(f) an unclear target leaves every write tool with zero service calls', { 
         const call = await connection.call(name, { session: UNKNOWN_QUERY });
         console.log(`[f] ${name} session="${UNKNOWN_QUERY}" isError=${call.isError} body=${call.text}`);
         assert.equal(call.isError, true, `${name} must refuse an unknown target`);
-        assert.equal(call.body?.code, 'TARGET_NOT_FOUND');
-        assert.equal(call.body?.query, UNKNOWN_QUERY);
-        assert.deepEqual(call.body?.candidates, []);
+        assert.equal(call.body?.code, 'SESSION_NOT_FOUND');
+        const details = call.body?.details as AnyRecord | undefined;
+        assert.equal(details?.query, UNKNOWN_QUERY, 'the refusal must name the query that found nothing');
+        assert.deepEqual(details?.candidates, []);
       }
       console.log(
         `[f] after unknown: control=${JSON.stringify(spies.control)} host=${JSON.stringify(spies.host)}`,
@@ -594,7 +603,7 @@ test('(g) the transport resolves a named project to its id before the tool body 
       const refused = await connection.call('sessions_list', { project: 'Archived Project' });
       console.log(`[g] sessions_list project="Archived Project" isError=${refused.isError} body=${refused.text}`);
       assert.equal(refused.isError, true, 'an unresolved project must refuse the call');
-      assert.equal(refused.body?.code, 'TARGET_NOT_FOUND');
+      assert.equal(refused.body?.code, 'PROJECT_NOT_FOUND');
       assert.deepEqual(record.projectIds, [fixture.activeProjectId], 'the refused call must not reach the service');
     } finally {
       await connection.close();

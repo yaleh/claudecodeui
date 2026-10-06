@@ -25,7 +25,9 @@ import { z } from 'zod';
 
 import { mcpAuditLogDb } from '@/modules/database/index.js';
 
+import { MCP_ERROR_CODES, mcpErrorResult, toMcpErrorResult } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
+import type { McpWriteNotification } from './mcp-write-notification.js';
 
 /** The three results a tool call can leave in the audit log. */
 export type McpAuditOutcome = 'ok' | 'denied' | 'error';
@@ -161,11 +163,15 @@ export type McpToolRegistration = {
    */
   description?: string;
   /**
-   * The tool's argument schema as a Zod raw shape. Defaults to a permissive
-   * record, which is what AC-244's tools rely on: the audit digest must see the
-   * caller's full argument object, so a fixed shape would strip unknown keys
-   * before the handler ever ran. A tool that wants real argument validation
-   * (AC-245's read tools) passes its own shape and accepts that stripping.
+   * The tool's argument schema as a Zod raw shape. Absent means "accept any
+   * argument object" — what AC-244's tools rely on: the audit digest must see
+   * the caller's full argument object, so a fixed shape would strip unknown keys
+   * before the handler ever ran.
+   *
+   * When present, {@link withMcpAudit} validates the caller's arguments against
+   * it BEFORE the handler runs and answers an `INVALID_ARGUMENT` envelope on a
+   * miss (AC-284). The SDK is still handed the permissive record, so its own
+   * text-only protocol error is never what the caller reads.
    */
   inputSchema?: z.ZodRawShape;
   /**
@@ -223,6 +229,29 @@ function toStructuredContent(result: unknown): Record<string, unknown> {
 }
 
 /**
+ * Turns a declared-schema validation failure into the `INVALID_ARGUMENT`
+ * envelope, naming the offending fields under `details.fields` (a stable, if
+ * minimal, placeholder — AC-288 owns the richer field detail).
+ *
+ * Consumers: {@link withMcpAudit}'s call path, which is the only place a tool's
+ * declared `inputSchema` is validated.
+ */
+function invalidArgumentResult(tool: string, error: z.ZodError): CallToolResult {
+  const fields = error.issues.map((issue) => ({
+    path: issue.path.join('.'),
+    code: issue.code,
+    message: issue.message,
+  }));
+  const named = fields.map((field) => (field.path.length > 0 ? field.path : '(root)')).join(', ');
+  return mcpErrorResult(
+    MCP_ERROR_CODES.INVALID_ARGUMENT,
+    `Invalid arguments for tool "${tool}": ${named}.`,
+    false,
+    { fields },
+  );
+}
+
+/**
  * Wraps a tool so every call is audited exactly once, then returns the
  * registration function that installs it. The scope check happens BEFORE the
  * handler: a token missing a required scope is recorded as `denied` and the
@@ -231,24 +260,50 @@ function toStructuredContent(result: unknown): Record<string, unknown> {
  * normal return is recorded as `ok`. All three paths write through the single
  * {@link recordMcpToolCall}.
  *
- * The input schema accepts arbitrary keys (`z.record`) unless the registration
- * declares one, so the digest sees the caller's full argument object; a fixed
- * shape would strip unknown keys before the handler ever ran. A registration
- * that declares an output schema gets its result emitted as `structuredContent`
- * alongside the text, because the SDK refuses a non-error result that has none.
+ * The SDK is ALWAYS handed a permissive `z.record`, whatever the registration
+ * declares, so the digest sees the caller's full argument object and a fixed
+ * shape can never strip unknown keys before the handler ran. The declared
+ * `inputSchema` is validated here instead (AC-284): a missing or wrong-typed
+ * argument becomes an `INVALID_ARGUMENT` envelope rather than the SDK's
+ * text-only protocol error. A registration that declares an output schema gets
+ * its result emitted as `structuredContent` alongside the text, because the SDK
+ * refuses a non-error result that has none.
+ *
+ * Every failure branch (no principal, missing scope, invalid argument, handler
+ * throw) returns through {@link mcpErrorResult} / {@link toMcpErrorResult}, so
+ * the wire carries `{ isError: true, structuredContent: { code, message,
+ * retryable, details? } }` in every case. The success branch is untouched.
  *
  * A registration may also declare `annotations` (AC1–AC7); they are forwarded to
  * `registerTool` verbatim and appear on `tools/list`, but they are metadata only
  * — the `denied`/`ok`/`error` decision below is made from `requiredScopes`
  * alone, so a declaration can never widen or narrow what a token may call.
+ *
+ * An optional second argument threads AC-303's write-notification seam. It is
+ * called ONLY from the `ok` branch, AFTER the audit row is written, and is wrapped
+ * in its own try/catch: a throwing notifier must not change the tool call's
+ * result nor turn the `ok` row into an `error` one. The seam is handed every
+ * registration (read and write alike) and classifies each call itself — a
+ * read-only tool returns without notifying — so the write/read split stays in
+ * one place. Omitting the argument keeps AC-244's behaviour byte-for-byte.
  */
-export function withMcpAudit(registration: McpToolRegistration): McpToolHandler {
+export function withMcpAudit(
+  registration: McpToolRegistration,
+  writeNotifications?: McpWriteNotification,
+): McpToolHandler {
+  // Built once per registration, not per call: the declared shape is fixed when
+  // the tool is installed.
+  const declaredSchema = registration.inputSchema === undefined ? null : z.object(registration.inputSchema);
   return (server, principal) => {
     server.registerTool(
       registration.name,
       {
         ...(registration.description === undefined ? {} : { description: registration.description }),
-        inputSchema: registration.inputSchema ?? z.record(z.string(), z.unknown()),
+        // Always permissive: the SDK never rejects an argument, so every
+        // validation failure is rendered HERE as an `INVALID_ARGUMENT` envelope
+        // instead of the SDK's text-only protocol error. The declared shape is
+        // kept on the registration and validated below.
+        inputSchema: z.record(z.string(), z.unknown()),
         ...(registration.outputSchema === undefined ? {} : { outputSchema: registration.outputSchema }),
         // Metadata only: forwarded to the SDK so it appears verbatim on
         // `tools/list`. It changes nothing about the scope check below.
@@ -269,7 +324,10 @@ export function withMcpAudit(registration: McpToolRegistration): McpToolHandler 
             durationMs: elapsedMs(),
             args,
           });
-          return { content: [{ type: 'text', text: 'Unauthorized.' }], isError: true };
+          return mcpErrorResult(
+            MCP_ERROR_CODES.INSUFFICIENT_SCOPE,
+            'Authentication is required to call this tool.',
+          );
         }
 
         const permitted = registration.requiredScopes.every((scope) => principal.scopes.includes(scope));
@@ -282,11 +340,34 @@ export function withMcpAudit(registration: McpToolRegistration): McpToolHandler 
             durationMs: elapsedMs(),
             args,
           });
-          return { content: [{ type: 'text', text: 'Insufficient scope for this tool.' }], isError: true };
+          return mcpErrorResult(
+            MCP_ERROR_CODES.INSUFFICIENT_SCOPE,
+            'Insufficient scope for this tool.',
+          );
+        }
+
+        // The declared shape is validated HERE (the SDK was handed the permissive
+        // record above), so a missing or wrong-typed argument lands in the one
+        // envelope instead of the SDK's text-only protocol error.
+        let handlerArgs = args;
+        if (declaredSchema !== null) {
+          const parsed = declaredSchema.safeParse(args);
+          if (!parsed.success) {
+            recordMcpToolCall({
+              tokenId: principal.tokenId,
+              clientId: principal.clientId,
+              tool: registration.name,
+              outcome: 'error',
+              durationMs: elapsedMs(),
+              args,
+            });
+            return invalidArgumentResult(registration.name, parsed.error);
+          }
+          handlerArgs = parsed.data as Record<string, unknown>;
         }
 
         try {
-          const result = await registration.handler(args, { principal });
+          const result = await registration.handler(handlerArgs, { principal });
           recordMcpToolCall({
             tokenId: principal.tokenId,
             clientId: principal.clientId,
@@ -295,6 +376,18 @@ export function withMcpAudit(registration: McpToolRegistration): McpToolHandler 
             durationMs: elapsedMs(),
             args,
           });
+          // AC-303: notify the token's owner of a SUCCESSFUL call only. Its own
+          // try/catch keeps a throwing notifier from reaching the outer catch,
+          // which would otherwise write an `error` row and return `isError` for
+          // a call that actually succeeded.
+          if (writeNotifications !== undefined) {
+            try {
+              writeNotifications.notify({ principal, tool: registration.name, args });
+            } catch {
+              // Swallowed by design — the audit row above is already `ok` and the
+              // caller still receives the handler's result.
+            }
+          }
           return registration.outputSchema === undefined
             ? { content: [{ type: 'text', text: toTextContent(result) }] }
             : {
@@ -310,10 +403,7 @@ export function withMcpAudit(registration: McpToolRegistration): McpToolHandler 
             durationMs: elapsedMs(),
             args,
           });
-          return {
-            content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
-            isError: true,
-          };
+          return toMcpErrorResult(error);
         }
       }
     );

@@ -220,15 +220,22 @@ const nodeFetch: FetchLike = (url, init) =>
 type ToolCall = { isError: boolean; text: string; payload: AnyRecord | null };
 
 function parseToolResult(result: unknown): ToolCall {
-  const call = result as { content?: unknown; isError?: boolean };
+  const call = result as { content?: unknown; isError?: boolean; structuredContent?: unknown };
   const blocks = Array.isArray(call.content) ? call.content : [];
   const text = blocks.map((block) => (block as { type?: string; text?: string }).text ?? '').join('');
   let payload: AnyRecord | null = null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    payload = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
-  } catch {
-    payload = null;
+  // AC-284: a FAILURE now carries its machine fields in `structuredContent`
+  // (`{ code, message, retryable, details? }`) instead of a JSON string stuffed
+  // into the text. Read that first; a SUCCESS payload is still the text body.
+  if (call.isError === true && typeof call.structuredContent === 'object' && call.structuredContent !== null) {
+    payload = call.structuredContent as AnyRecord;
+  } else {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      payload = typeof parsed === 'object' && parsed !== null ? (parsed as AnyRecord) : null;
+    } catch {
+      payload = null;
+    }
   }
   return { isError: call.isError === true, text, payload };
 }
@@ -717,7 +724,10 @@ test('(b) an ambiguous project name is refused creating nothing; a unique one cr
     const ambiguous = await harness.call('session_create', { project: 'Alpha' });
     const rowsAfterAmbiguous = sessionRowCount();
     const body = ambiguous.payload as AnyRecord;
-    const candidates = (body?.candidates as Array<{ id: string; title: string }> | undefined) ?? [];
+    const candidates =
+      ((body?.details as AnyRecord | undefined)?.candidates as
+        | Array<{ id: string; title: string }>
+        | undefined) ?? [];
 
     say(`(b) ambiguous isError=${ambiguous.isError} body=${JSON.stringify(body)}`);
     say(
@@ -957,7 +967,11 @@ test('(h) an unsupported permissionMode is refused with the matrix, before any s
 
     assert.equal(refused.isError, true, 'an unsupported permission mode must be refused');
     assert.equal(body.code, 'UNSUPPORTED_PERMISSION_MODE', 'the refusal must be a structured UNSUPPORTED_PERMISSION_MODE');
-    assert.deepEqual(body.supported, [...claudeModes], 'the refusal must list the provider matrix verbatim (the check session_reconfigure performs)');
+    assert.deepEqual(
+      (body.details as AnyRecord | undefined)?.supported,
+      [...claudeModes],
+      'the refusal must list the provider matrix verbatim (the check session_reconfigure performs)',
+    );
     assert.equal(rowsAfter, rowsBefore, 'an unsupported mode must create NO session row');
     assert.equal(harness.createCalls.count, createBefore, 'the creation path must not be reached');
     assert.equal(harness.modelWrites.length, 0, 'no permission mode may be written');

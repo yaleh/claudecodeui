@@ -92,6 +92,7 @@ import {
     buildSessionCreateDeps,
     buildSessionInterruptDeps,
     createMcpGatewayModule,
+    createMcpWriteNotification,
     createSessionHostControl,
     mountMcpGateway,
     mountOAuthMetadata,
@@ -687,6 +688,12 @@ const mcpGateway = mountMcpGateway(
                 now: () => Date.now(),
             },
         },
+        // AC-303: a SUCCESSFUL external write call pushes the token's owner a
+        // notification through the EXISTING notification path (no new setting or
+        // channel). The production assembly reads the OAuth client / session rows
+        // for its labels and merges a caller's burst into one summary, so an
+        // unattended client driving the gateway is audible without being noisy.
+        writeNotifications: createMcpWriteNotification(),
     }),
 );
 console.log(`[MCP] gateway ${mcpGateway.mounted ? 'mounted' : 'not mounted'} at ${MCP_GATEWAY_PATH} (${mcpGateway.reason})`);

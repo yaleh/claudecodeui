@@ -27,6 +27,7 @@ import { z } from 'zod';
 
 import type { HostQueuedInputCancelResult } from '@/shared/types.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import type { McpControlCaller } from './mcp-session-send.js';
 
@@ -105,18 +106,19 @@ const OUTCOME_MESSAGES: Record<SessionCancelQueuedOutcome, string> = {
 export function readSessionCancelQueuedInput(args: Record<string, unknown>): McpSessionCancelQueuedInput {
   const session = args.session;
   if (typeof session !== 'string' || session.trim().length === 0) {
-    throw new Error('"session" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"session" is required and must be a non-empty string.',
+    );
   }
   const messageUuid = args.messageUuid;
   if (typeof messageUuid !== 'string' || messageUuid.trim().length === 0) {
-    throw new Error('"messageUuid" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"messageUuid" is required and must be a non-empty string.',
+    );
   }
   return { session, messageUuid };
-}
-
-/** A structured refusal as the JSON body the audit wrapper turns into `isError` text. */
-function refusal(body: Record<string, unknown>): Error {
-  return new Error(JSON.stringify(body));
 }
 
 // --------------------------- buildSessionCancelQueued ---------------------------
@@ -150,10 +152,10 @@ export async function buildSessionCancelQueued(
   if (verdict === 'forbidden') {
     // AC-232 owns the structured refusal body; this adapter only guarantees the
     // refusal is not mistaken for a successful withdrawal.
-    throw refusal({
-      code: 'FORBIDDEN',
-      message: '调用方无权撤回该会话的排队消息。',
-    });
+    throw new McpToolError(
+      MCP_ERROR_CODES.FORBIDDEN,
+      'The caller is not allowed to withdraw this session\'s queued message.',
+    );
   }
 
   const outcome: SessionCancelQueuedOutcome = verdict === 'withdrawn' ? 'cancelled' : verdict;

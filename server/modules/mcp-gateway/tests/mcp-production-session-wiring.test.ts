@@ -23,7 +23,7 @@
  *       avoid the `listen(0)` undici bad-port lottery) mounts the production
  *       assembly path and calls the four tools against a target that names
  *       nothing: every returned `code` is the real handler's refusal
- *       (`TARGET_NOT_FOUND` / `SESSION_NOT_FOUND`), NEVER
+ *       (`PROJECT_NOT_FOUND` / `SESSION_NOT_FOUND`), NEVER
  *       `MCP_TOOL_NOT_IMPLEMENTED`. The single control spy proves the gateway
  *       used the SUPPLIED instance (its `abort` counter moved).
  *
@@ -432,16 +432,31 @@ async function callTool(client: Client, name: string, args: Record<string, unkno
   const result = (await client.callTool({ name, arguments: args } as Parameters<Client['callTool']>[0])) as {
     isError?: boolean;
     content?: Array<{ text?: string }>;
+    structuredContent?: unknown;
   };
   const raw = result.content?.[0]?.text ?? '';
   let code: string | null = null;
   let owner: string | null = null;
-  try {
-    const parsed = JSON.parse(raw) as { code?: string; owner?: string };
-    code = parsed.code ?? null;
-    owner = parsed.owner ?? null;
-  } catch {
-    // A non-JSON body is a reading in itself (raw is printed below).
+  // AC-284: every failure now carries `{ code, message, retryable, details? }`
+  // in `structuredContent`, not as a JSON string in the text. The placeholder's
+  // `owner` rides along in `details`, so it is read from there rather than from
+  // the sentence. A body with no envelope still falls back to the text, so this
+  // reader would notice if the wire regressed to a text-only refusal.
+  const envelope =
+    typeof result.structuredContent === 'object' && result.structuredContent !== null
+      ? (result.structuredContent as { code?: unknown; details?: { owner?: unknown } })
+      : null;
+  if (typeof envelope?.code === 'string') {
+    code = envelope.code;
+    owner = typeof envelope.details?.owner === 'string' ? envelope.details.owner : null;
+  } else {
+    try {
+      const parsed = JSON.parse(raw) as { code?: string; owner?: string };
+      code = parsed.code ?? null;
+      owner = parsed.owner ?? null;
+    } catch {
+      // A non-JSON body is a reading in itself (raw is printed below).
+    }
   }
   return { code, owner, isError: result.isError === true, raw };
 }
@@ -509,7 +524,7 @@ test('(b) the production deps construction path gives the four session write too
       assert.equal(reading.isError, true, `${probe.name} must refuse a target that names nothing`);
     }
 
-    assert.equal(readings.session_create.code, 'TARGET_NOT_FOUND', 'session_create must refuse an unknown project');
+    assert.equal(readings.session_create.code, 'PROJECT_NOT_FOUND', 'session_create must refuse an unknown project');
     assert.equal(readings.session_interrupt.code, 'SESSION_NOT_FOUND', 'session_interrupt must forward the control refusal');
     assert.equal(readings.session_start.code, 'SESSION_NOT_FOUND', 'session_start must refuse an unknown session');
     assert.equal(readings.session_close.code, 'SESSION_NOT_FOUND', 'session_close must refuse an unknown session');

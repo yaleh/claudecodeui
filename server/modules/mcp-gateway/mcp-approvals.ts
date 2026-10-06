@@ -35,6 +35,7 @@ import { z } from 'zod';
 
 import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import type { McpControlCaller } from './mcp-session-send.js';
 
@@ -177,7 +178,10 @@ function readApprovalsListInput(args: Record<string, unknown>): McpApprovalsList
     return {};
   }
   if (typeof session !== 'string' || session.trim().length === 0) {
-    throw new Error('"session" must be a non-empty string when given.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"session" must be a non-empty string when given.',
+    );
   }
   return { session };
 }
@@ -194,11 +198,14 @@ export type McpApprovalAnswerInput = {
 function readApprovalAnswerInput(args: Record<string, unknown>): McpApprovalAnswerInput {
   const requestId = args.requestId;
   if (typeof requestId !== 'string' || requestId.trim().length === 0) {
-    throw new Error('"requestId" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"requestId" is required and must be a non-empty string.',
+    );
   }
   const allow = args.allow;
   if (typeof allow !== 'boolean') {
-    throw new Error('"allow" is required and must be a boolean.');
+    throw new McpToolError(MCP_ERROR_CODES.INVALID_ARGUMENT, '"allow" is required and must be a boolean.');
   }
   const input: McpApprovalAnswerInput = { requestId, allow };
   if (args.answers !== undefined) {
@@ -206,7 +213,10 @@ function readApprovalAnswerInput(args: Record<string, unknown>): McpApprovalAnsw
   }
   if (args.message !== undefined) {
     if (typeof args.message !== 'string') {
-      throw new Error('"message" must be a string when given.');
+      throw new McpToolError(
+        MCP_ERROR_CODES.INVALID_ARGUMENT,
+        '"message" must be a string when given.',
+      );
     }
     input.message = args.message;
   }
@@ -336,11 +346,6 @@ function toApprovalListItem(entry: McpApprovalPending, now: number): McpApproval
   return item;
 }
 
-/** A structured refusal as the JSON body the audit wrapper turns into `isError` text. */
-function refusal(body: Record<string, unknown>): Error {
-  return new Error(JSON.stringify(body));
-}
-
 // --------------------------- buildApprovalsList ---------------------------
 
 /**
@@ -367,7 +372,7 @@ export async function buildApprovalsList(
   );
 
   if (!result.ok) {
-    throw refusal({ code: result.code, message: result.message });
+    throw new McpToolError(result.code, result.message);
   }
 
   const now = deps.now();
@@ -416,7 +421,7 @@ export async function buildApprovalAnswer(
     };
   }
 
-  throw refusal({ code: 'FORBIDDEN', message: result.message });
+  throw new McpToolError(MCP_ERROR_CODES.FORBIDDEN, result.message);
 }
 
 // --------------------------- registration ---------------------------

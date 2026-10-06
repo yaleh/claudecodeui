@@ -32,6 +32,7 @@ import { z } from 'zod';
 import type { providerCapabilitiesService, providerModelsService } from '@/modules/providers/index.js';
 import type { HostReconfigurePatch, LLMProvider } from '@/shared/types.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 
 // --------------------------- capability vocabulary ---------------------------
@@ -123,7 +124,10 @@ export type SessionReconfigurePayload = {
 export function readSessionReconfigureInput(args: Record<string, unknown>): McpSessionReconfigureInput {
   const session = args.session;
   if (typeof session !== 'string' || session.trim().length === 0) {
-    throw new Error('"session" is required and must be a non-empty string.');
+    throw new McpToolError(
+      MCP_ERROR_CODES.INVALID_ARGUMENT,
+      '"session" is required and must be a non-empty string.',
+    );
   }
   const readOptional = (key: SessionReconfigureField): string | undefined => {
     const value = args[key];
@@ -131,7 +135,10 @@ export function readSessionReconfigureInput(args: Record<string, unknown>): McpS
       return undefined;
     }
     if (typeof value !== 'string' || value.trim().length === 0) {
-      throw new Error(`"${key}" must be a non-empty string when given.`);
+      throw new McpToolError(
+        MCP_ERROR_CODES.INVALID_ARGUMENT,
+        `"${key}" must be a non-empty string when given.`,
+      );
     }
     return value;
   };
@@ -141,11 +148,6 @@ export function readSessionReconfigureInput(args: Record<string, unknown>): McpS
     effort: readOptional('effort'),
     permissionMode: readOptional('permissionMode'),
   };
-}
-
-/** A structured refusal as the JSON body the audit wrapper turns into `isError` text. */
-function refusal(body: Record<string, unknown>): Error {
-  return new Error(JSON.stringify(body));
 }
 
 /** The sentence a provider with no live reconfiguration is told. Load-bearing words: 不支持在线重配置 / 下一轮. */
@@ -203,10 +205,8 @@ export async function buildSessionReconfigure(
   const sessionId = input.session;
   const session = deps.sessions.getSessionById(sessionId);
   if (!session || typeof session.provider !== 'string' || session.provider.length === 0) {
-    throw refusal({
-      code: 'SESSION_NOT_FOUND',
+    throw new McpToolError(MCP_ERROR_CODES.SESSION_NOT_FOUND, `No session has id "${sessionId}".`, false, {
       session: sessionId,
-      message: `找不到会话 "${sessionId}"。`,
     });
   }
   const provider = session.provider;
@@ -217,11 +217,12 @@ export async function buildSessionReconfigure(
   if (input.permissionMode !== undefined) {
     const supported = deps.capabilities.getProviderCapabilities(provider as LLMProvider)?.permissionModes ?? [];
     if (!supported.includes(input.permissionMode)) {
-      throw refusal({
-        code: 'UNSUPPORTED_PERMISSION_MODE',
-        supported: [...supported],
-        message: `该 provider 不支持权限模式 "${input.permissionMode}"；支持：${supported.join(', ')}。`,
-      });
+      throw new McpToolError(
+        MCP_ERROR_CODES.UNSUPPORTED_PERMISSION_MODE,
+        `Provider "${provider}" does not support permission mode "${input.permissionMode}"; supported: ${supported.join(', ') || 'none'}.`,
+        false,
+        { supported: [...supported] },
+      );
     }
   }
 

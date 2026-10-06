@@ -25,15 +25,20 @@
  * session is never matched" a property of the wiring rather than a special case
  * buried in the matching rules: the resolver has no archived row to match.
  *
+ * A not-found failure names ONE code per category — `SESSION_NOT_FOUND` for a
+ * session, `PROJECT_NOT_FOUND` for a project (AC-284) — never a shared
+ * a single "target not found" code that would make the same category two
+ * different codes.
+ *
  * {@link resolveInputTargets} is the gate built on top of the decision. It
  * decorates a tool handler so that every `project` / `session` string argument is
  * resolved BEFORE the handler runs, and a failed resolution stops the call right
  * there — the handler body is never entered, so no write can reach the control
  * or host service against a target nobody named. The refusal is raised as a
- * JSON-bodied error, which is what BOTH registration paths turn into an
- * `isError` tool result (the audited seam AC-244 landed, and the SDK's own
- * handler catch): one body, every seam, and the audit row records `error`
- * rather than a misleading `ok`.
+ * {@link McpToolError}, which the audited seam AC-244 landed renders as the one
+ * failure envelope (AC-284): the code, the query and the candidate list reach
+ * the caller as `structuredContent`, and the audit row records `error` rather
+ * than a misleading `ok`.
  *
  * Consumers: `mcp-gateway.transport.ts` applies the gate to every tool the
  * gateway registers; AC-245's read tools, AC-249–AC-251's write tools and
@@ -41,6 +46,8 @@
  * {@link resolveInputTargets} instead of re-deriving a target. This module's
  * criterion drives both directly.
  */
+
+import { McpToolError } from './mcp-error-envelope.js';
 
 // --------------------------- the decision ---------------------------
 
@@ -65,7 +72,7 @@ export type McpResolveResult =
   | { ok: true; id: string }
   | {
       ok: false;
-      code: 'TARGET_AMBIGUOUS' | 'TARGET_NOT_FOUND';
+      code: 'TARGET_AMBIGUOUS' | 'SESSION_NOT_FOUND' | 'PROJECT_NOT_FOUND';
       /** The reference as it was matched: trimmed, since that is what was compared. */
       query: string;
       kind: McpTargetKind;
@@ -97,19 +104,29 @@ export type McpResolveDeps = {
 
 /** How each kind is named in a human-readable refusal. */
 const KIND_LABELS: Record<McpTargetKind, string> = {
-  project: '项目',
-  session: '会话',
+  project: 'project',
+  session: 'session',
 };
+
+/**
+ * The not-found code for a kind: "the session does not exist" and "the project
+ * does not exist" are ONE category each, named by one code each (AC-284). Before
+ * this, a missing session carried one code at the gate and another inside the
+ * tools — two names for one category, which the criterion forbids.
+ */
+function notFoundCode(kind: McpTargetKind): 'SESSION_NOT_FOUND' | 'PROJECT_NOT_FOUND' {
+  return kind === 'session' ? 'SESSION_NOT_FOUND' : 'PROJECT_NOT_FOUND';
+}
 
 /** The not-found reading: no entry matched, so there is nothing to guess between. */
 function notFound(query: string, kind: McpTargetKind): McpResolveResult {
   return {
     ok: false,
-    code: 'TARGET_NOT_FOUND',
+    code: notFoundCode(kind),
     query,
     kind,
     candidates: [],
-    message: `没有标题包含 "${query}" 的${KIND_LABELS[kind]}。`,
+    message: `No ${KIND_LABELS[kind]} has a title containing "${query}".`,
   };
 }
 
@@ -162,7 +179,7 @@ export function resolveMcpTarget(
     query,
     kind,
     candidates: matches.map((entry) => ({ id: entry.id, title: entry.title })),
-    message: `多个${KIND_LABELS[kind]}的标题包含 "${query}"（共 ${matches.length} 个），请指定其中一个；不要替用户挑一个。`,
+    message: `${matches.length} ${KIND_LABELS[kind]}s have a title containing "${query}"; name exactly one — the gateway will not pick for you.`,
   };
 }
 
@@ -210,9 +227,13 @@ export function resolveInputTargets(
       }
       const result = resolveMcpTarget(value, kind, deps);
       if (!result.ok) {
-        // The body is the failed result verbatim, so the caller reads the same
-        // code, query and candidate list the resolver produced.
-        throw new Error(JSON.stringify(result));
+        // The envelope carries the same code, query and candidate list the
+        // resolver produced, so a caller retries against the same reading.
+        throw new McpToolError(result.code, result.message, false, {
+          query: result.query,
+          kind: result.kind,
+          candidates: result.candidates,
+        });
       }
       resolved[field] = result.id;
     }

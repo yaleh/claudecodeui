@@ -887,13 +887,22 @@ if [ "$RUN_HEAVY" = "1" ] && [ ${#SERVER_FILES[@]} -gt 0 ]; then
       # ports for its whole lifetime, so the kernel cannot hand one out. Measured: a 127.0.0.1
       # holder blocks 127.0.0.1, 0.0.0.0 and :: allocation of that port; see
       # scripts/undici-blocked-ports-preload.mjs, which swallows every bind failure so this can
-      # never keep the lane from starting. The fan-in lane runs one file per `npx tsx`, i.e. one
-      # holder set per process — exactly what the preload is for.
+      # never keep the lane from starting. The fan-in lane runs one file per `node --import tsx`,
+      # i.e. one holder set per process — exactly what the preload is for.
+      #
+      # ── invocation shape (gap-suite-server-phase-bypass-npx-and-tsx-cli-wrapper) ──
+      # `npx tsx --tsconfig … --test` was a deep process chain (npx → tsx CLI → node --test runner
+      # → the spawned test process) at ~525-575 MB per file. `node --import tsx … --test` keeps the
+      # same `node --test` runner — so `ℹ fail N` / `# fail N` and the watchdog's output shape are
+      # unchanged — but drops the npx and tsx-CLI wrappers: 2 processes, ~307-347 MB (measured).
+      # The `@/*` → `server/*` alias the tsx CLI's `--tsconfig` flag used to supply now rides
+      # `TSX_TSCONFIG_PATH`: bare `node --import tsx` fails `ERR_UNKNOWN_FILE_EXTENSION` on `@/…`
+      # without it. `env` execs into node in place, so it adds no process.
       if [ -n "$TIMEOUT_BIN" ]; then
         "$TIMEOUT_BIN" --signal=TERM --kill-after=10 "$FILE_TIMEOUT_SECS" \
-          npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test "$f" >"$TMP/srv-$i.out" 2>&1
+          env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --import ./scripts/undici-blocked-ports-preload.mjs --test "$f" >"$TMP/srv-$i.out" 2>&1
       else
-        npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test "$f" >"$TMP/srv-$i.out" 2>&1
+        env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --import ./scripts/undici-blocked-ports-preload.mjs --test "$f" >"$TMP/srv-$i.out" 2>&1
       fi
       rc=$?; e=$(now_ms)
       echo "$rc $((e - s)) $e" >"$TMP/srv-$i.res"

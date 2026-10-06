@@ -2,7 +2,7 @@
 id: gap-ac303-mcp-write-notification
 title: AC-303 外部客户端成功写调用推送一条通知（不打断、60 秒内合并、通知器抛错不影响结果）；判据
   server/modules/mcp-gateway/tests/mcp-write-notification.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -39,27 +39,27 @@ goal_ac: AC-303
 
 ## AC
 
-- [ ] 判据文件 `server/modules/mcp-gateway/tests/mcp-write-notification.test.ts` 存在；`npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-write-notification.test.ts` 退出码 0。存在性闸当前以退出码 1 逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-write-notification.test.ts`（红先行）。
+- [x] 判据文件 `server/modules/mcp-gateway/tests/mcp-write-notification.test.ts` 存在；`npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-write-notification.test.ts` 退出码 0。存在性闸当前以退出码 1 逐字输出 `缺判据文件：server/modules/mcp-gateway/tests/mcp-write-notification.test.ts`（红先行）。
 
-- [ ] (a) 读数为真实 HTTP + 注入通知器间谍：写工具集合**由 `tools/list` 返回的 `annotations.readOnlyHint === false` 派生**（注册表驱动，不硬编码名单；今天至少含 `session_send` / `session_create` / `session_interrupt` / `session_start` / `session_close` / `session_cancel_queued` / `session_reconfigure` / `session_background` / `approval_answer`，`session_background_stop` 出现后自然纳入）。对每个写工具各发一次成功调用，断言间谍各被调用恰好一次（`count: 1`）；payload 含客户端名称、工具名、目标会话标题（对 `session_send` 这类有标题目标断言其出现）、`args.message` 的前 40 字符；且**不含**令牌字符串、`args` 里的授权码/密钥值、以及完整消息（用一个 >40 字的消息，断言第 41 字符起不出现在 payload 的任一字段）。
+- [x] (a) 读数为真实 HTTP + 注入通知器间谍：写工具集合**由 `tools/list` 返回的 `annotations.readOnlyHint === false` 派生**（注册表驱动，不硬编码名单；今天至少含 `session_send` / `session_create` / `session_interrupt` / `session_start` / `session_close` / `session_cancel_queued` / `session_reconfigure` / `session_background` / `approval_answer`，`session_background_stop` 出现后自然纳入）。对每个写工具各发一次成功调用，断言间谍各被调用恰好一次（`count: 1`）；payload 含客户端名称、工具名、目标会话标题（对 `session_send` 这类有标题目标断言其出现）、`args.message` 的前 40 字符；且**不含**令牌字符串、`args` 里的授权码/密钥值、以及完整消息（用一个 >40 字的消息，断言第 41 字符起不出现在 payload 的任一字段）。
 
-- [ ] (b) 只读工具调用、scope 不足被拒（审计 `denied`）、handler 抛错（审计 `error`）三类各发真实 HTTP 调用，断言间谍计数不变（对三类各自断言，且三类均真的发生：读工具的 `ok`、被拒的 `denied`、抛错的 `error` 各至少一行审计，审计行错位也红）。
+- [x] (b) 只读工具调用、scope 不足被拒（审计 `denied`）、handler 抛错（审计 `error`）三类各发真实 HTTP 调用，断言间谍计数不变（对三类各自断言，且三类均真的发生：读工具的 `ok`、被拒的 `denied`、抛错的 `error` 各至少一行审计，审计行错位也红）。
 
-- [ ] (c) 假时钟下同一客户端（同 `tokenId`/`clientId`）60 秒内发 6 次写调用：断言前 5 次各一条逐条通知，第 6 次**不产生第 6 条逐条通知**，而是出现一条 `count === 6`（或该窗口累计次数）的汇总通知；把假时钟推过 60 秒后再发一次，断言恢复逐条。全程不真等 60 秒。
+- [x] (c) 假时钟下同一客户端（同 `tokenId`/`clientId`）60 秒内发 6 次写调用：断言前 5 次各一条逐条通知，第 6 次**不产生第 6 条逐条通知**，而是出现一条 `count === 6`（或该窗口累计次数）的汇总通知；把假时钟推过 60 秒后再发一次，断言恢复逐条。全程不真等 60 秒。
 
-- [ ] (d) 驱动 UI WebSocket 发送路径（共享 `ChatControlService`，`via: 'websocket'`）与定时发送路径（`via: 'scheduled'`）各一次，断言间谍计数不变；随后一次经 `/mcp` 的写调用计数 +1。
+- [x] (d) 驱动 UI WebSocket 发送路径（共享 `ChatControlService`，`via: 'websocket'`）与定时发送路径（`via: 'scheduled'`）各一次，断言间谍计数不变；随后一次经 `/mcp` 的写调用计数 +1。
 
-- [ ] (e) 注入一个抛错的通知器，发一次成功写调用：断言 HTTP 返回的成功载荷与审计行 `outcome = 'ok'` 与通知器不抛时**逐字相同**（通知器抛错不改变工具结果，也不产生 `error`）。
+- [x] (e) 注入一个抛错的通知器，发一次成功写调用：断言 HTTP 返回的成功载荷与审计行 `outcome = 'ok'` 与通知器不抛时**逐字相同**（通知器抛错不改变工具结果，也不产生 `error`）。
 
-- [ ] 变异 (i)（只读工具也通知 ⇒ (b) 必须红）：先提交实现与判据，再把 `createMcpWriteNotifier` 中判定 `readOnlyHint` 的分支改成恒真放行，运行判据，(b) 必须红；逐字记录 `git diff`、失败行、恢复命令（`git checkout -- server/modules/mcp-gateway/mcp-write-notification.ts`），随后恢复并复跑至绿。
+- [x] 变异 (i)（只读工具也通知 ⇒ (b) 必须红）：先提交实现与判据，再把 `createMcpWriteNotifier` 中判定 `readOnlyHint` 的分支改成恒真放行，运行判据，(b) 必须红；逐字记录 `git diff`、失败行、恢复命令（`git checkout -- server/modules/mcp-gateway/mcp-write-notification.ts`），随后恢复并复跑至绿。
 
-- [ ] 变异 (ii)（通知里带完整消息 ⇒ (a) 必须红）：把 `messagePreview` 换成完整 `args.message`，运行判据，(a) 必须红；记录 diff/失败行/恢复命令，恢复后复跑至绿。
+- [x] 变异 (ii)（通知里带完整消息 ⇒ (a) 必须红）：把 `messagePreview` 换成完整 `args.message`，运行判据，(a) 必须红；记录 diff/失败行/恢复命令，恢复后复跑至绿。
 
-- [ ] 变异 (iii)（通知器抛错时工具调用失败 ⇒ (e) 必须红）：移除 ok 分支的 `try/catch` 使 sink 抛错冒泡，运行判据，(e) 必须红；记录 diff/失败行/恢复命令，恢复后复跑至绿。
+- [x] 变异 (iii)（通知器抛错时工具调用失败 ⇒ (e) 必须红）：移除 ok 分支的 `try/catch` 使 sink 抛错冒泡，运行判据，(e) 必须红；记录 diff/失败行/恢复命令，恢复后复跑至绿。
 
-- [ ] `server/shared/tests/quay-test-script.test.ts` 两处钉数同步为 `known=3 unknown=235` 与 `known=1 unknown=237`；`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0。
+- [x] `server/shared/tests/quay-test-script.test.ts` 两处钉数同步为 `known=3 unknown=235` 与 `known=1 unknown=237`；`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0。
 
-- [ ] `npm run typecheck`、`npm run lint`、`npm run build` 通过（GOAL-028 退出条件 3）。
+- [x] `npm run typecheck`、`npm run lint`、`npm run build` 通过（GOAL-028 退出条件 3）。
 
 ## DoD
 
@@ -87,3 +87,102 @@ goal_ac: AC-303
 - 合并窗口的状态放在 `createMcpWriteNotifier` 返回的闭包里，不要放 module-level 缓存：否则同一进程内的多次挂载与判据的假时钟会互相污染（AC-244 的保留期缝就是为同一理由无 module-level 计时器）。
 - 通知器抛错被吞（`try/catch`）是硬要求 (e)：吞掉后仍返回原来的成功载荷、审计仍记 `ok`。
 - 生产 `sink` 走既有 `notifyUserIfEnabled`（`@/modules/notifications/index.js`）；不新增设置项、不改通知偏好模型（AC-304 才做回看接口，不在本任务范围）。
+
+## 完成记录（2026-10-06）
+
+实现提交：`0606f9db`（branch `task/gap-ac303-mcp-write-notification`）。
+
+### 判据读数（逐字）
+
+AC 命令（存在性闸 + 单文件运行）：
+
+    npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-write-notification.test.ts
+
+    ✔ (a) every write tool from tools/list notifies once with the four facts and nothing else
+    ✔ (b) a read-only ok, a denied write and an erroring write notify nobody and leave their own audit row
+    ✔ (c) six writes inside one window collapse from five individuals to one summary
+    ✔ (d) the shared control service is driven by websocket/scheduled without notifying; /mcp notifies
+    ✔ (e) a throwing notifier leaves the payload and the ok audit row identical
+    ℹ tests 5  ℹ pass 5  ℹ fail 0  ℹ cancelled 0  ℹ skipped 0
+    退出码 0
+
+腿 (a) 的写工具集合由 `tools/list` 的 `annotations.readOnlyHint === false` 派生，实读：`["approval_answer","session_background","session_cancel_queued","session_close","session_create","session_interrupt","session_reconfigure","session_send","session_start"]`（9 个；`session_background_stop` 落地后自然纳入，零改动）。
+
+### 三条变异记录（先提交实现与判据，逐条变异、读红、恢复、复绿）
+
+#### 变异 (i)：只读工具也通知 ⇒ (b) 必须红
+
+变异 `git diff`：
+
+    diff --git a/server/modules/mcp-gateway/mcp-write-notification.ts b/server/modules/mcp-gateway/mcp-write-notification.ts
+    @@ -183,7 +183,7 @@ export function createMcpWriteNotifier(deps: McpWriteNotifierDeps): McpWriteNoti
+    -      if (readMcpToolAnnotations(input.tool).readOnlyHint !== false) {
+    +      if (readMcpToolAnnotations(input.tool).readOnlyHint !== false && false) {
+
+逐字失败行：
+
+    AssertionError [ERR_ASSERTION]: a read-only, a denied and an erroring call must notify nobody (got [{"clientName":"个人访问令牌","tool":"approvals_list",...,"count":1}])
+    ℹ tests 5  ℹ pass 4  ℹ fail 1
+
+（红在 (b) 腿；只读的 `approvals_list` 也被通知，其余四腿不受影响。）
+
+恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-write-notification.ts`
+恢复后复跑：(b) 腿通过，`tests 5 / pass 5 / fail 0`。
+
+#### 变异 (ii)：通知里带完整消息 ⇒ (a) 必须红
+
+变异 `git diff`：
+
+    diff --git a/server/modules/mcp-gateway/mcp-write-notification.ts b/server/modules/mcp-gateway/mcp-write-notification.ts
+    @@ -131,7 +131,7 @@ function sessionIdOf(args: Record<string, unknown>): string | null {
+     function messagePreviewOf(args: Record<string, unknown>): string | null {
+    -  return typeof args.message === 'string' ? args.message.slice(0, PREVIEW_LENGTH) : null;
+    +  return typeof args.message === 'string' ? args.message : null;
+
+逐字失败行：
+
+    AssertionError [ERR_ASSERTION]: session_send's preview is the first 40 chars or null
+    ℹ tests 5  ℹ pass 4  ℹ fail 1
+
+（红在 (a) 腿：完整消息的第 41 字符起泄进 payload。）
+
+恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-write-notification.ts`
+恢复后复跑：(a) 腿通过，`tests 5 / pass 5 / fail 0`。
+
+#### 变异 (iii)：通知器抛错时工具调用失败 ⇒ (e) 必须红
+
+变异 `git diff`：
+
+    diff --git a/server/modules/mcp-gateway/mcp-gateway.audit.ts b/server/modules/mcp-gateway/mcp-gateway.audit.ts
+    @@ -312,12 +312,7 @@ export function withMcpAudit(
+           if (writeNotifications !== undefined) {
+    -            try {
+    -              writeNotifications.notify({ principal, tool: registration.name, args });
+    -            } catch {
+    -              // Swallowed by design — the audit row above is already `ok` and the
+    -              // caller still receives the handler's result.
+    -            }
+    +            writeNotifications.notify({ principal, tool: registration.name, args });
+           }
+
+逐字失败行：
+
+    AssertionError [ERR_ASSERTION]: a throwing notifier must NOT turn the call into an error result
+    ℹ tests 5  ℹ pass 4  ℹ fail 1
+
+（红在 (e) 腿：sink 抛错冒泡到外层 catch，成功调用被写成 `error` / `isError`。）
+
+恢复命令：`git checkout -- server/modules/mcp-gateway/mcp-gateway.audit.ts`
+恢复后复跑：(e) 腿通过，`tests 5 / pass 5 / fail 0`。
+
+### 不回归与其他读数（逐字）
+
+- `mcp-audit.test.ts`（AC-244）：`tests 5 / pass 5 / fail 0`，退出码 0。
+- `quay-test-script.test.ts`：`tests 11 / pass 11 / fail 0`，退出码 0。
+- `npm run typecheck`：退出码 0（`tsc --noEmit` × root/server/scripts 三个 tsconfig）。
+- `npm run lint`：退出码 0。
+- `npm run build`：退出码 0。
+
+### 钉数说明：实读 `unknown=236` / `unknown=238`，非任务书所写 235 / 237
+
+任务书（Proposal 第 6 条与 AC）要求同步为 `known=3 unknown=235` / `known=1 unknown=237`（对应服务端测试文件数 238）。落地时服务端测试文件数**已经是 238**（自本任务撰写后，另一任务先落了一个测试文件），本任务再加一个后为 239，故**正确的**钉数是 `known=3 unknown=236` 与 `known=1 unknown=238`（各比任务书多 1）。实读 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` = 239；pin 测试 11/11 绿。若照任务书写 235/237，`quay-test-script.test.ts` 会因 stale pin 变红，并被驱动报成 UNATTRIBUTABLE。
