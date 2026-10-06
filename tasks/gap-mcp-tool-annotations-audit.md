@@ -22,13 +22,13 @@ EXPLICITLY OUT OF SCOPE: the session_create permissionMode race (tracked in `gap
 
 ## AC
 
-- [ ] AC1: Enumerate every tool currently registered in CloudCLI's MCP `tools/list` response (grep tool registrations under server/modules/mcp-gateway) and produce a table: tool name → current declared annotations (if any) → correct annotations per the tool's actual handler semantics.
-- [ ] AC2: Pure read-only tools (e.g. projects_list, sessions_list, session_get, run_get, and any other read-only tool found during enumeration) declare `readOnlyHint: true`.
-- [ ] AC3: Write-but-non-destructive tools (e.g. session_create, session_send, session_reconfigure, and any others found) do NOT declare `readOnlyHint: true`, and do not declare `destructiveHint: true` unless the operation is actually destructive/irreversible.
-- [ ] AC4: Tools with genuinely destructive/irreversible semantics (e.g. session_interrupt, any delete-style session/host-control tool found during enumeration) declare `destructiveHint: true` accurately.
-- [ ] AC5: `openWorldHint` (and `idempotentHint` where meaningful) reviewed per-tool against actual semantics (whether a call can affect state outside this server; whether repeating the call is idempotent).
-- [ ] AC6: A review/diff confirms NO change in this task alters actual authorization/permission ENFORCEMENT for any tool — annotations are metadata-only; enforcement code paths must be provably untouched.
-- [ ] AC7: A test or documented verification confirms the final `tools/list` annotation output matches the table from AC1.
+- [x] AC1: Enumerate every tool currently registered in CloudCLI's MCP `tools/list` response (grep tool registrations under server/modules/mcp-gateway) and produce a table: tool name → current declared annotations (if any) → correct annotations per the tool's actual handler semantics.
+- [x] AC2: Pure read-only tools (e.g. projects_list, sessions_list, session_get, run_get, and any other read-only tool found during enumeration) declare `readOnlyHint: true`.
+- [x] AC3: Write-but-non-destructive tools (e.g. session_create, session_send, session_reconfigure, and any others found) do NOT declare `readOnlyHint: true`, and do not declare `destructiveHint: true` unless the operation is actually destructive/irreversible.
+- [x] AC4: Tools with genuinely destructive/irreversible semantics (e.g. session_interrupt, any delete-style session/host-control tool found during enumeration) declare `destructiveHint: true` accurately.
+- [x] AC5: `openWorldHint` (and `idempotentHint` where meaningful) reviewed per-tool against actual semantics (whether a call can affect state outside this server; whether repeating the call is idempotent).
+- [x] AC6: A review/diff confirms NO change in this task alters actual authorization/permission ENFORCEMENT for any tool — annotations are metadata-only; enforcement code paths must be provably untouched.
+- [x] AC7: A test or documented verification confirms the final `tools/list` annotation output matches the table from AC1.
 
 ## DoD
 
@@ -36,5 +36,6 @@ tools/list output's annotations are accurate and complete for every registered t
 
 ## Touches
 
-- server/modules/mcp-gateway/ — exact annotation-declaring file(s) to be located during execution (likely wherever tool registration/schema objects for mcp-gateway.write-tools.ts and the read-tools equivalent live); do not guess-pin a path here if you can't confirm it exists, locate it as part of filing if feasible.
+- server/modules/mcp-gateway/ — located as `mcp-tool-annotations.ts` (the one 17-tool annotation table + `readMcpToolAnnotations`), plus its criterion `tests/mcp-tool-annotations.test.ts` and the three wiring edits (`mcp-gateway.transport.ts` attaches the table at the single `audited()` seam, `mcp-gateway.audit.ts` adds the optional `annotations` field, `index.ts` re-exports the table and reader).
+- server/shared/tests/quay-test-script.test.ts — the pinned server test-file counts (known/unknown) bumped by one for the added criterion file.
 - tasks/gap-mcp-tool-annotations-audit.md
