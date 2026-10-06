@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import { api } from '@/shared/api';
-import type { Project, ProjectSession } from '@/shared/types';
+import type { Project, ProjectSession, SessionHiddenByProjectFilter } from '@/shared/types';
 import { readShownHiddenProjectIds, writeShownHiddenProjectIds } from '@/modules/sidebar';
 
 type ProjectSessionsPage = Pick<Project, 'sessions' | 'sessionMeta'>;
@@ -35,7 +35,7 @@ const getSessionNameMatcher = (hide: string[]): ((name: string) => boolean) => {
  * the project has rules that match its name, it is not kept visible
  * (running / attention / selected) and the browser is not temporarily showing hidden sessions.
  */
-export const isSessionHiddenByProjectFilter = (
+export const isSessionHiddenByProjectFilter: SessionHiddenByProjectFilter = (
   project: Project,
   session: ProjectSession,
   keepSessionIds: ReadonlySet<string>,

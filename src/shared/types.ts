@@ -318,6 +318,32 @@ export type Project = {
   [key: string]: unknown;
 };
 
+/**
+ * A project's session-name filter, as a value: true when a session must stay out
+ * of the project's visible list, false when it belongs there.
+ *
+ * It is declared here, in shared, rather than beside its implementation in
+ * `project-workspace` because its second consumer is `sidebar`, which may not
+ * import project-workspace: project-workspace already imports the sidebar's
+ * stored-preference helpers, so the reverse import would close a cycle the
+ * module-boundaries lint rejects. Instead `useProjectsState` (which owns the
+ * rule runtime) passes the predicate down through the sidebar's props, and the
+ * sidebar applies it to its own state — same rules, one implementation, no edge
+ * between the two modules beyond the one that already exists.
+ *
+ * `keepSessionIds` and `isShowingHidden` are the two exemptions the Projects
+ * list applies. The Conversations feed passes an empty set and `false`: the
+ * reload it has to match (`GET /api/providers/sessions/recent`) applies no
+ * exemption at all, and a live view that kept a row the reload drops is exactly
+ * the bug this predicate is threaded for.
+ */
+export type SessionHiddenByProjectFilter = (
+  project: Project,
+  session: ProjectSession,
+  keepSessionIds: ReadonlySet<string>,
+  isShowingHidden: boolean,
+) => boolean;
+
 /** Progress payload streamed while the backend enumerates projects, used to drive the sidebar loading bar. */
 export type LoadingProgress = {
   kind?: 'loading_progress';

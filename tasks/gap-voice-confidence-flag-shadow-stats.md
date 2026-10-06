@@ -1,7 +1,7 @@
 ---
 id: gap-voice-confidence-flag-shadow-stats
 title: 置信度标记的影子统计：按 θ 扫描「本来会画几条下划线」，写进语音数据记录（纯函数，与离线实验口径逐条一致，不出任何 UI）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -32,12 +32,36 @@ depends_on:
 
 ## AC
 
-- [ ] `npx vitest run src/shared/asr/tests/confidenceFlags.test.ts` 退出码 0，已知答案用例至少含：①全部高置信 ⇒ 0 个标记 ②相邻两个低置信 token 合并成 1 个标记 ③两处分开的低置信 ⇒ 2 个 ④只有中文字符的低置信段：`flags` 计入而 `flagsLatin` 不计 ⑤`θ` 增大时标记数单调不减 ⑥空文本与空 tokens ⇒ 全零且不抛
-- [ ] 与离线口径逐条一致：用 `experiments/voice-index-loop/sim/sv-eval2.mjs` 里同一段「token 区间与标记」逻辑，对 ≥ 5 条由**非私人合成句子**得到的 token 序列（fixture 入库，来源是 `experiments/voice-context-asr` 的合成句，不含用户消息原文）逐 θ 比较标记数，两边完全相等（测试里同时调用两份实现）
-- [ ] 能红的负对照：把「相邻合并」改成「每个低置信 token 单独成标记」的变体，用例②必须变红
-- [ ] 写入：对一个声明了 `tokens.confidence` 的假识别器转写一次，对应记录里有 `flagStats` 且 `byTheta.length === 4`；对未声明的现有识别器转写一次，记录里**没有** `flagStats` 字段且请求成功（服务端测试）
-- [ ] MCP 浏览器验证：用 playwright MCP 打开 `http://localhost:3001/`，用 `?voiceDebug=1` 的上传入口转写一个 wav（识别器选 `sensevoice-local`）；读取 `~/.cloudcli/voice-data/` 下对应记录的 `flagStats`，把四个 θ 的 `flagsPer100Chars` 记入 `## Evidence`
-- [ ] `npm run typecheck`、`npm run lint`、`npm run build` 退出码 0
+- [x] `npx vitest run src/shared/asr/tests/confidenceFlags.test.ts` 退出码 0，已知答案用例至少含：①全部高置信 ⇒ 0 个标记 ②相邻两个低置信 token 合并成 1 个标记 ③两处分开的低置信 ⇒ 2 个 ④只有中文字符的低置信段：`flags` 计入而 `flagsLatin` 不计 ⑤`θ` 增大时标记数单调不减 ⑥空文本与空 tokens ⇒ 全零且不抛
+- [x] 与离线口径逐条一致：用 `experiments/voice-index-loop/sim/sv-eval2.mjs` 里同一段「token 区间与标记」逻辑，对 ≥ 5 条由**非私人合成句子**得到的 token 序列（fixture 入库，来源是 `experiments/voice-context-asr` 的合成句，不含用户消息原文）逐 θ 比较标记数，两边完全相等（测试里同时调用两份实现）
+- [x] 能红的负对照：把「相邻合并」改成「每个低置信 token 单独成标记」的变体，用例②必须变红
+- [x] 写入：对一个声明了 `tokens.confidence` 的假识别器转写一次，对应记录里有 `flagStats` 且 `byTheta.length === 4`；对未声明的现有识别器转写一次，记录里**没有** `flagStats` 字段且请求成功（服务端测试）
+- [ ] MCP 浏览器验证：用 playwright MCP 打开 `http://localhost:3001/`，用 `?voiceDebug=1` 的上传入口转写一个 wav（识别器选 `sensevoice-local`）；读取 `~/.cloudcli/voice-data/` 下对应记录的 `flagStats`，把四个 θ 的 `flagsPer100Chars` 记入 `## Evidence`（**未完成——见 Notes 的阻塞条件**）
+- [x] `npm run typecheck`、`npm run lint`、`npm run build` 退出码 0
+
+## Evidence
+
+本 worktree、commit `54ba80aa`（合并 develop 前的实现提交）上的读数：
+
+- AC1：`npx vitest run src/shared/asr/tests/confidenceFlags.test.ts` → 9 passed（6 个已知答案 + 2 个 parity/负对照）。
+- AC2：8 条合成句 fixture，与 `sv-eval2.mjs` 口径的转写实现逐 θ 完全相等；另有 pin 断言锚定该脚本源码中的三段规则文本（`▁` 化简、`ts[i].p < th`、`/[A-Za-z0-9]/.test(seg)`），脚本口径一改即红。
+- AC3：no-merge 变体把用例②从 1 读成 2，即②对该变体可红。
+- AC4：`server/modules/voice/tests/voice-data.test.ts` → 7 passed。stand-in 识别器（声明 `tokens.confidence`）的记录 `flagStats.byTheta.length === 4`，四个 θ 的 `flags`/`flagsLatin` 均为 1（`▁API` 是唯一低置信段且为拉丁），`flagsPer100Chars = 100/6`；未声明的 openai-compatible 识别器记录里无 `flagStats` 且请求成功。
+- AC6：`npm run typecheck`、`npm run lint`、`npm run build` 均退出 0。
+
+**离线 fixture 口径读数（不是线上 SenseVoice 读数；AC5 未完成）**：8 条合成句共 213 字符，逐 θ 的 `flagsPer100Chars` = θ0.5→0.47、θ0.6→5.63、θ0.7→5.63、θ0.8→6.10（对应 `flagsLatinPer100Chars` = 0.47 / 2.82 / 2.82 / 3.29）。这些数字由 fixture 构造的置信度得出，只证明纯函数与离线口径同尺；DoD 要求的「真实 SenseVoice 转写」读数缺席。
+
+## Notes
+
+**AC5（MCP 浏览器验证）阻塞，因此转 `needs-human`。** 三个必要条件本次都不成立：
+
+1. `sensevoice-local` 在 develop 上**不存在**——只登记在 `gap-voice-sensevoice-server-adapter` 一支（该任务停在 `needs-human`、未合并）。没有它就无法「识别器选 `sensevoice-local`」转写，也就产不出任何真实 SenseVoice 记录与 `flagStats`。
+2. 本会话**没有挂 playwright MCP**（可用 MCP 只有 archguard / meta-cc / quay）。Playwright 浏览器二进制本机已安装，缺的是 MCP 入口。
+3. `localhost:3001` 上是主检出（`/data/home/yale/work/claudecodeui`）的 `dist-server/server/index.js`：既无 `sensevoice-local`，也无本任务改动；该进程由另一会话托管，本会话不能重启它。
+
+把本改动临时嫁接到那条未合并分支上可以造出浏览器证据，但读的是另一支的构建、并把未合并任务的产品拖进本任务范围，故不做。
+
+**解除阻塞后 AC5 的补法**：`sensevoice-local` 合并进 develop 且本改动构建进 3001 所服务的进程后，用 `?voiceDebug=1` 上传一 wav（识别器 `sensevoice-local`），读 `~/.cloudcli/voice-data/` 记录的 `flagStats`，把四个 θ 的 `flagsPer100Chars` 填进 `## Evidence` 并勾选本行；DoD 的「真实 SenseVoice 与离线脚本同尺」判据随之成立。
 
 ## DoD
 

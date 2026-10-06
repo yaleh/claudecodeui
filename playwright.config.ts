@@ -671,6 +671,48 @@ const seedSessionFilterTranscripts = () => {
   }
 };
 
+/** Workspace e2e/session-filter-conversations-live.spec.ts drives; its own directory so no other spec picks these sessions up. */
+const SESSION_FILTER_LIVE_WORKSPACE = path.join(dataDir, 'session-filter-live-workspace');
+/** The one session that spec starts from: a row already in the Conversations feed for it to rename into a rule. */
+const SESSION_FILTER_LIVE_SEED = 'live-seed-human';
+
+/**
+ * Seeds the single transcript e2e/session-filter-conversations-live.spec.ts loads its feed with.
+ *
+ * This one is here for the opposite reason to its sibling's: the spec's whole subject is what a
+ * transcript written *while the app is running* does to the Conversations list, so its own sessions
+ * have to be written by the spec, mid-run, and picked up by the file watcher. That path broadcasts
+ * `session_upserted` for a session the browser is not viewing, which the sidebar reads as "needs
+ * attention" — and attention is exactly the exemption the Projects list keeps visible under a name
+ * filter. On the Conversations side there is no such exemption: the feed is judged with the server's
+ * own rules and nothing else, so the flag costs this spec nothing. What it does need is one row
+ * already on screen before it writes anything, which is what is seeded here, before boot.
+ */
+const seedSessionFilterLiveTranscript = () => {
+  fs.mkdirSync(SESSION_FILTER_LIVE_WORKSPACE, { recursive: true });
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'session-filter-live-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  const sessionId = `e2e-${SESSION_FILTER_LIVE_SEED}`;
+  const timestamp = new Date().toISOString();
+  // Same two records as the filter spec's seed: the synchronizer reads the id and cwd from the first
+  // record it can parse and the display name from the last custom-title event.
+  const records = [
+    {
+      type: 'user',
+      sessionId,
+      cwd: SESSION_FILTER_LIVE_WORKSPACE,
+      timestamp,
+      message: { role: 'user', content: [{ type: 'text', text: `prompt for ${SESSION_FILTER_LIVE_SEED}` }] },
+    },
+    { type: 'custom-title', sessionId, cwd: SESSION_FILTER_LIVE_WORKSPACE, timestamp, customTitle: SESSION_FILTER_LIVE_SEED },
+  ];
+  fs.writeFileSync(
+    path.join(transcriptDir, `${sessionId}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 /** Workspace e2e/transcript-follow.spec.ts opens; its own directory so no other spec picks this session up. */
 const TRANSCRIPT_FOLLOW_WORKSPACE = path.join(dataDir, 'transcript-follow-workspace');
 /** Session id that spec addresses, and the display name it looks its sidebar row up by. */
@@ -1793,6 +1835,7 @@ const seedVoiceLiveVadWorkspace = () => {
 if (isDataDirOwner) {
   seedViteCache(viteCacheDir);
   seedSessionFilterTranscripts();
+  seedSessionFilterLiveTranscript();
   seedTranscriptFollowTranscript();
   seedTranscriptJumpTranscript();
   seedTranscriptJumpTallTranscript();
