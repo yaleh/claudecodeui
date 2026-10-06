@@ -2,7 +2,7 @@
 id: gap-ac228-criterion-red-is-mid-run-hmr-load-stabilize
 title: AC-228 判据在负载与运行中重载下假红：e2e/access-tokens-settings.spec.ts 首跑引导有界化 + 预算对齐
   55s watchdog，载重读数 (a)–(e) 一条不动
-status: todo
+status: ready
 labels:
   - gap
   - defect
