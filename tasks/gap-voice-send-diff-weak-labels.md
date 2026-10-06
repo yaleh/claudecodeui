@@ -109,5 +109,7 @@ include: src/**/*.test.ts, src/**/*.test.tsx
 - src/shared/api.ts
 - server/modules/voice/voice-data.ts
 - server/modules/voice/voice.routes.ts
+- server/modules/voice/voice.service.ts
+- server/shared/types.ts
 - server/modules/voice/tests/voice-data.test.ts
 - tasks/gap-voice-send-diff-weak-labels.md
