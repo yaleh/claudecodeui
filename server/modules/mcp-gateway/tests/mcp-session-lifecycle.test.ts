@@ -724,7 +724,7 @@ test('(b) an ambiguous project name is refused creating nothing; a unique one cr
     const ambiguous = await harness.call('session_create', { project: 'Alpha' });
     const rowsAfterAmbiguous = sessionRowCount();
     const body = ambiguous.payload as AnyRecord;
-    const candidates = (body?.candidates as Array<{ id: string; title: string }> | undefined) ?? [];
+    const candidates = (body?.details?.candidates as Array<{ id: string; title: string }> | undefined) ?? [];
 
     say(`(b) ambiguous isError=${ambiguous.isError} body=${JSON.stringify(body)}`);
     say(
@@ -964,7 +964,7 @@ test('(h) an unsupported permissionMode is refused with the matrix, before any s
 
     assert.equal(refused.isError, true, 'an unsupported permission mode must be refused');
     assert.equal(body.code, 'UNSUPPORTED_PERMISSION_MODE', 'the refusal must be a structured UNSUPPORTED_PERMISSION_MODE');
-    assert.deepEqual(body.supported, [...claudeModes], 'the refusal must list the provider matrix verbatim (the check session_reconfigure performs)');
+    assert.deepEqual(body.details?.supported, [...claudeModes], 'the refusal must list the provider matrix verbatim (the check session_reconfigure performs)');
     assert.equal(rowsAfter, rowsBefore, 'an unsupported mode must create NO session row');
     assert.equal(harness.createCalls.count, createBefore, 'the creation path must not be reached');
     assert.equal(harness.modelWrites.length, 0, 'no permission mode may be written');

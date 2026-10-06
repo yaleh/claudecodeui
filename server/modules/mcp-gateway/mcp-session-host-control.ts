@@ -189,7 +189,7 @@ function leasesBlockingMessage(blocking: HostLease[]): string {
   for (const lease of blocking) {
     counts.set(lease.kind, (counts.get(lease.kind) ?? 0) + 1);
   }
-  const parts = [...counts.entries()].map(([kind, count]) => `${kind}x${count}`);
+  const parts = [...counts.entries()].map(([kind, count]) => `${kind}×${count}`);
   return `This resident session holds ${parts.join(', ')}; closing it would end that background work — pass force: true to close anyway.`;
 }
 

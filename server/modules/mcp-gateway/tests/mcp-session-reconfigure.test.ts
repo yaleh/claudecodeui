@@ -678,12 +678,12 @@ test('(c) a matrix-external permission mode is refused, while the WebSocket path
     assert.equal(bad.isError, true, 'an unsupported permission mode must be refused');
     assert.equal(bad.payload?.code, 'UNSUPPORTED_PERMISSION_MODE', 'the refusal must name the code');
     assert.deepEqual(
-      bad.payload?.supported,
+      bad.payload?.details?.supported,
       harness.permissionModes,
       'the refusal must list the provider-supported modes verbatim',
     );
-    assert.ok((bad.payload?.supported as string[]).includes('plan'), 'the list must carry the plan mode');
-    assert.ok((bad.payload?.supported as string[]).includes('auto'), 'the list must carry the auto mode');
+    assert.ok((bad.payload?.details?.supported as string[]).includes('plan'), 'the list must carry the plan mode');
+    assert.ok((bad.payload?.details?.supported as string[]).includes('auto'), 'the list must carry the auto mode');
     assert.equal(afterMcpRow?.permission_mode, null, 'the refused mode must not be written to the row');
     assert.equal(mcpWrites, 0, 'the refusal must not reach setSessionPermissionMode');
 

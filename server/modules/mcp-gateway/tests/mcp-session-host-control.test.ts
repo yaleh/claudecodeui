@@ -567,7 +567,7 @@ test('(c) a resident host holding cron+background-task leases is refused without
       blockedMessage.includes('background-task×1'),
       `the message must name background-task×1 (got ${JSON.stringify(blockedMessage)})`,
     );
-    const listed = (blocked.payload?.leases ?? []) as Array<{ kind?: string }>;
+    const listed = (blocked.payload?.details?.leases ?? []) as Array<{ kind?: string }>;
     assert.deepEqual(
       listed.map((lease) => lease.kind).sort(),
       ['background-task', 'cron'],

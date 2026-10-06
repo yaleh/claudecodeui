@@ -315,6 +315,16 @@ function parseToolResult(result: unknown): ToolCall {
 type Harness = {
   readClient: Client;
   scopedClient: Client;
+  /**
+   * A second `cloudcli:read` connection that never calls `tools/list`. The SDK
+   * Client caches each tool's output validator from `tools/list` and then
+   * validates a call's `structuredContent` against it — including when the
+   * result is an `isError` failure (AC-284's envelope), which no tool's success
+   * schema matches. Error probes therefore go through this cold client, exactly
+   * as the AC-284 criterion's probe client does; `readClient` stays the
+   * list-warmed client for the `tools/list` assertions and success calls.
+   */
+  probeClient: Client;
   transport: StreamableHTTPClientTransport;
   scopedTransport: StreamableHTTPClientTransport;
   call: (name: string, args?: AnyRecord) => Promise<ToolCall>;
@@ -429,6 +439,7 @@ async function withMcpReadTools(run: (harness: Harness, fixture: Fixture) => Pro
 
   const read = await connect(readToken.token.token);
   const scoped = await connect(scopedToken.token.token);
+  const probe = await connect(readToken.token.token);
 
   const callWith = async (client: Client, name: string, args: AnyRecord = {}): Promise<ToolCall> =>
     parseToolResult(
@@ -447,6 +458,7 @@ async function withMcpReadTools(run: (harness: Harness, fixture: Fixture) => Pro
       {
         readClient: read.client,
         scopedClient: scoped.client,
+        probeClient: probe.client,
         transport: read.transport,
         scopedTransport: scoped.transport,
         call: (name, args = {}) => callWith(read.client, name, args),
@@ -461,6 +473,7 @@ async function withMcpReadTools(run: (harness: Harness, fixture: Fixture) => Pro
     chatRunRegistry.completeRun(SESSION_BUSY, { exitCode: 0 });
     await read.transport.close().catch(() => undefined);
     await scoped.transport.close().catch(() => undefined);
+    await probe.transport.close().catch(() => undefined);
     await new Promise<void>((resolve) => server.close(() => resolve()));
     closeConnection();
     if (previousDatabasePath === undefined) {
@@ -525,7 +538,7 @@ test('(a) tools/list is exactly the stage-3 read tools, none of them a write too
       ['run_get', { run: 'anything' }],
       ['quay_snapshot', {}],
     ] as Array<[string, AnyRecord]>) {
-      const refusal = await harness.call(name, args);
+      const refusal = await harness.callWith(harness.probeClient, name, args);
       console.log(`[a] ${name} -> isError=${refusal.isError} text=${JSON.stringify(refusal.text)}`);
       assert.equal(refusal.isError, true, `${name} must refuse until AC-247/AC-248 land`);
       assert.equal(
