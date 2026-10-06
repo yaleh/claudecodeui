@@ -2,7 +2,7 @@
 id: gap-voice-client-asr-wasm-adapter
 title: 客户端本地识别适配器：把浏览器内 WASM SenseVoice 作为 locality 'local-client' 的 ASR
   适配器接进同一个缝，模型一次下载、校验后持久缓存，慢或不可用时回退服务端（D2 §5.10）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
