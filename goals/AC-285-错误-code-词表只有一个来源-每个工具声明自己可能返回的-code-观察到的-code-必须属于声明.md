@@ -1,7 +1,7 @@
 ---
 id: AC-285
 title: 错误 code 词表只有一个来源，每个工具声明自己可能返回的 code，观察到的 code 必须属于声明
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-024
 criterion: for f in
@@ -24,6 +24,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-06T15:31:16.716Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
