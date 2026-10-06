@@ -53,6 +53,9 @@ import express from 'express';
 
 import type { TurnState } from '@/modules/providers/index.js';
 import {
+  WS_OPEN_STATE,
+  broadcastHostsChanged,
+  connectedClients,
   createActivityStore,
   createActivityRouter,
   type ActivityFrameListener,
@@ -669,4 +672,58 @@ test('the false forms fail the reading the main cases pass', async () => {
   } finally {
     await harness.close();
   }
+});
+
+// ---------------------------------------------------------------- hosts_changed
+
+/**
+ * AC5 (the wire half): `hosts_changed` is delivered to open connections only.
+ *
+ * The session-hosts store's re-read is driven by this frame, so the two readings
+ * that matter are who receives it and what it carries. It carries a revision and
+ * no listing: `GET /api/session-hosts` stays the one place the snapshot is built,
+ * and a frame that also carried a listing would be a second producer of the same
+ * shape — the exact drift this frame exists to avoid.
+ *
+ * Open-only delivery is asserted with a live control beside it: a connection that
+ * is mid-handshake (`CONNECTING`) or closing (`CLOSING`) must not be written to,
+ * and a defect that dropped the `readyState` check would leave the dead clients
+ * receiving frames while the closed ones still answered the open assertion. So
+ * the connection below is `CONNECTING`, and its counterpart is `OPEN`.
+ */
+test('broadcastHostsChanged sends a revision-only frame to open connections only', () => {
+  const received: string[] = [];
+  const openClient = {
+    readyState: WS_OPEN_STATE,
+    send(data: string) { received.push(data); },
+  };
+  const connectingClient = {
+    readyState: 0, // CONNECTING
+    send(data: string) { received.push(`unexpected:${data}`); },
+  };
+  const closingClient = {
+    readyState: 2, // CLOSING
+    send(data: string) { received.push(`unexpected:${data}`); },
+  };
+
+  connectedClients.add(openClient);
+  connectedClients.add(connectingClient);
+  connectedClients.add(closingClient);
+  try {
+    broadcastHostsChanged(7);
+  } finally {
+    connectedClients.delete(openClient);
+    connectedClients.delete(connectingClient);
+    connectedClients.delete(closingClient);
+  }
+
+  assert.equal(received.length, 1, `exactly one connection should receive the frame, got ${received.length}`);
+  const frame = JSON.parse(received[0]) as Record<string, unknown>;
+  console.log(`hosts_changed frame=${received[0]}`);
+  assert.equal(frame.kind, 'hosts_changed');
+  assert.equal(frame.rev, 7);
+  assert.equal(typeof frame.timestamp, 'string');
+  // Revision only: the listing is read over REST, never carried on the frame.
+  assert.deepEqual(Object.keys(frame).sort(), ['kind', 'rev', 'timestamp']);
+  assert.equal('hosts' in frame, false, 'the frame must not carry a listing');
 });

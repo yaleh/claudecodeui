@@ -496,6 +496,10 @@ export const sessionsService = {
     });
 
     await broadcastSessionUpserted(forkSessionId);
+    // The session-hosts listing's `sessions[]` half gained this row (and its
+    // resident mark is read from there), so its readers are told to re-read the
+    // listing rather than waiting for the fallback poll.
+    sessionHostManager.notifyHostsChanged();
 
     return {
       sessionId: forkSessionId,
@@ -1059,6 +1063,9 @@ export const sessionsService = {
 
     sessionsDb.updateSessionCustomName(sessionId, storedName);
     await broadcastSessionUpserted(sessionId);
+    // The listing names this session on its resident-mark row, so a rename is a
+    // change to it too — announced here for the same reason a creation is.
+    sessionHostManager.notifyHostsChanged();
     return { sessionId, summary: storedName };
   },
 
@@ -1181,6 +1188,12 @@ export const sessionsService = {
         statusCode: 404,
       });
     }
+
+    // The stored mode is listed on the session-hosts `sessions[]` row, so the
+    // write is announced even when no host existed to close (the close path
+    // above announces its own change; this one guarantees the post-write
+    // listing is what a reader re-fetches).
+    sessionHostManager.notifyHostsChanged();
 
     return { provider, sessionId, mode, changed: true, closedHostReason };
   },

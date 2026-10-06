@@ -639,6 +639,106 @@ test('AC8: every close reason in the shared enum is produced by a named case', a
 });
 
 // ---------------------------
+//----------------- (7) THE LISTING ANNOUNCES ITSELF ------------
+/**
+ * AC5: `onChange` announces a changed listing exactly once per transition, and
+ * the subscription is the thing that decides who hears it.
+ *
+ * Before this, a client learned that the listing had moved only by asking again
+ * on a one-second timer; the manager now says so, and the count of announcements
+ * is what a client's re-read is driven by. So "exactly once" is not a nicety:
+ * an announcement per *recomputation* rather than per *transition* would put a
+ * burst of frames on the wire for one turn ending (the lease drop recomputes,
+ * the close recomputes again), and a client that read on each would be as busy
+ * as the poll it replaced. The close leg is the one that traps this: the recompute
+ * that decides to close and `closeHost` itself both run, and only the close may
+ * speak — which is why `applyDerivedState` reports back whether it closed.
+ *
+ * `revisions` are also required to strictly increase, because the client drops a
+ * frame whose revision it has already applied; a repeated revision would make
+ * that dedup silently swallow the second change.
+ */
+test('AC5 (hosts_changed): onChange announces one revision per listing transition, and unsubscribe is honoured', async () => {
+  const clock = createFakeClock();
+  const manager = createManager(clock);
+  const driver = createFakeDriver();
+
+  const revisions: number[] = [];
+  const unsubscribe = manager.onChange((rev) => revisions.push(rev));
+
+  // (1) A host appearing in the listing. Per-run mode opens holding no lease,
+  // so this is the `starting` state rather than a lease-driven one — the
+  // announcement is that the listing gained a host, not that a turn began.
+  const a = await manager.openHost({
+    provider: PROVIDER,
+    mode: 'per-run',
+    appSessionId: 'ac5-a',
+    driver,
+  });
+  assert.equal(revisions.length, 1, 'opening a host should announce exactly once');
+
+  // (2) A turn starting moves the host `busy`.
+  driver.sink?.leaseAdded('ac5-a', { kind: 'turn', runId: 'run-a' });
+  assert.equal(revisions.length, 2, 'a turn starting should announce exactly once');
+
+  // (3) The name the process answers to is part of the listing, so recording it
+  // is a transition of its own even though no state word moved.
+  driver.sink?.identity('ac5-a', 'peer-a');
+  assert.equal(revisions.length, 3, 'recording an identity should announce exactly once');
+
+  // (4) The turn ends and the host closes. This is the leg that must not speak
+  // twice: the recompute closes the host and `closeHost` announces it, so the
+  // boolean `applyDerivedState` returns is the whole difference between one
+  // frame and two.
+  driver.sink?.leaseRemoved('ac5-a', 'turn');
+  assert.equal(revisions.length, 4, 'a turn ending (host close) should announce exactly once');
+  assert.equal(readHost(manager, a.hostId).state, 'closed');
+
+  // Strictly increasing and never repeated: a client's dedup cursor depends on
+  // both, so a listing announced on the same revision twice would be dropped.
+  const sorted = [...revisions].sort((left, right) => left - right);
+  assert.deepEqual(revisions, sorted, `revisions must increase: ${revisions.join(',')}`);
+  assert.equal(new Set(revisions).size, revisions.length, 'a revision must not be reused');
+  console.log(`revisions=${revisions.join(',')}`);
+
+  // (5) Unsubscribing stops delivery without stopping the manager: the two
+  // transitions below really happen, and none of them is announced here.
+  unsubscribe();
+  const b = await manager.openHost({
+    provider: PROVIDER,
+    mode: 'per-run',
+    appSessionId: 'ac5-b',
+    driver,
+  });
+  driver.sink?.leaseAdded('ac5-b', { kind: 'turn', runId: 'run-b' });
+  assert.equal(revisions.length, 4, 'an unsubscribed listener must not hear later transitions');
+  assert.equal(readHost(manager, b.hostId).state, 'busy', 'the missed transition still happened');
+
+  // (6) A listener subscribing later hears from its own subscription, and the
+  // unsubscribed one stays silent — the two are independent.
+  const later: number[] = [];
+  const stopLater = manager.onChange((rev) => later.push(rev));
+  driver.sink?.leaseRemoved('ac5-b', 'turn');
+  assert.equal(later.length, 1, 'a later subscriber hears the transition it subscribed for');
+  assert.equal(revisions.length, 4, 'the unsubscribed listener is still silent');
+  stopLater();
+
+  // (7) One listener throwing must not silence the listeners registered after
+  // it: the wire reaches every client independently, and a client whose handler
+  // faults is not allowed to become the reason the others stop hearing.
+  console.log('throwing-listener-case the error logged on the next line is expected');
+  const survivor: number[] = [];
+  const stopThrower = manager.onChange(() => {
+    throw new Error('ac5-listener-failure');
+  });
+  const stopSurvivor = manager.onChange((rev) => survivor.push(rev));
+  await manager.openHost({ provider: PROVIDER, mode: 'per-run', appSessionId: 'ac5-c', driver });
+  assert.equal(survivor.length, 1, 'a throwing listener must not stop the ones after it');
+  stopThrower();
+  stopSurvivor();
+});
+
+// ---------------------------
 //----------------- THE CRITERION'S OWN PROPERTIES ------------
 /**
  * Two readings that are about this file rather than about the manager.

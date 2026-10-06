@@ -22,15 +22,40 @@ import type {
  * about the same host for as long as their intervals were out of step, and the
  * readings that matter here are exactly the comparisons between them.
  *
- * Polling, not push, because the server publishes no event for this: host state
- * changes as turns start and end, and `GET /api/session-hosts` is the only face
- * that reports it. The interval is short enough that a state change is visible
- * within a beat of happening and long enough not to hammer the endpoint; it is
+ * The server now announces that the listing changed instead of the page asking
+ * again and again: `GET /api/session-hosts` is still the one face that *builds*
+ * the snapshot, but a `hosts_changed` frame is what says when to re-read it.
+ * The store therefore has two inputs — {@link invalidateSessionHosts}, called
+ * from the websocket bridge with the frame's revision, and a slow fallback
+ * interval that only exists to cover the gap while the socket is down. The
+ * revision is what makes the push safe against a slow read: a frame that names
+ * a revision at or below the last one applied is dropped, so a re-delivered or
+ * out-of-order frame cannot start a second read, and the frames a burst of
+ * transitions produce are coalesced into one.
+ *
+ * The fallback interval is deliberately long while the socket is up ({@link
+ * CONNECTED_REFRESH_INTERVAL_MS}) — the frames are the signal then — and short
+ * only while it is down ({@link DISCONNECTED_REFRESH_INTERVAL_MS}), which is the
+ * one case where nothing else would report a change at all. Either way it is
  * suspended while the tab is hidden, since nothing is looking at the result.
  */
 
-/** How often the snapshot is re-read while the tab is visible. */
-const REFRESH_INTERVAL_MS = 1000;
+/** How often the snapshot is re-read while the socket is up and the tab visible. */
+const CONNECTED_REFRESH_INTERVAL_MS = 30_000;
+
+/** How often it is re-read while the socket is down — the only signal then. */
+const DISCONNECTED_REFRESH_INTERVAL_MS = 2_000;
+
+/**
+ * How long a burst of `hosts_changed` frames is folded together.
+ *
+ * A turn ending can announce itself through more than one path (the lease
+ * dropping, the host lingering, a session write), and each announcement reaches
+ * the browser as its own frame. Waiting a short beat before reading means one
+ * request covers the whole burst, and no reader ever sees the intermediate
+ * listing the burst passed through.
+ */
+const INVALIDATE_COALESCE_MS = 250;
 
 type SessionHostsStoreState = {
   /** The last snapshot read, or null before the first answer. */
@@ -45,11 +70,29 @@ let state: SessionHostsStoreState = { snapshot: null, error: null, loading: fals
 
 const listeners = new Set<() => void>();
 
-/** The one poller, started by the first subscriber and stopped by the last. */
+/** The one fallback poller, started by the first subscriber and stopped by the last. */
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 /** The in-flight read, so overlapping refreshes collapse into one request. */
 let inFlight: Promise<void> | null = null;
+
+/** The pending coalesced read, or null when none is scheduled. */
+let coalesceTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * The highest `hosts_changed` revision already applied, or null when none has
+ * been — the cursor that makes the push idempotent.
+ *
+ * It is reset whenever a connection is (re)established: a revision is only
+ * meaningful against one server run, and a reconnected socket may be talking to
+ * a process whose listing started counting again from one. Keeping the old
+ * cursor across a reconnect would then drop every frame the new server sent,
+ * which is the exact failure the reconnect pull is there to prevent.
+ */
+let appliedRev: number | null = null;
+
+/** Whether the websocket is currently up; picks the fallback interval. */
+let connected = false;
 
 function emit(next: SessionHostsStoreState): void {
   state = next;
@@ -79,8 +122,17 @@ async function readSnapshot(): Promise<void> {
   }
 }
 
-/** Re-reads the snapshot. Concurrent callers share one request. */
+/**
+ * Re-reads the snapshot. Concurrent callers share one request.
+ *
+ * Any coalesced read still waiting is dropped first: this read answers the same
+ * question the burst of frames asked, so letting the timer fire afterwards would
+ * be a second request for a listing that was just read. That is what keeps a
+ * reconnect — which arrives as both a connection edge and a frame — to one read.
+ */
 function refreshSessionHosts(): Promise<void> {
+  clearCoalescedRefresh();
+
   if (!inFlight) {
     inFlight = readSnapshot().finally(() => {
       inFlight = null;
@@ -90,24 +142,114 @@ function refreshSessionHosts(): Promise<void> {
   return inFlight;
 }
 
+function stopFallbackPoll(): void {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+/** (Re)starts the fallback poller on the interval the connection state selects. */
+function startFallbackPoll(): void {
+  stopFallbackPoll();
+  pollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
+    void refreshSessionHosts();
+  }, connected ? CONNECTED_REFRESH_INTERVAL_MS : DISCONNECTED_REFRESH_INTERVAL_MS);
+}
+
+/** Schedules the one read a burst of frames is folded into. */
+function scheduleCoalescedRefresh(): void {
+  if (coalesceTimer !== null) {
+    return;
+  }
+  coalesceTimer = setTimeout(() => {
+    coalesceTimer = null;
+    void refreshSessionHosts();
+  }, INVALIDATE_COALESCE_MS);
+}
+
+function clearCoalescedRefresh(): void {
+  if (coalesceTimer !== null) {
+    clearTimeout(coalesceTimer);
+    coalesceTimer = null;
+  }
+}
+
+/**
+ * Announces that the listing changed, and re-reads it.
+ *
+ * `rev` is the frame's revision when the frame carries one; a caller with no
+ * revision (the synthetic reconnect event) passes none and the read is
+ * scheduled unconditionally. When a revision is given, one at or below {@link
+ * appliedRev} is dropped: the server hands revisions out in order and never
+ * reuses one, so seeing an old revision again means the frame was re-delivered
+ * or overtaken, and reading again would report the same listing a second time.
+ *
+ * Nothing is done before the store has its first subscriber: the frames arrive
+ * for the page as a whole, but a read with no reader is a request nobody asked
+ * for. The first subscriber reads the listing itself, so no change is missed.
+ */
+export function invalidateSessionHosts(rev?: number): void {
+  if (listeners.size === 0) {
+    return;
+  }
+
+  if (typeof rev === 'number') {
+    if (appliedRev !== null && rev <= appliedRev) {
+      return;
+    }
+    appliedRev = rev;
+  }
+
+  scheduleCoalescedRefresh();
+}
+
+/**
+ * Tells the store whether the websocket is up, which selects the fallback
+ * interval — and, on (re)connecting, re-reads at once.
+ *
+ * The immediate read is the point of the connect edge: everything that happened
+ * while the socket was down produced frames that were never delivered, and a
+ * client that waited for the next fallback tick would show a stale listing for
+ * up to the connected interval after coming back. The revision cursor is reset
+ * on the same edge, for the reason given on {@link appliedRev}.
+ */
+export function setSessionHostsConnection(isConnected: boolean): void {
+  if (connected === isConnected) {
+    return;
+  }
+  connected = isConnected;
+
+  if (connected) {
+    appliedRev = null;
+  }
+
+  if (listeners.size === 0) {
+    return;
+  }
+
+  startFallbackPoll();
+  if (connected) {
+    void refreshSessionHosts();
+  }
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
 
   if (listeners.size === 1) {
     void refreshSessionHosts();
-    pollTimer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) {
-        return;
-      }
-      void refreshSessionHosts();
-    }, REFRESH_INTERVAL_MS);
+    startFallbackPoll();
   }
 
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0 && pollTimer !== null) {
-      clearInterval(pollTimer);
-      pollTimer = null;
+    if (listeners.size === 0) {
+      stopFallbackPoll();
+      clearCoalescedRefresh();
     }
   };
 }

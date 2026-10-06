@@ -65,6 +65,13 @@ export { createChatControlService } from './services/chat-control.service.js';
 // sessions it (re)indexed from disk through the same builder the chat gateway
 // uses, so both paths put the identical delta on the wire.
 export { broadcastSessionUpserted, broadcastSessionUpsertedBatch } from './services/session-upsert-broadcast.service.js';
+// The `hosts_changed` invalidation producer. Consumed by `server/index.ts`,
+// which forwards the session-host manager's `onChange` revisions to it — the
+// manager cannot import this module back (the providers module and this module's
+// chat websocket already import the manager), so the composition root installs
+// the wire. Documented in the service; kept here so the manager's `onChange`
+// consumer lives behind the barrel like every other cross-module edge.
+export { broadcastHostsChanged } from './services/hosts-changed-broadcast.service.js';
 // handleChatConnection: the chat websocket surface, mounted by
 // `createWebSocketServer` and driven directly by the gateway criteria.
 export { handleChatConnection } from './services/chat-websocket.service.js';
