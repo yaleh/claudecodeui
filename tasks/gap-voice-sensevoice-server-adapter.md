@@ -149,10 +149,13 @@ L_G 该轴有读数：同一批片段上适配器输出与补丁引擎记录的�
 - server/modules/voice/tests/voice-error-classification.test.ts
 - server/modules/voice/tests/voice-error-classification.false-forms.test.ts
 - scripts/asr-dashscope-omni-check.test.mjs
+- server/shared/tests/quay-test-script.test.ts
 
 ## Notes
 
 fan-in suite red was attributed: the new ENGINE_UNAVAILABLE code makes the error vocabulary 14 members, so the AC-149 pins (`vocab.length === 13`, table-row tokens source=12/14, "thirteen") and the omni check's copied fixture (missing sensevoice-local module) went red. Fixed on branch task/gap-voice-sensevoice-server-adapter in commit a89e19a4. Verified locally: voice-error-classification.test.ts exit 0, voice-error-classification.false-forms.test.ts 7/7 pass, `node --test scripts/asr-dashscope-omni-check.test.mjs` 14/14 pass.
+
+本轮（2026-10-06）再次 red 的归因：`server/shared/tests/quay-test-script.test.ts` 的 AC2/AC3 把服务端测试文件的**精确收集数**写进了判据（develop 上 unknown=230 / unknown=232，即 233 个文件）。本任务新增 3 个服务端测试文件（voice-sensevoice-adapter / voice-sensevoice-real / voice-sensevoice-health.routes），收集数变为 236，于是两处应为 unknown=233 / unknown=235。按 develop 提交 `2df26ada`（"服务器测试文件数 232→233，修精确计数钉"）确立的约定同步上移这两个字面量，不改断言结构。该文件不是本任务的实现产物，只为让精确计数钉与新增测试文件数一致而改，故一并声明进 Touches。修复后本文件 `tests 11 / pass 11 / fail 0`，exit 0；`npm run typecheck`、`npm run lint` 均 exit 0。
 
 ## Needs-Human
 
