@@ -13,6 +13,7 @@ extra:
   schema: execution
 depends_on:
   - gap-ac284-mcp-error-envelope
+goal_ac: AC-287
 ---
 ## Proposal
 
