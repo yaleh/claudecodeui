@@ -3,7 +3,7 @@ id: gap-ac288-invalid-argument-envelope
 title: 参数校验失败即 INVALID_ARGUMENT 信封（AC-288）：details.fields 逐字段英文原因、message ≤300 无
   zod 转储、未知工具 UNKNOWN_TOOL 同信封，判据
   server/modules/mcp-gateway/tests/mcp-invalid-argument.test.ts
-status: todo
+status: ready
 labels:
   - gap
   - defect
