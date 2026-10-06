@@ -53,3 +53,8 @@ cloudflared quick tunnel 暴露的**公网 https 基址**（`PUBLIC_BASE_URL`）
 
 读数：把服务端以 `MCP_DCR=allowlist` + `MCP_ALLOWED_REDIRECT_HOSTS=localhost` 重启，启动日志逐字 `[MCP] oauth register mounted at /oauth/register (MCP_DCR=allowlist)`；清掉客户端本地 OAuth 凭据后重跑 `claude mcp login --no-browser cloudcli`，服务端新注册 DCR 客户端逐字 `client_id=e7802329ccb9191d78be44f8b72c665d created_via="dcr" redirect_uris=["http://localhost:58214/callback"]`，回调 `localhost` 命中 allowlist，重绑逐字成功 `Authenticated with "cloudcli". Its tools are now available in Claude Code.`；重绑后 `oauth_grants` 新增逐字 `client_id=e7802329ccb9191d78be44f8b72c665d scopes=["cloudcli:read"]`，且 `claude mcp list` 逐字 `cloudcli: ... (HTTP) - ✔ Connected`、`overview` 仍能返回 `{"running":[],...,"quay":[{"projectId":"86945649-a792-4dba-9ef3-247f39dd2e10","status":"no-quay-config","note":"该项目没有 quay"}]}`。
 结论：`MCP_DCR` 收紧为 `allowlist` 且 `MCP_ALLOWED_REDIRECT_HOSTS=localhost` 之后，外部客户端仍能完成 DCR 注册与 OAuth 重绑并正常调用工具。
+
+## 人证行（AC-270）
+
+外部客户端验收：通过 —— 裁定人：yale，2026-10-06。裁定依据为上列九节承重读数（终端 Claude Code headless 经真 cloudflared 公网基址 `https://sheriff-kitchen-lenders-accessing.trycloudflare.com` 绑定；基址不含任何 `ccp_`/`cca_` 令牌串；回调主机 `localhost:58214`；用了 DCR；授权请求发送 `resource=https://<基址>/mcp`；`access_tokens` 同时出现 `oauth_access` 与 `oauth_refresh` 两类行；`run_get(waitSeconds=60)` 实测被 `MCP_RUN_GET_MAX_WAIT_SECONDS=25` 秒封顶；`overview` 空态与有在飞 run 两种真实返回；`MCP_DCR=allowlist` 收紧后清凭据重绑成功）。本行由受权会话代录，**裁定本身出自人 yale**。
+
