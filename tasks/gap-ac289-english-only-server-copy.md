@@ -67,18 +67,18 @@ for f in server/modules/mcp-gateway/tests/mcp-english-only.test.ts; do [ -f "$f"
 
 ## AC
 
-- [ ] AC1 判据文件 `server/modules/mcp-gateway/tests/mcp-english-only.test.ts` 存在；存在性闸后判据命令退出码 0。任务记录含红先行两段逐字输出：实现前退出码 1 打印 `缺判据文件：server/modules/mcp-gateway/tests/mcp-english-only.test.ts`；实现后退出码 0。
-- [ ] AC2 (a) 检查器由 `tools/list` 驱动，枚举全部注册工具（写下工具数）；每个工具至少一条成功路径 + 一条失败探针；对 `SERVER_AUTHORED_FIELDS` 断言无 CJK，并跑补充判据（响应内任何 CJK 必须落在声明的用户数据键下，否则红）；覆盖 `initialize.instructions`（若有）与授权页错误页 HTML。新增工具无探针即红。
-- [ ] AC3 (a) 逐条记录收集到的服务端文案字段（文件:行 → 字段 → 英文值），并断言全部无 CJK；含 `relative` 时间字段与 `hostNote` 的实际读数。
-- [ ] AC4 (b) 收集所有 `(code, message)`，按 code 分桶；每桶每条 message 无 CJK（同 code 在所有工具上语言一致）；打印 `code → messages[]` 分桶读数。
-- [ ] AC5 (c) 正例对照：`containsCjk`/`assertServerCopyEnglish` 在合成中文句（如 `'找不到会话 "x"。'`）上变红、在合成英文句上通过；判据：本判据文件的 (c) 段。
-- [ ] AC6 (d) 用户数据不被误伤：中文标题会话 / 中文项目名 / 中文正文（及审批中文问题与选项）经真实工具读回，逐字等于原中文串（`===`）；判据：本判据文件的 (d) 段。
-- [ ] AC7 假形态 (i)：提交实现后，把某个 `message` 改回中文（记录 mutation diff）⇒ (a) 断言红（记录逐字失败行）；恢复命令后重跑绿。
-- [ ] AC8 假形态 (ii)：把用户数据当服务端文案去清洗（记录 mutation diff，例如让清洗/判据作用于会话标题）⇒ (d) 的中文标题逐字断言红；恢复后重跑绿。
-- [ ] AC9 计数 pin 同步：`server/shared/tests/quay-test-script.test.ts` 两处 known/unknown 按实现时实际计数写入（先取 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` 的实际 N，再写 `known=3 unknown=N-3`（`:154`）与 `known=1 unknown=N-1`（`:203`））；`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0；写下 N 与两条 pin 字符串。
-- [ ] AC10 既有判据移植、强度不降：凡断言旧中文**服务端文案**的既有测试逐条迁移为新英文串（核对 `mcp-run-get.test.ts`、`mcp-read-tools.test.ts`、`mcp-session-background.test.ts`、`mcp-self-target.test.ts`、`mcp-session-lifecycle.test.ts`、`mcp-session-reconfigure.test.ts`、`mcp-cancel-queued.test.ts`、`mcp-overview.test.ts`、`mcp-resolve-target.test.ts`、`mcp-approvals.test.ts` 等）；中文**用户数据夹具**（`mcp-approvals.test.ts` 的问题/选项、`mcp-session-send.test.ts` 的正文字符串）保持中文并继续断言原样返回。diff 中无删除 `assert`、无放宽为 truthy/skip；任务记录逐条列旧→新或保留理由。`bash scripts/test.sh --for-task gap-ac289-english-only-server-copy` 退出码 0。
-- [ ] AC11 仓库门：`npm run typecheck` 退出码 0；`npm run lint` 无 `: error `（只看 error 级）；`npm run build` 退出码 0。写明三条退出码与 lint error 计数。
-- [ ] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件标 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 `task_write` 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据文件 `server/modules/mcp-gateway/tests/mcp-english-only.test.ts` 存在；存在性闸后判据命令退出码 0。任务记录含红先行两段逐字输出：实现前退出码 1 打印 `缺判据文件：server/modules/mcp-gateway/tests/mcp-english-only.test.ts`；实现后退出码 0。
+- [x] AC2 (a) 检查器由 `tools/list` 驱动，枚举全部注册工具（写下工具数）；每个工具至少一条成功路径 + 一条失败探针；对 `SERVER_AUTHORED_FIELDS` 断言无 CJK，并跑补充判据（响应内任何 CJK 必须落在声明的用户数据键下，否则红）；覆盖 `initialize.instructions`（若有）与授权页错误页 HTML。新增工具无探针即红。
+- [x] AC3 (a) 逐条记录收集到的服务端文案字段（文件:行 → 字段 → 英文值），并断言全部无 CJK；含 `relative` 时间字段与 `hostNote` 的实际读数。
+- [x] AC4 (b) 收集所有 `(code, message)`，按 code 分桶；每桶每条 message 无 CJK（同 code 在所有工具上语言一致）；打印 `code → messages[]` 分桶读数。
+- [x] AC5 (c) 正例对照：`containsCjk`/`assertServerCopyEnglish` 在合成中文句（如 `'找不到会话 "x"。'`）上变红、在合成英文句上通过；判据：本判据文件的 (c) 段。
+- [x] AC6 (d) 用户数据不被误伤：中文标题会话 / 中文项目名 / 中文正文（及审批中文问题与选项）经真实工具读回，逐字等于原中文串（`===`）；判据：本判据文件的 (d) 段。
+- [x] AC7 假形态 (i)：提交实现后，把某个 `message` 改回中文（记录 mutation diff）⇒ (a) 断言红（记录逐字失败行）；恢复命令后重跑绿。
+- [x] AC8 假形态 (ii)：把用户数据当服务端文案去清洗（记录 mutation diff，例如让清洗/判据作用于会话标题）⇒ (d) 的中文标题逐字断言红；恢复后重跑绿。
+- [x] AC9 计数 pin 同步：`server/shared/tests/quay-test-script.test.ts` 两处 known/unknown 按实现时实际计数写入（先取 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` 的实际 N，再写 `known=3 unknown=N-3`（`:154`）与 `known=1 unknown=N-1`（`:203`））；`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0；写下 N 与两条 pin 字符串。
+- [x] AC10 既有判据移植、强度不降：凡断言旧中文**服务端文案**的既有测试逐条迁移为新英文串（核对 `mcp-run-get.test.ts`、`mcp-read-tools.test.ts`、`mcp-session-background.test.ts`、`mcp-self-target.test.ts`、`mcp-session-lifecycle.test.ts`、`mcp-session-reconfigure.test.ts`、`mcp-cancel-queued.test.ts`、`mcp-overview.test.ts`、`mcp-resolve-target.test.ts`、`mcp-approvals.test.ts` 等）；中文**用户数据夹具**（`mcp-approvals.test.ts` 的问题/选项、`mcp-session-send.test.ts` 的正文字符串）保持中文并继续断言原样返回。diff 中无删除 `assert`、无放宽为 truthy/skip；任务记录逐条列旧→新或保留理由。`bash scripts/test.sh --for-task gap-ac289-english-only-server-copy` 退出码 0。
+- [x] AC11 仓库门：`npm run typecheck` 退出码 0；`npm run lint` 无 `: error `（只看 error 级）；`npm run build` 退出码 0。写明三条退出码与 lint error 计数。
+- [x] AC12 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件标 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 `task_write` 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -119,3 +119,80 @@ for f in server/modules/mcp-gateway/tests/mcp-english-only.test.ts; do [ -f "$f"
 - server/modules/mcp-gateway/tests/mcp-approvals.test.ts
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-ac289-english-only-server-copy.md (self-touch)
+
+## Evidence
+
+**AC1 红先行两段逐字输出**
+- 实现前（判据文件不存在）：
+  ```
+  缺判据文件：server/modules/mcp-gateway/tests/mcp-english-only.test.ts
+  ```
+  退出码 **1**。
+- 实现后：`npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-english-only.test.ts` → `# tests 10 # pass 10 # fail 0`，退出码 **0**。
+
+**AC2 收集器覆盖**
+- 工具数 **17**（7 读工具 + 5 写工具 + 5 常驻工具）；`SUCCESS_TABLE` 与 `FAILURE_TABLE` 的键集对 `tools/list` 名称集 `deepEqual`——多一个注册工具而无探针即红。
+- 每个工具：1 条成功路径 + 1 条失败探针（INVALID_ARGUMENT 浅探针）；另有 `CLASS_FAILURES` 9 条分类失败（SESSION_NOT_FOUND ×2、PROJECT_NOT_FOUND ×2、TARGET_AMBIGUOUS、UNKNOWN_TOOL、INSUFFICIENT_SCOPE、SESSION_BUSY、TASK_NOT_FOUND）。
+- `initialize.instructions`：网关未声明（读数 `absent`）——已纳入扫描面，若将来写入 CJK 即红。
+- 授权页错误页：真拉 `GET /authorize`（无 client_id）→ HTTP 400，HTML 含 `Authorization error` 且 0 CJK。
+- 补充判据：任何 CJK 的 JSON 路径必须落在声明的用户数据键下，否则红。
+
+**AC3 服务端文案字段读数（文件 → 字段 → 英文值）**
+- `mcp-gateway.read-tools.ts` `hostNote` → `No host: this session currently has no host process (per-invocation process mode and not running).`
+- `mcp-gateway.read-tools.ts` `formatMcpTime` → `relative`：`just now` / `${n} minutes ago` / `${n} hours ago` / `${n} days ago`（实测 `30 minutes ago`、`1 minutes ago`）。
+- `mcp-overview-tools.ts` `note` → `This project has no quay`；`Unknown: this project has no cached snapshot (overview does not load it; use quay_snapshot to refresh)`。
+- `mcp-run-get.ts` `explanation` → `This run existed but is past its retention window; its result can no longer be retrieved.` / `This runId was never issued.` / `The service restarted; this run belongs to a previous boot.`；`note` → `This session has no activity record.` / `This run has ended, but the session has no readable assistant message.` / `No session can be determined, so there is nothing to fall back to.`
+- `mcp-self-target.ts` `message` → `Target session <id> is executing gateway write tool <tool>; the write operation (<op>) against it is refused to avoid a self-target deadlock.`
+- `mcp-session-background.ts` `message` → `This session currently has no host, so it has no background tasks or schedules.`；同文件 TASK_NOT_FOUND → `This session has no background task or schedule with id "<id>".`
+- `mcp-session-cancel-queued.ts` `OUTCOME_MESSAGES` → 三句英文（cancelled / already-started / unknown）。
+- `mcp-session-lifecycle.ts` `NO_RUN_TO_ABORT_MESSAGE` → `This session currently has no run in flight, so there is no run to abort.`
+- `mcp-session-reconfigure.ts` `NO_LIVE_MESSAGE` / `NOT_LIVE_MESSAGE` / `NOT_PLACED_MESSAGE` → 三句英文（live reconfiguration / next start,next turn / next turn）。
+- 跨模块 `chat-control.service.ts:818` `message` → `The approval request has expired or does not exist (it may have timed out and been auto-denied).`
+
+**AC4 分桶读数（code → 条数）**
+`INVALID_ARGUMENT → 17`、`SESSION_NOT_FOUND → 2`、`PROJECT_NOT_FOUND → 2`、`TARGET_AMBIGUOUS → 1`、`UNKNOWN_TOOL → 1`、`INSUFFICIENT_SCOPE → 1`、`SESSION_BUSY → 1`、`TASK_NOT_FOUND → 1`。共 8 个 code，每桶每条 message 均过英文判据。
+
+**AC5 (c) 正例对照读数**
+- 合成中文 `'找不到会话 "x"。'` → `containsCjk=true`，`assertServerCopyEnglish` 抛 `/server-authored copy must be English \(no CJK\)/`。
+- 合成英文 → 通过（不误报）。
+- 全角标点样本 `全角，标点` / `句末。` / `（括号）` 均判为 CJK。
+
+**AC6 (d) 用户数据逐字读数**
+`示例项目`、`中文标题的会话`（sessions_list / session_get / overview 三处 `===`）、`这是一条中文正文消息。`（session_read content 包含）、`选哪个？` / `选择` / `甲` / `乙` / `echo 你好`（approvals_list questions/options `===`）。
+
+**AC7 假形态 (i)**
+- mutation diff：`-const NO_HOST_MESSAGE = 'This session currently has no host, so it has no background tasks or schedules.';` → `+const NO_HOST_MESSAGE = '该会话当前没有宿主，没有后台任务或计划。';`
+- 逐字失败行：`AssertionError: session_background message: server-authored copy must be English (no CJK), saw "该会话当前没有宿主，没有后台任务或计划。"`（(a) 成功载荷段）；另 (d) 源码扫描段 `server-authored string literals must be English (no CJK)`；(a) notable-readings 段 `session_background.message must be the translated English sentence`。共 3 段红。
+- 恢复：把该常量改回英文后重跑绿（10/10）。
+
+**AC8 假形态 (ii)**
+- mutation diff：`-    title: row.sessionTitle,` → `+    title: row.sessionTitle.replace(/[一-鿿]/g, ''),`
+- 逐字失败行：`AssertionError: the session title must come back byte-for-byte`，仅 (d) 段红（9/10 pass）。
+- 恢复：改回 `title: row.sessionTitle,` 后重跑绿。
+
+**AC9 计数 pin**
+- N = **244**（`find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l`）。
+- `:154` → `known=3 unknown=241`；`:203` → `known=1 unknown=243`。
+- `npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 **0**。
+
+**AC10 既有判据移植（旧→新；中文用户数据夹具保留）**
+- `mcp-approvals.test.ts:593,598` `includes('已过期或不存在')` → `includes('expired or does not exist')`（含 :9/:36/:572 注释与标题同步）。
+- `mcp-read-tools.test.ts:770,784,800` `` `${n} 分钟前` `` → `` `${n} minutes ago` ``（`55 minutes ago` / `56 minutes ago`）。
+- `mcp-run-get.test.ts:548,549,587` `/保留期/` → `/retention/`、`/从未/` → `/never issued/`、`/重启/` → `/restarted/i`（注释 :34 同步）。
+- `mcp-session-background.test.ts:666` `/没有宿主/` → `/no host/i`。
+- `mcp-session-lifecycle.test.ts:858` `includes('没有可中止的运行')` → `includes('no run to abort')`。
+- `mcp-session-reconfigure.test.ts:727,728` `/不支持在线重配置/` → `/live reconfiguration/`、`/下一轮/` → `/next/`。
+- 保留（用户数据夹具）：`mcp-approvals.test.ts` 问题 `选哪个？` / 表头 `选择` / 选项 `甲`/`乙` / 用户决定 `不行` / answers 键；`mcp-session-send.test.ts`、`mcp-run-get.test.ts` 的中文正文夹具。
+- 未改动（不 CJK，无需迁移）：`mcp-self-target.test.ts`、`mcp-cancel-queued.test.ts`、`mcp-overview.test.ts`（断言 `NO_QUAY_NOTE`/`UNKNOWN_QUAY_NOTE` 英文常量）、`mcp-resolve-target.test.ts`（断言英文片段）。
+- diff 中无删除 `assert`、无放宽为 truthy/skip。
+- `bash scripts/test.sh --for-task gap-ac289-english-only-server-copy` 退出码 **0**（12 个文件全部 passed=true，含 11 个 Touches 内测试文件 + `server/shared/tests/quay-test-script.test.ts`）。
+
+**AC11 仓库门**
+`npm run typecheck` 退出码 **0**；`npm run lint` 退出码 **0** 且 `: error ` 计数 = **0**；`npm run build` 退出码 **0**。
+
+**AC12 diff ↔ Touches**
+`git diff --stat develop...HEAD` = **18** 个文件，全部落在 `## Touches` 内；新增文件 `server/modules/mcp-gateway/tests/mcp-english-only.test.ts` 已标 `(new)`；无 Touches 之外的文件。
+实际改动文件清单：`mcp-approvals.ts`、`mcp-gateway.read-tools.ts`、`mcp-overview-tools.ts`、`mcp-run-get.ts`、`mcp-self-target.ts`、`mcp-session-background.ts`、`mcp-session-cancel-queued.ts`、`mcp-session-lifecycle.ts`、`mcp-session-reconfigure.ts`、`tests/mcp-english-only.test.ts (new)`、`tests/mcp-approvals.test.ts`、`tests/mcp-read-tools.test.ts`、`tests/mcp-run-get.test.ts`、`tests/mcp-session-background.test.ts`、`tests/mcp-session-lifecycle.test.ts`、`tests/mcp-session-reconfigure.test.ts`、`chat-control.service.ts`、`server/shared/tests/quay-test-script.test.ts`。
+
+**范围说明（不整树无差别清洗）**
+`mcp-write-notification.ts` 未被判据扫描面纳入——它构造的是写入调用给 CloudCLI 用户的应用内通知（标题/正文），不是发给 MCP 调用方的文案，且不在 AC-289 点名字段内；判据文件在源码扫描里显式排除它并写明理由。`mcp-error-envelope.ts`、`mcp-resolve-target.ts`、`mcp-session-host-control.ts`、`mcp-session-send.ts`、`index.ts` 已在 Touches 但源码 0 CJK 文案、无需改动。
