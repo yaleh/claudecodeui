@@ -2,7 +2,7 @@
 id: gap-voice-client-asr-same-origin-delivery
 title: 客户端识别的产品化交付：onnxruntime-web 随项目分发并同源提供，模型与 tokens 由部署方放进一个目录路径（不是
   URL），文档给出下载地址，去掉四个 VITE_ URL 变量
-status: todo
+status: ready
 labels:
   - gap
 parent: null
