@@ -33,6 +33,12 @@ const STARTUP_RELOAD_PROBE_MS = 3_000;
 const NAVIGATION_PROBE_MS = 8_000;
 /** The sum the startup path may spend proving a navigation landed, replays included. */
 const STARTUP_PROBE_DEADLINE_MS = 14_000;
+/** How long the first-run wizard is given to reach the app shell, a mid-run reload and its replay included. */
+const ONBOARDING_DEADLINE_MS = 20_000;
+/** How long one probe of the wizard's current step — or one click that step owns — is given before the walk re-reads the page. */
+const ONBOARDING_STEP_PROBE_MS = 2_000;
+/** How long a shell sighted mid-wizard is given to prove it is the real one before a wizard step returns to replace it. */
+const ONBOARDING_SHELL_SETTLE_MS = 10_000;
 
 /**
  * Takes this run's first dependency optimization out of the measurement window: the shell, the app entry and one
@@ -104,7 +110,9 @@ type StartupLanding = {
   readonly present: (budgetMs: number) => Promise<boolean>;
 };
 
-test.describe.configure({ mode: 'serial', timeout: 120_000 });
+// Under playwright.config.ts's SINGLE_SPEC_CEILING_MS (55s) on purpose: a case that hangs must time out legibly
+// here rather than be killed by the watchdog, which reports the kill as `Channel closed` and names no assertion.
+test.describe.configure({ mode: 'serial', timeout: 50_000 });
 
 test.describe('personal access tokens in settings', () => {
   let page: Page;
@@ -190,8 +198,149 @@ test.describe('personal access tokens in settings', () => {
     await expect(tokensHeading()).toBeVisible({ timeout: 15_000 });
   };
 
+  /**
+   * Walks the first-run wizard to the app shell, state-driven and bounded.
+   *
+   * The walk this replaces was two hard-wired clicks — `Next`, then `Complete Setup` — with no deadline of their
+   * own. A client reload mid-run (Vite answers a re-optimization by pushing a full reload) remounts the app and
+   * resets the wizard to its first step, so `Complete Setup` no longer exists; Playwright's `click` then
+   * auto-waited for it until playwright.config.ts's watchdog killed the browser at 55s, and the red landed as
+   * `Channel closed` instead of on any of the case's own (a)–(e) assertions.
+   *
+   * So this walk never commits to a step it saw once: each turn re-reads the page and drives whichever step is
+   * actually on screen — the account form while it is up, then the git step (filling only a field the wizard left
+   * blank, so a value the run already committed is never overwritten), then the final step. Every probe and every
+   * click is bounded by the remaining budget; a click that loses its document to a reload is a turn that simply
+   * re-reads; and the app shell ends the walk. When the budget is spent the walk ends the run *here*, by name,
+   * with the page's own evidence — before the watchdog, where a reader can see which step never advanced.
+   *
+   * The app shell is not by itself proof the walk is over. `AuthContext` initialises `hasCompletedOnboarding` to
+   * `true`, and `register` commits the session before it awaits `/api/user/onboarding-status`, so a freshly created
+   * account shows the real shell for exactly as long as that one read takes before the wizard replaces it. A walk
+   * that trusted the first sighting returned on that transient, and the case then failed on the wizard underneath.
+   * Only a shell with no wizard ever in front of it (a database already onboarded) or one that follows this walk's
+   * own `Complete Setup` is the real thing; any other sighting is that transient, and the walk waits it out.
+   */
+  const completeOnboardingBounded = async (deadlineMs: number): Promise<void> => {
+    const startedAt = Date.now();
+    const deadline = startedAt + deadlineMs;
+    const budgetMs = (cap: number) => Math.max(1, Math.min(cap, deadline - Date.now()));
+
+    const accountForm = {
+      username: page.locator('#username'),
+      passwords: page.locator('input[type=password]'),
+      createAccount: page.getByRole('button', { name: 'Create Account', exact: true }),
+    };
+    const gitStep = {
+      name: page.locator('#gitName'),
+      email: page.locator('#gitEmail'),
+      // The git step's own forward control; the final step renders `Complete Setup` and no `Next`.
+      next: page.getByRole('button', { name: 'Next', exact: true }),
+    };
+    const agentStep = {
+      complete: page.getByRole('button', { name: 'Complete Setup', exact: true }),
+    };
+
+    /** Names the step in the walk's log and in a red, once per step rather than once per turn. */
+    let currentStep = 'no step of the wizard was on screen';
+    /** Whether any wizard step has been on screen yet: no means the database was already onboarded. */
+    let sawWizardStep = false;
+    /** Whether this walk itself committed the wizard's last step; only then is a following shell the real exit. */
+    let completedWizard = false;
+    const noteStep = (step: string) => {
+      sawWizardStep = true;
+      if (step !== currentStep) {
+        currentStep = step;
+        console.log(`[e2e] onboarding: on ${step} after ${Date.now() - startedAt}ms`);
+      }
+    };
+    const clickWithin = async (click: () => Promise<void>): Promise<void> => {
+      try {
+        await click();
+      } catch {
+        // The document was replaced under the click (a reload); the next turn re-reads whatever is current.
+      }
+    };
+
+    for (;;) {
+      if (Date.now() >= deadline) break;
+
+      // The app shell is the exit — once it is known to be the real one. See the note above the walk: a fresh
+      // account shows this shell transiently until `/api/user/onboarding-status` answers, and returning on it
+      // would land the case on the wizard that replaces it.
+      if (await appears(settingsButton(), budgetMs(ONBOARDING_STEP_PROBE_MS))) {
+        if (!sawWizardStep || completedWizard) {
+          console.log(`[e2e] onboarding: the app shell is up after ${Date.now() - startedAt}ms`);
+          return;
+        }
+        // Mid-wizard: this is either that transient, or the shell anyway because the status read resolved true
+        // (or failed open). Wait for the wizard it is about to be replaced by; a bounded settle with the shell
+        // still up settles it the other way.
+        const wizardArrived = await accountForm.createAccount
+          .or(gitStep.name)
+          .or(agentStep.complete)
+          .first()
+          .waitFor({ state: 'visible', timeout: budgetMs(ONBOARDING_SHELL_SETTLE_MS) })
+          .then(() => true, () => false);
+        if (wizardArrived) {
+          console.log('[e2e] onboarding: the shell was the transient the auth context renders before its status read; the wizard is back');
+          continue;
+        }
+        if (await settingsButton().isVisible().catch(() => false)) {
+          console.log(`[e2e] onboarding: the app shell held for ${ONBOARDING_SHELL_SETTLE_MS}ms after the wizard, so it is the real exit after ${Date.now() - startedAt}ms`);
+          return;
+        }
+        continue;
+      }
+
+      if (await accountForm.createAccount.isVisible().catch(() => false)) {
+        noteStep('the account setup form');
+        await clickWithin(async () => {
+          await accountForm.username.fill('e2euser', { timeout: budgetMs(ONBOARDING_STEP_PROBE_MS) });
+          await accountForm.passwords.nth(0).fill('e2epassword', { timeout: budgetMs(ONBOARDING_STEP_PROBE_MS) });
+          await accountForm.passwords.nth(1).fill('e2epassword', { timeout: budgetMs(ONBOARDING_STEP_PROBE_MS) });
+          await accountForm.createAccount.click({ timeout: budgetMs(ONBOARDING_STEP_PROBE_MS) });
+        });
+        continue;
+      }
+
+      if (await gitStep.name.isVisible().catch(() => false)) {
+        noteStep('the Git Configuration step');
+        await clickWithin(async () => {
+          // A reload re-reads the server's saved config, so only a genuinely empty field is filled here.
+          if (!(await gitStep.name.inputValue())) {
+            await gitStep.name.fill('E2E User', { timeout: budgetMs(ONBOARDING_STEP_PROBE_MS) });
+          }
+          if (!(await gitStep.email.inputValue())) {
+            await gitStep.email.fill('e2e@example.com', { timeout: budgetMs(ONBOARDING_STEP_PROBE_MS) });
+          }
+          await gitStep.next.click({ timeout: budgetMs(ONBOARDING_STEP_PROBE_MS) });
+        });
+        continue;
+      }
+
+      if (await agentStep.complete.isVisible().catch(() => false)) {
+        noteStep('the Agent Connections step');
+        // Recorded before the click: its POST is what commits onboarding, and a reload can take the document
+        // before the click returns. Either the shell that follows is real, or the step is re-driven next turn.
+        completedWizard = true;
+        await clickWithin(() => agentStep.complete.click({ timeout: budgetMs(ONBOARDING_STEP_PROBE_MS) }));
+        continue;
+      }
+
+      // No step is on screen yet: the document is still mounting, or a reload is mid-flight. One bounded re-read,
+      // rather than a spin — the deadline above is what ends a wizard that never comes back.
+      await appears(settingsButton(), budgetMs(ONBOARDING_STEP_PROBE_MS));
+    }
+
+    throw new Error(
+      `the first-run onboarding wizard never reached the app shell within its ${deadlineMs}ms budget, so the `
+      + `criterion cannot open Settings; the last step on screen was ${currentStep} — a client reload mid-run `
+      + `restarts the wizard and this walk is written to re-read and continue it: ${await readStartupEvidence()}`,
+    );
+  };
+
   test.beforeAll(async ({ browser }) => {
-    test.setTimeout(120_000);
     const clientUrl = test.info().project.use.baseURL;
     if (!clientUrl) {
       throw new Error('playwright.config.ts must give this project a baseURL for the startup warm-up to address');
@@ -208,20 +357,13 @@ test.describe('personal access tokens in settings', () => {
       startupEvidence.failedRequests.push(`${request.url()} — ${request.failure()?.errorText ?? 'no error text'}`);
     });
 
-    // First run on a fresh database: create the single account, then finish onboarding. Tolerant of an existing
-    // account so the spec also runs against a database another spec in the same invocation signed into.
+    // First run on a fresh database: create the single account, then finish onboarding, and tolerate a database
+    // another spec in the same invocation already signed into (the walk exits at the app shell without touching
+    // the wizard). Every step is bounded and state-driven, so a reload that resets the wizard costs a re-read
+    // rather than a wait that outlives the run.
     await navigateBounded(FIRST_LANDING, 'first-load');
-    if (await page.locator('#username').count()) {
-      await page.locator('#username').fill('e2euser');
-      await page.locator('input[type=password]').nth(0).fill('e2epassword');
-      await page.locator('input[type=password]').nth(1).fill('e2epassword');
-      await page.getByRole('button', { name: 'Create Account' }).click();
-      await page.getByPlaceholder('John Doe').fill('E2E User');
-      await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
-      await page.getByRole('button', { name: 'Next' }).click();
-      await page.getByRole('button', { name: 'Complete Setup' }).click();
-    }
-    await expect(settingsButton()).toBeVisible({ timeout: 30_000 });
+    await completeOnboardingBounded(ONBOARDING_DEADLINE_MS);
+    await expect(settingsButton()).toBeVisible({ timeout: 15_000 });
   });
 
   test.afterAll(async () => {
