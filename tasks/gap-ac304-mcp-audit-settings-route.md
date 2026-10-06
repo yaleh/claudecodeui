@@ -3,7 +3,7 @@ id: gap-ac304-mcp-audit-settings-route
 title: AC-304 设置接口 GET /api/settings/mcp-audit 返回当前用户最近的外部写调用（默认只写、includeReads
   含只读、摘要沿用审计规则、时间倒序、limit 有界、不含令牌与他人数据）；判据
   server/modules/mcp-gateway/tests/mcp-audit-route.test.ts
-status: ready
+status: done
 labels:
   - gap
 parent: null
