@@ -3,7 +3,7 @@ id: gap-ac156-criterion-ledger-red-is-undici-bad-port-lottery
 title: AC-156 判据台账红是 undici bad-port 抽签：判据命令 npx tsx --test 直跑绕开了只接在测试通道的
   scripts/undici-blocked-ports-preload.mjs，净检出三跑 7/7/0 — verification-only
   归因入档，不重新实现
-status: todo
+status: ready
 labels:
   - gap
 parent: null
