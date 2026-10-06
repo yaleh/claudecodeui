@@ -767,7 +767,7 @@ test('(e) text over the chunk ceiling is paginated by cursor and reassembles byt
 
 test('(f) every time field carries both the relative and the ISO reading', { concurrency: false }, async () => {
   await withMcpReadTools(async (harness, fixture) => {
-    const expectedRelative = (iso: string): string => `${Math.floor((NOW_MS - Date.parse(iso)) / 60_000)} 分钟前`;
+    const expectedRelative = (iso: string): string => `${Math.floor((NOW_MS - Date.parse(iso)) / 60_000)} minutes ago`;
 
     const projects = await harness.call('projects_list');
     const projectReadings = projects.payload?.projects as AnyRecord[];
@@ -781,7 +781,7 @@ test('(f) every time field carries both the relative and the ISO reading', { con
     const alpha = projectReadings.find((project) => project.id === fixture.projectAlphaId);
     const alphaTime = alpha?.lastActivity as AnyRecord;
     assert.equal(alphaTime.iso, BUSY_UPDATED_AT);
-    assert.equal(alphaTime.relative, '55 分钟前');
+    assert.equal(alphaTime.relative, '55 minutes ago');
 
     const sessions = await harness.call('sessions_list');
     const sessionRows = (sessions.payload?.sessions as AnyRecord[] | undefined) ?? [];
@@ -797,6 +797,6 @@ test('(f) every time field carries both the relative and the ISO reading', { con
     const quietTime = quietSession.lastActivity as AnyRecord;
     console.log(`[f] session_get ${SESSION_QUIET} lastActivity=${JSON.stringify(quietTime)}`);
     assert.equal(quietTime.iso, QUIET_UPDATED_AT);
-    assert.equal(quietTime.relative, '56 分钟前');
+    assert.equal(quietTime.relative, '56 minutes ago');
   });
 });

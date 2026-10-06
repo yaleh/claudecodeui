@@ -31,7 +31,7 @@
  *   (e) `waitSeconds: 60` waits at most `MCP_RUN_GET_MAX_WAIT_SECONDS` seconds;
  *   (f) `expired` and `unknown` are explained in DIFFERENT words and both carry
  *       a fallback read of the session's recent messages;
- *   (g) a run whose boot differs from the current process reads as "服务已重启",
+ *   (g) a run whose boot differs from the current process reads as "restarted",
  *       with a fallback read of its own session's recent messages.
  *
  * The false forms (AC10) mutate the implementation after this criterion is
@@ -545,8 +545,8 @@ test('(f) expired and unknown are explained differently and both carry a fallbac
     assert.equal(expiredPayload.reason, 'expired', 'a run past its retention window reads expired');
     assert.equal(unknownPayload.reason, 'unknown', 'an id never handed out reads unknown');
     assert.notEqual(expiredPayload.explanation, unknownPayload.explanation, 'the two explanations must be different text');
-    assert.match(String(expiredPayload.explanation), /保留期/, 'the expired explanation must say the run aged out');
-    assert.match(String(unknownPayload.explanation), /从未/, 'the unknown explanation must say the id was never issued');
+    assert.match(String(expiredPayload.explanation), /retention/, 'the expired explanation must say the run aged out');
+    assert.match(String(unknownPayload.explanation), /never issued/, 'the unknown explanation must say the id was never issued');
 
     assert.deepEqual(
       (expiredPayload.fallback as AnyRecord).messages,
@@ -584,7 +584,7 @@ test('(g) a run from a previous boot reads as restarted, with its session fallba
 
     assert.equal(second.isError, false, 'a restarted run is a reading, not an error');
     assert.equal(secondPayload.reason, 'restarted', 'a run whose boot differs from the current process reads restarted');
-    assert.match(String(secondPayload.explanation), /重启/, 'the explanation must say the service restarted');
+    assert.match(String(secondPayload.explanation), /restarted/i, 'the explanation must say the service restarted');
     assert.notEqual(secondPayload.explanation, (first.payload as AnyRecord).explanation, 'the restarted explanation must differ from the first reading\'s');
     assert.notEqual(secondPayload.bootId, firstBoot, 'the two readings must expose the two different boots');
     assert.deepEqual(

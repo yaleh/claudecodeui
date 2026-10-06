@@ -34,7 +34,7 @@
  *   (c) the control token's stop of an unknown id is `TASK_NOT_FOUND`, carries no
  *       `stopped:true`, and never reaches the control service;
  *   (d) after a real stop the next listing drops `bg-1` and keeps the crons;
- *   (e) a cold session lists empty, `host:null`, and the message names 没有宿主,
+ *   (e) a cold session lists empty, `host:null`, and the message names "no host",
  *       while the same call for a warm session answers a non-null host.
  *
  * The false forms (AC8) mutate the implementation after this criterion is green;
@@ -651,7 +651,7 @@ test('(d) after a real stop the lease is gone and the crons remain', { concurren
 
 // --------------------------- (e) the cold session ---------------------------
 
-test('(e) a cold session lists empty and says 没有宿主, while the warm one does not', { concurrency: false }, async () => {
+test('(e) a cold session lists empty and says "no host", while the warm one does not', { concurrency: false }, async () => {
   await withHarness({ label: 'cold' }, async (harness) => {
     const cold = await harness.call('session_background', { session: harness.coldSessionId }, 'read');
     const warm = await harness.call('session_background', { session: harness.sessionId }, 'read');
@@ -663,7 +663,7 @@ test('(e) a cold session lists empty and says 没有宿主, while the warm one d
     assert.equal(cold.payload?.ok, true, 'the cold listing must report ok');
     assert.equal(cold.payload?.host, null, 'a cold session must answer a null host');
     assert.deepEqual(cold.payload?.tasks, [], 'a cold session must list nothing');
-    assert.match(String(cold.payload?.message), /没有宿主/, 'the message must say there is no host');
+    assert.match(String(cold.payload?.message), /no host/i, 'the message must say there is no host');
 
     // Positive control: the same call for a warm session answers a non-null host,
     // so "always say no host" reds here.

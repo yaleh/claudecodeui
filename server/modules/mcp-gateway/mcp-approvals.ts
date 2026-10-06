@@ -18,7 +18,7 @@
  *    control service. `answers` is the runtime's `updatedInput` — it is not a
  *    distinct field — and `message` rides alongside it. A request that is no
  *    longer pending comes back `APPROVAL_EXPIRED_OR_NOT_FOUND` with a sentence
- *    that contains 已过期或不存在, as a NORMAL (non-thrown) result; the control
+ *    that says it expired or does not exist, as a NORMAL (non-thrown) result; the control
  *    service has already guaranteed `resolveToolApproval` was not called.
  *
  * Everything is injected ({@link McpApprovalsDeps}): production wires the one
@@ -387,8 +387,8 @@ export async function buildApprovalsList(
  * `answers` reaches the runtime as the decision's `updatedInput` — the control
  * service does that mapping — and `message` rides alongside it. A request the
  * control service reports as no longer pending is returned as a NORMAL payload
- * (`ok: false`, `code: APPROVAL_EXPIRED_OR_NOT_FOUND`, a message containing
- * 已过期或不存在), NOT thrown: it is a reading about a request, not a failed
+ * (`ok: false`, `code: APPROVAL_EXPIRED_OR_NOT_FOUND`, a message saying the
+ * request expired or does not exist), NOT thrown: it is a reading about a request, not a failed
  * tool. A refusal the control service attributes to access is thrown as a
  * structured `FORBIDDEN` body (AC-232 owns that vocabulary).
  *

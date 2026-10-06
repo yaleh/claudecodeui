@@ -150,12 +150,14 @@ export function readSessionReconfigureInput(args: Record<string, unknown>): McpS
   };
 }
 
-/** The sentence a provider with no live reconfiguration is told. Load-bearing words: 不支持在线重配置 / 下一轮. */
-const NO_LIVE_MESSAGE = '该 provider 不支持在线重配置，改动将在下一次启动/下一轮生效。';
+/** The sentence a provider with no live reconfiguration is told. Load-bearing words: "live reconfiguration" / "next". */
+const NO_LIVE_MESSAGE =
+  'This provider does not support live reconfiguration; changes take effect on the next start / next turn.';
 /** The sentence a live-capable provider is told when the named settings are not among its live ones. */
-const NOT_LIVE_MESSAGE = '该改动不在该 provider 可在线生效的设置内，将在下一轮生效。';
+const NOT_LIVE_MESSAGE = 'This change is not among the settings this provider can apply live; it takes effect next turn.';
 /** The sentence a live-capable provider is told when the driver could not place the change. */
-const NOT_PLACED_MESSAGE = '该 provider 的在线重配置未生效（没有可用的实时宿主），改动将在下一轮生效。';
+const NOT_PLACED_MESSAGE =
+  'This provider was not reconfigured live (no live host was available); the change takes effect next turn.';
 
 /**
  * Reads the settings a provider can change live, from whichever table states

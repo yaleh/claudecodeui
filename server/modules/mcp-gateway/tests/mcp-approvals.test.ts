@@ -6,7 +6,7 @@
  * the runtime's `resolveToolApproval`, `message` rides alongside it, and an
  * `AskUserQuestion`'s `answers` is forwarded AS `updatedInput`. A request that is
  * no longer in the registry (timed out or never existed) is reported as
- * `已过期或不存在` WITHOUT calling the resolver, and a token lacking
+ * "expired or does not exist" WITHOUT calling the resolver, and a token lacking
  * `cloudcli:approve` is refused before the handler with a `denied` audit row.
  *
  * Everything below is real except the approval SOURCE. A real express 4
@@ -33,7 +33,7 @@
  *   (b) `approval_answer` allow=true and allow=false+message reach
  *       `resolveToolApproval` exactly once each with the same decision;
  *   (c) an `AskUserQuestion`'s `answers` arrives as the decision's `updatedInput`;
- *   (d) a removed (timed-out) and a never-seen requestId answer 已过期或不存在
+ *   (d) a removed (timed-out) and a never-seen requestId answer "expired or does not exist"
  *       without throwing and without a resolver call;
  *   (e) a read-only token's `approval_answer` is refused with one `denied` audit
  *       row and no resolver call; the `cloudcli:approve` token's call succeeds;
@@ -569,7 +569,7 @@ test('(c) an AskUserQuestion answers argument arrives as updatedInput', { concur
 
 // --------------------------- (d) expired / not found ---------------------------
 
-test('(d) expired and never-seen request ids answer 已过期或不存在 without resolving', { concurrency: false }, async () => {
+test('(d) expired and never-seen request ids answer "expired or does not exist" without resolving', { concurrency: false }, async () => {
   await withHarness(
     {
       label: 'expired',
@@ -590,14 +590,14 @@ test('(d) expired and never-seen request ids answer 已过期或不存在 withou
       assert.equal(expired.isError, false, `an expired request is a reading, not an error (text=${expired.text})`);
       assert.equal(never.isError, false, `a never-seen request is a reading, not an error (text=${never.text})`);
       assert.equal(
-        String(expired.payload?.message ?? expired.text).includes('已过期或不存在'),
+        String(expired.payload?.message ?? expired.text).includes('expired or does not exist'),
         true,
-        'the expired reading says 已过期或不存在',
+        'the expired reading says the request expired or does not exist',
       );
       assert.equal(
-        String(never.payload?.message ?? never.text).includes('已过期或不存在'),
+        String(never.payload?.message ?? never.text).includes('expired or does not exist'),
         true,
-        'the never-seen reading says 已过期或不存在',
+        'the never-seen reading says the request expired or does not exist',
       );
       assert.equal(resolveCountFor(harness.resolveCalls, R_NORMAL), 0, 'an expired request never reaches the resolver');
       assert.equal(resolveCountFor(harness.resolveCalls, 'req-never'), 0, 'a never-seen request never reaches the resolver');
