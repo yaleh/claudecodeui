@@ -970,6 +970,49 @@ async function voiceAnswerRefusal(response: Response): Promise<Response | null> 
   return voiceFailureEnvelope('NO_SPEECH_DETECTED', 422, 'the voice backend returned no speech');
 }
 
+/**
+ * The provider a recording is routed for: the stored Recognition service first, the published
+ * health reading only when nothing is stored, or `null` when neither names one (the pre-provider
+ * default, which keeps meaning "the shared backend").
+ *
+ * A stored id this build does not register is reported as such rather than resolved to something
+ * else: falling through would send the recording to whatever the shared backend points at.
+ */
+function routedProvider(
+  storedProviderId: string,
+): { id: string; capabilities: AsrCapabilities } | { unregistered: string } | null {
+  const id = storedProviderId.trim() || voiceProviderProfile?.id || '';
+  if (!id) {
+    return null;
+  }
+
+  const adapter = tryResolve(id);
+  if (adapter !== null) {
+    return { id, capabilities: adapter.capabilities };
+  }
+
+  return { unregistered: id };
+}
+
+/**
+ * Whether the shared backend settings may be used for a recogniser with these capabilities: only a
+ * remote recogniser the browser can address itself. A recogniser that runs on the server's own
+ * machine has no address to be given one, and a proxy-only one is called by CloudCLI with its own
+ * stored credentials.
+ */
+function sharedBackendApplies(capabilities: AsrCapabilities): boolean {
+  return capabilities.transport === 'direct' && capabilities.locality === 'remote';
+}
+
+function unregisteredIdRefusal(providerId: string): Response {
+  return new Response(
+    JSON.stringify({
+      error: `Unknown voice provider id '${providerId}': no ASR adapter is registered for it.`,
+    }),
+    { status: 400, headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
 export async function transcribeVoice(blob: Blob, filename: string, listenId?: string): Promise<Response> {
   const refusal = unregisteredProviderRefusal() ?? unsupportedContainerRefusal(blob.type);
   if (refusal) {
@@ -991,8 +1034,20 @@ export async function transcribeVoice(blob: Blob, filename: string, listenId?: s
   // `unregisteredProviderRefusal` and `unsupportedContainerRefusal` follow: no readable declaration
   // means no change of route. Note what this is NOT: it is not a test of whether a base URL is set,
   // and it is not a fallback taken after the direct call failed — the request never goes out.
-  const profile = voiceProviderProfile;
-  if (profile !== null && profile.capabilities.transport === 'proxy-only') {
+  //
+  // THE RECOGNITION SERVICE THE USER SAVED DECIDES THE ROUTE, AND THE SHARED BACKEND IS THE LOWEST
+  // PRIORITY. The shared fields (`baseUrl`, `apiKey`, `sttModel`) belong to the recognisers reached
+  // through them; they are one flat set that outlives a change of provider, so a user who moved from
+  // such a service to one that has its own settings (or none) still carries the old address and key.
+  // `routedProvider` therefore reads the stored choice, not the health reading — which is only as
+  // fresh as the last time the settings page was open — and `sharedBackendApplies` is false for any
+  // recogniser that is not a remote one reached directly.
+  const routed = routedProvider(config.providerId);
+  if (routed !== null && 'unregistered' in routed) {
+    return unregisteredIdRefusal(routed.unregistered);
+  }
+  const profile = routed;
+  if (profile !== null && !sharedBackendApplies(profile.capabilities)) {
     // The proxy hop is a different protocol from the one below: this is the client talking to
     // CloudCLI (field `audio`, model and key in headers), not to the recogniser's endpoint. The
     // routing header is assembled HERE rather than inside `voiceConfigHeaders()`, which returns an
