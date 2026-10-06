@@ -1,11 +1,17 @@
 ---
 id: GOAL-028
 title: 外部客户端的写调用可见：成功后推送通知、设置接口可回看，不增加确认弹窗
-status: active
+status: achieved
 kind: goal
 origin: 本会话（2026-10-06）对 ChatGPT 与 Gemini 接入真实经验的 MCP 接口契约审计，及人 yale
   同日指令：把审计清单落成 quay goal。
 activatedAt: 2026-10-06T12:13:28.935Z
+statusLog:
+  - at: 2026-10-06T14:30:07.870Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 
 ## 背景
