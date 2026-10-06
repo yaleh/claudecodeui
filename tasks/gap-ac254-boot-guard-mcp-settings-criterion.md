@@ -2,7 +2,7 @@
 id: gap-ac254-boot-guard-mcp-settings-criterion
 title: "AC-254 判据 e2e/mcp-settings.spec.ts 启动路径无界：宿主 net::ERR_NETWORK_CHANGED
   打断在途模块加载被拖成 #username 30s 超时；移植 warmClientStartup + navigateBounded 有界启动守卫"
-status: todo
+status: ready
 labels:
   - gap
   - defect
