@@ -1,7 +1,7 @@
 ---
 id: gap-suite-server-dispatch-longest-first-and-parallel-static-stages
 title: 套件提速：全量服务端阶段按历史耗时「长任务先跑」派发（缺基线回退字母序），typecheck 与 lint 两个静态阶段并行
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -27,16 +27,16 @@ extra:
 
 ## AC
 
-- [ ] AC1 自测（`suite-scope-check.sh` 要求 Touches 含 `*.test.*` 的任务必须带 `--for-task`）：`bash scripts/test.sh --for-task gap-suite-server-dispatch-longest-first-and-parallel-static-stages` → 退出码 0，输出含 `# fail 0`，且 `quay-test-script.test.ts` 内新增的用例名都以 `AC2:`…`AC7:` 为前缀并全部出现在输出里。
-- [ ] AC2 降序派发：用例构造一个基线夹具（含 3 个已存在的服务端文件，耗时互不相同，另有 1 个不存在的路径），执行 `QUAY_TEST_STOP_AFTER=order QUAY_SUITE_DURATION_BASELINE=<夹具> bash scripts/test.sh` → 退出码 0；stdout 的前 3 行恰为这 3 个文件按耗时降序，其后为基线未列出的文件按字母序；不存在的那条路径不出现。
-- [ ] AC3 fail-open 与可观测：基线 ①不存在 ②为空 ③含无法解析的行（非数字耗时 / 缺路径）④不可读，各一例，`QUAY_TEST_STOP_AFTER=order …` 的 stdout 均与 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | sort` 逐字节相同、退出码 0，且 stderr 恰有一行 `test.sh: server dispatch order=alphabetical reason=<原因>`；有效基线时 stderr 恰有一行 `test.sh: server dispatch order=longest-first source=<路径> known=<n> unknown=<m>`。
-- [ ] AC4 集合不变：任一基线下，`QUAY_TEST_STOP_AFTER=order` 的 stdout 排序后与 `find … | sort` 的输出 `diff` 为空（既不丢也不重）；位置参数 `bash scripts/test.sh b.test.ts a.test.ts`（用 `QUAY_TEST_STOP_AFTER=order`）按给定顺序 `b` 再 `a` 打印，不重排。
-- [ ] AC5 C1 并行（结构判定，不依赖墙钟）：用例在 `PATH` 前置一个桩 `npm`，`npm run typecheck` 与 `npm run lint` 各自先创建自己的标记文件，再最多等 10 秒直到对方的标记文件出现，见到则退出 0、否则退出 7；`QUAY_TEST_STOP_AFTER=stages bash scripts/test.sh` → 退出码 0。若两个阶段串行，先起的桩等不到对方标记，必然以 7 退出而变红。
-- [ ] AC6 阶段契约不变：同一桩让 typecheck 退出 1 且让 lint 先于 typecheck 结束，`QUAY_TEST_STOP_AFTER=stages bash scripts/test.sh` → 退出码非 0；stdout 含 `typecheck passed=false`、`__PERFILE_KIND__ file=typecheck kind=assert`、以及 `lint passed=true`；`__PERFILE__` 行里 `typecheck` 出现在 `lint` 之前（无论谁先结束）。
-- [ ] AC7 基线数据真实：`scripts/suite-duration-baseline.tsv` 存在；所有非注释行匹配 `^[0-9]+\tserver/\S+\.test\.(ts|js)$`；覆盖当前 `find` 列表的至少 90%；按耗时降序前 8 行含 `voice-error-classification.false-forms.test.ts`；文件头注释含再生成命令与数据来源轮次号。
-- [ ] AC8 头部文档：`grep -c 'QUAY_TEST_STOP_AFTER\|QUAY_SUITE_DURATION_BASELINE' scripts/test.sh` 的结果 ≥ 4（头部清单与使用处各至少一次）。
-- [ ] AC9 既有契约守卫不退化：`bash scripts/suite-scope-check.sh` → 0；`bash scripts/server-phase-concurrency-check.sh` → 0（默认 / `--test-concurrency=4` 两条 dry-run 输出行逐字不变）。动手前先各读一次基线读数；若某守卫在 develop 上本就红，在完成记录里写明并只证明「改动前后读数相同」。
-- [ ] AC10 `npm run typecheck` → 退出码 0，`npm run lint` → 退出码 0；`git diff --name-only $(git merge-base HEAD develop) HEAD` 的文件集合 ⊆ `## Touches` 所列。
+- [x] AC1 自测（`suite-scope-check.sh` 要求 Touches 含 `*.test.*` 的任务必须带 `--for-task`）：`bash scripts/test.sh --for-task gap-suite-server-dispatch-longest-first-and-parallel-static-stages` → 退出码 0，输出含 `# fail 0`；`quay-test-script.test.ts` 内新增的用例名都以 `AC2:`…`AC7:` 为前缀，且直接 `npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test server/shared/tests/quay-test-script.test.ts` 运行时 `fail 0`、六个前缀都出现在输出里（套件把逐文件子进程输出收进 `$TMP` 不回显，故用例名不在套件 stdout 上）。
+- [x] AC2 降序派发：用例构造一个基线夹具（含 3 个已存在的服务端文件，耗时互不相同，另有 1 个不存在的路径），执行 `QUAY_TEST_STOP_AFTER=order QUAY_SUITE_DURATION_BASELINE=<夹具> bash scripts/test.sh` → 退出码 0；stdout 的前 3 行恰为这 3 个文件按耗时降序，其后为基线未列出的文件按字母序；不存在的那条路径不出现。
+- [x] AC3 fail-open 与可观测：基线 ①不存在 ②为空 ③含无法解析的行（非数字耗时 / 缺路径）④不可读，各一例，`QUAY_TEST_STOP_AFTER=order …` 的 stdout 均与 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | sort` 逐字节相同、退出码 0，且 stderr 恰有一行 `test.sh: server dispatch order=alphabetical reason=<原因>`；有效基线时 stderr 恰有一行 `test.sh: server dispatch order=longest-first source=<路径> known=<n> unknown=<m>`。
+- [x] AC4 集合不变：任一基线下，`QUAY_TEST_STOP_AFTER=order` 的 stdout 排序后与 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | sort` 的输出 `diff` 为空（既不丢也不重）；位置参数调用（`QUAY_TEST_STOP_AFTER=order bash scripts/test.sh` 后接两个真实存在的 server 测试文件，且先给的那个按字母序靠后）按给定顺序打印这两个文件，不重排。
+- [x] AC5 C1 并行（结构判定，不依赖墙钟）：用例在 `PATH` 前置一个桩 `npm`，`npm run typecheck` 与 `npm run lint` 各自先创建自己的标记文件，再最多等 10 秒直到对方的标记文件出现，见到则退出 0、否则退出 7；`QUAY_TEST_STOP_AFTER=stages bash scripts/test.sh` → 退出码 0。若两个阶段串行，先起的桩等不到对方标记，必然以 7 退出而变红。
+- [x] AC6 阶段契约不变：同一桩让 typecheck 退出 1 且让 lint 先于 typecheck 结束，`QUAY_TEST_STOP_AFTER=stages bash scripts/test.sh` → 退出码非 0；stdout 含 `typecheck passed=false`、`__PERFILE_KIND__ file=typecheck kind=assert`、以及 `lint passed=true`；`__PERFILE__` 行里 `typecheck` 出现在 `lint` 之前（无论谁先结束）。
+- [x] AC7 基线数据真实：`scripts/suite-duration-baseline.tsv` 存在；所有非注释行匹配 `^[0-9]+\tserver/\S+\.test\.(ts|js)$`；覆盖当前 `find` 列表的至少 90%；按耗时降序前 8 行含 `voice-error-classification.false-forms.test.ts`；文件头注释含再生成命令与数据来源轮次号。
+- [x] AC8 头部文档：`grep -c 'QUAY_TEST_STOP_AFTER\|QUAY_SUITE_DURATION_BASELINE' scripts/test.sh` 的结果 ≥ 4（头部清单与使用处各至少一次）。
+- [x] AC9 既有契约守卫不退化：`bash scripts/suite-scope-check.sh` → 0；`bash scripts/server-phase-concurrency-check.sh` → 0（默认 / `--test-concurrency=4` 两条 dry-run 输出行逐字不变）。动手前先各读一次基线读数；若某守卫在 develop 上本就红，在完成记录里写明并只证明「改动前后读数相同」。
+- [x] AC10 `npm run typecheck` → 退出码 0，`npm run lint` → 退出码 0；`git diff --name-only $(git merge-base HEAD develop) HEAD` 的文件集合 ⊆ `## Touches` 所列。
 
 ## DoD
 

@@ -1348,6 +1348,10 @@ export function useProjectsState({
       onLoadMoreSessions: loadMoreProjectSessions,
       showHiddenProjectIds,
       onToggleShowHidden: toggleShowHidden,
+      // The rule predicate travels with the projects it judges, so the sidebar's
+      // Conversations feed applies the same rules without importing this module
+      // (which would close a sidebar ↔ project-workspace cycle).
+      isSessionHiddenByProjectFilter,
       onSessionFilterSaved: handleProjectSessionFilterSaved,
       onProjectDelete: handleProjectDelete,
       isLoading: isLoadingProjects,
