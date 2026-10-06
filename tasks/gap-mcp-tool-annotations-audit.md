@@ -36,6 +36,6 @@ tools/list output's annotations are accurate and complete for every registered t
 
 ## Touches
 
-- server/modules/mcp-gateway/ — located as `mcp-tool-annotations.ts` (the one 17-tool annotation table + `readMcpToolAnnotations`), plus its criterion `tests/mcp-tool-annotations.test.ts` and the three wiring edits (`mcp-gateway.transport.ts` attaches the table at the single `audited()` seam, `mcp-gateway.audit.ts` adds the optional `annotations` field, `index.ts` re-exports the table and reader).
-- server/shared/tests/quay-test-script.test.ts — the pinned server test-file counts (known/unknown) bumped by one for the added criterion file.
+- server/modules/mcp-gateway/（the one 17-tool annotation table + `readMcpToolAnnotations` live in `mcp-tool-annotations.ts`, plus its criterion `tests/mcp-tool-annotations.test.ts` and the three wiring edits: `mcp-gateway.transport.ts` attaches the table at the single `audited()` seam, `mcp-gateway.audit.ts` adds the optional `annotations` field, `index.ts` re-exports the table and reader）
+- server/shared/tests/quay-test-script.test.ts（the pinned server test-file counts (known/unknown) bumped by one for the added criterion file）
 - tasks/gap-mcp-tool-annotations-audit.md
