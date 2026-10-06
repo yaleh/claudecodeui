@@ -131,6 +131,8 @@ goal_ac: AC-228
 
 **AC7 — 契约面。** `npm run lint` exit 0（仅既有 warning，无 error）；`npm run typecheck` exit 0；`e2e/` 不在 `tsconfig.json` 的 include 内，spec 另以 standalone `tsc --noEmit --strict ... e2e/access-tokens-settings.spec.ts` 校验，exit 0；`git diff --name-only $(git merge-base develop HEAD) HEAD` = `e2e/access-tokens-settings.spec.ts`（⊆ `## Touches`）。
 
+**续做轮（2026-10-06）fan-in `step=suite` 红的分类：与本任务 delta 无关的负载假红。** 红落在 `server/modules/providers/tests/claude-sessions.test.ts`（`AssertionError [ERR_ASSERTION]: open-d.jsonl was opened by a scan that should have skipped it`，fan-in suite 日志 `...~wk-prod-anchor~1791274426106-fc7a06.log`，窗口 2026-10-06T08:13:46Z–08:17:07Z）。本任务 `git diff --name-only $(git merge-base develop HEAD) HEAD` 仅 `e2e/access-tokens-settings.spec.ts`，无 import/机制关系；且该测试文件末次改动为 `022cda53`（2026-09-23），套件时点之后 develop 无相关修复。重跑核验：该文件单跑 `26/26 pass, exit 0`（含 `a scan does not open the transcripts its cursor excludes` 329ms 通过）；8 路并发单跑 8/8 `exit 0`；`server/modules/providers/**` 442 测试仅 4 个 resident/CLI cold-boot 环境态失败、该文件通过 ⇒ 判为全量套件 16 路并发下的 atime/birthtime 时序假红，非本任务回归。续做轮未改任何被 `## Touches` 约束的实现文件，仅合并 develop（已 up-to-date）后重交 fan-in。
+
 ## DoD
 
 - 判据在 55s 看门狗与 60s 门限内、装载状态下**稳定**跑绿：3 次连续绿、每次 `duration` 有明显余量（登记实测值），且判据自己读完收尾。
