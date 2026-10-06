@@ -681,6 +681,11 @@ export const api = {
 
   voice: {
     health: () => get('/api/voice/health'),
+    // The server's reading of the browser recogniser's own deployment: whether a model directory is
+    // configured and whether it holds the two files. Read before the client path downloads anything,
+    // so a deployment that is not provisioned answers `ENGINE_UNAVAILABLE` with an actionable reason
+    // instead of spending a 239 MB download to discover the same thing.
+    clientAssets: () => get('/api/voice/client-assets'),
     transcribe: (formData: FormData, headers: Record<string, string> = {}) =>
       authenticatedFetch('/api/voice/transcribe', {
         method: 'POST',

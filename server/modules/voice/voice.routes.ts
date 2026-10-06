@@ -1,8 +1,11 @@
+import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 
 import express from 'express';
 
 import type {
+  VoiceClientAssetFileRef,
+  VoiceClientAssetsService,
   VoiceDataEditLabel,
   VoiceLexiconService,
   VoiceRequestOverrides,
@@ -11,6 +14,8 @@ import type {
   VoiceSettingsService,
 } from '@/shared/types.js';
 import { asyncHandler } from '@/shared/utils.js';
+
+import { unconfiguredVoiceClientAssetsReading } from './voice.service.js';
 
 type VoiceRouterDependencies = {
   voiceService: VoiceService;
@@ -32,6 +37,15 @@ type VoiceRouterDependencies = {
    * upload's provider-derived one. The composition root builds both from the same multer factory.
    */
   parseRawAudioUpload: express.RequestHandler;
+  /**
+   * The on-device recogniser's provisioning reading, for `GET /client-assets`.
+   *
+   * OPTIONAL because the voice router is built by many leaf tests that exercise other routes and
+   * never ask about the browser recogniser; a router built without one answers the unconfigured
+   * reading, which is the same sentence a deployment with no directory variable would give. The
+   * shipping composition root always supplies it.
+   */
+  voiceClientAssets?: VoiceClientAssetsService;
 };
 
 type AuthenticatedRequest = express.Request & { user?: { id?: number | string } };
@@ -380,6 +394,14 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
     response.json(dependencies.voiceService.captureState());
   });
 
+  // THE BROWSER RECOGNISER'S PROVISIONING, so a client learns the model files are missing BEFORE it
+  // downloads a quarter of a gigabyte to find out. A deployment reading rather than a per-user one —
+  // which directory the process's environment named is not something a user's stored settings can
+  // change — and read-only, with the same code vocabulary the other deployment readings use.
+  router.get('/client-assets', (_request, response) => {
+    response.json(dependencies.voiceClientAssets?.readiness() ?? unconfiguredVoiceClientAssetsReading());
+  });
+
   // THE USER'S OWN KEPT RECORDINGS: the other half of the D1 promise the settings page turns on by
   // default ("stored on this machine, and clearable in one action"). A `DELETE` of the resource the
   // store holds, and the same request the settings page's confirm button sends.
@@ -485,6 +507,110 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
   router.post('/lexicon/import', asyncHandler(async (_request, response) => {
     response.json(await dependencies.lexiconService.importFromHistory());
   }));
+
+  return router;
+}
+
+// ── the unauthenticated client-asset routes ─────────────────────────────────────────────────────
+
+/** The content type each whitelisted artifact is served with. */
+function clientAssetContentType(name: string): string {
+  // `application/wasm` is not cosmetic: the streaming compiler refuses a `.wasm` module served as
+  // `application/octet-stream`, and the browser's own module loader does the same for `.mjs`.
+  if (name.endsWith('.wasm')) return 'application/wasm';
+  if (name.endsWith('.mjs') || name.endsWith('.js')) return 'text/javascript; charset=utf-8';
+  if (name.endsWith('.txt')) return 'text/plain; charset=utf-8';
+  return 'application/octet-stream';
+}
+
+/** One closed byte range, as a parsed `Range` header resolves against a file's length. */
+type ByteRange = { start: number; end: number };
+
+/**
+ * The single range a `Range: bytes=…` header asks for, or `null` for "send the whole file".
+ *
+ * ONE RANGE ONLY, and anything else falls back to the full response rather than a `416`: a browser
+ * fetching a 239 MB checkpoint uses `bytes=0-` or a suffix, and a multipart range request is not one
+ * this route has a reason to answer specially. `null` for an unsatisfiable or malformed header keeps
+ * the route's contract simple — the full body is always a legal answer, and a client that cannot use
+ * it will ask again.
+ */
+function parseByteRange(header: string | undefined, size: number): ByteRange | null {
+  if (header === undefined) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (match === null) return null;
+  const [, rawStart, rawEnd] = match;
+  if (rawStart === '' && rawEnd === '') return null;
+
+  if (rawStart === '') {
+    // A suffix range: the last N bytes.
+    const suffix = Number(rawEnd);
+    if (!Number.isFinite(suffix) || suffix <= 0 || size === 0) return null;
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+
+  const start = Number(rawStart);
+  if (!Number.isFinite(start) || start >= size) return null;
+  const end = rawEnd === '' ? size - 1 : Math.min(Number(rawEnd), size - 1);
+  if (!Number.isFinite(end) || end < start) return null;
+  return { start, end };
+}
+
+/** A handler that streams one whitelisted artifact, answering `404` for every name that is not one. */
+function serveClientAsset(resolve: (name: string) => VoiceClientAssetFileRef | null): express.RequestHandler {
+  return (request, response, next) => {
+    // `:file` is a single named parameter, but the params record is typed `string | string[]`; a
+    // repeated parameter could never match this route, so the array case is a name no whitelist holds.
+    const requested = typeof request.params.file === 'string' ? request.params.file : '';
+    const resolved = resolve(requested);
+    // A MISS IS A `404`, and it is also the whole path-safety answer: the resolver only ever returns
+    // a whitelisted name, so a traversal attempt is refused here rather than sanitised downstream.
+    if (resolved === null) {
+      response.status(404).json({ error: 'not found' });
+      return;
+    }
+
+    response.setHeader('Content-Type', clientAssetContentType(requested));
+    // Advertised on the full response too, so a browser knows it may resume.
+    response.setHeader('Accept-Ranges', 'bytes');
+
+    const range = parseByteRange(request.headers.range, resolved.size);
+    if (range === null) {
+      response.setHeader('Content-Length', String(resolved.size));
+      createReadStream(resolved.path).on('error', next).pipe(response);
+      return;
+    }
+
+    response.status(206);
+    response.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${resolved.size}`);
+    response.setHeader('Content-Length', String(range.end - range.start + 1));
+    createReadStream(resolved.path, { start: range.start, end: range.end }).on('error', next).pipe(response);
+  };
+}
+
+/**
+ * Creates the UNAUTHENTICATED router that serves the browser recogniser's artifacts same-origin.
+ *
+ * MOUNTED AT `/voice-client` BY `server/index.ts`, ahead of the static layer: the entry module is a
+ * dynamic `import()` and the `.wasm` is fetched by the runtime, so both have to be real files on
+ * this origin rather than anything the SPA fallback would answer as HTML. It is deliberately NOT
+ * behind `authenticateToken` — the runtime and the checkpoint are public published artifacts and
+ * carry no user data — and equally deliberately not free-form: every name goes through the service's
+ * whitelist, so only the pinned files are reachable.
+ */
+export function createVoiceClientAssetsRouter(dependencies: {
+  voiceClientAssets: VoiceClientAssetsService;
+}): express.Router {
+  const router = express.Router();
+
+  router.get(
+    '/model/:file',
+    serveClientAsset((name) => dependencies.voiceClientAssets.resolveModelFile(name)),
+  );
+  router.get(
+    '/ort/:file',
+    serveClientAsset((name) => dependencies.voiceClientAssets.resolveOrtFile(name)),
+  );
 
   return router;
 }

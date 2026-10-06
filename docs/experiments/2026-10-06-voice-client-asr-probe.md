@@ -358,12 +358,8 @@ node serve.mjs --isolated
 
 本节只写「怎么把客户端路径打开」，**不含任何读数**——真机的读数按 AC 由 yale 写进 §10。
 
-- **开关是选识别器，不是一个新开关。** 在设置页把识别器选成 `sensevoice-wasm`（`locality: 'local-client'`）才走客户端路径；选别的仍完全不碰。客户端路径下 `useVoiceAvailable` 读引擎自己的 `available`（四个变量配齐但模型还没下载也算可用，否则首下 8–10 分钟里麦克风会被误藏），`useVoiceInput` 按片段走客户端、按下面两条规则回退服务端。
-- **四个构建期变量，缺一整条路径不启用**（`import.meta.env`，all-four-or-nothing；缺哪个就把哪个名字写进用户可见的原因里，不半开）：
-  - `VITE_VOICE_CLIENT_MODEL_URL` → `model.int8.onnx`（239 233 841 B，sha256 `c71f0ce0…cd51`）
-  - `VITE_VOICE_CLIENT_TOKENS_URL` → 同目录的 `tokens.txt`
-  - `VITE_VOICE_CLIENT_ORT_SCRIPT_URL` → onnxruntime-web 1.30.0 的入口 js（运行时 `import()` 加载，不进应用包）
-  - `VITE_VOICE_CLIENT_ORT_WASM_PATHS` → 该发行版 `.wasm` / worker 文件所在目录前缀（写进 `ort.env.wasm.wasmPaths`）
-  模型与 `tokens.txt` 就是 §1 用的那两份，ort-web 1.30.0 的取法见 `experiments/voice-client-asr-probe/README.md` 的两行 curl。四个 URL 都由部署方自己托管，仓库不入库。
+- **开关是选识别器，不是一个新开关。** 在设置页把识别器选成 `sensevoice-wasm`（`locality: 'local-client'`）才走客户端路径；选别的仍完全不碰。客户端路径下，是否出麦克风由服务端的就绪读数决定（见下），模型还没下载也算可用，否则首下 8–10 分钟里麦克风会被误藏。
+- **交付面是一个目录路径，没有构建期变量。** `onnxruntime-web@1.30.0` 是本仓库的**精确版本依赖**，服务端从 `node_modules` 解析它的三个文件，同源提供在 `/voice-client/ort/<file>`；模型与 `tokens.txt` 放在**一个目录**里，由 `VOICE_CLIENT_MODEL_DIR` 指定、未设置时回退到 `SENSEVOICE_MODEL_DIR`，服务端同源提供在 `/voice-client/model/<file>`（白名单只这两个文件名，不支持目录穿越，支持 Range，不要求登录）。前端用 `import.meta.env.BASE_URL` 前缀拼出这些固定路径，子路径部署也成立。下载地址、字节数与 sha256 见 `docs/operations/voice-client-asr-deployment.md`。
+- **可用性由服务端告知，不是先下 239 MB 再发现缺文件。** `GET /api/voice/client-assets` 回报目录是否配置、两个文件是否存在、`model.int8.onnx` 是否 239 233 841 B；`useVoiceAvailable` 读它的 `ready`（未就绪就不出麦克风），适配器据此返回 `ENGINE_UNAVAILABLE`，原因文案同时含目录变量名与文档路径，且**不发起任何对 `/voice-client/model/` 的下载请求**。
 - **首次下载与二次打开怎么读**：下载**先校验 sha256、后写 Cache API**（探针那版是先写后校验，本实现在产品里补上了）；之后每次打开先读缓存并重新校验哈希，命中则**零网络请求**。进度与降级提示从 `observeVoiceClientAsrEngine({ onProgress, onNotice })` 取（`useVoiceAvailable` 只是个布尔，不看进度）。
-- **两条回退怎么人为触发**（都先在 `window` 上发一条 `voice-client-asr:fallback` 事件，不静默）：引擎不可用——不设上面四个变量，或让页面拿不到 `caches` / `crypto.subtle`（非 HTTPS 打开）；单条片段太慢——把页面 CPU 压到 §6 那个量级，让**某一条**片段的实时因子超过 1.0，其余片段仍留在客户端（判据按片段，不按平均）。
+- **两条回退怎么人为触发**（都先在 `window` 上发一条 `voice-client-asr:fallback` 事件，不静默）：引擎不可用——把 `VOICE_CLIENT_MODEL_DIR` / `SENSEVOICE_MODEL_DIR` 指向一个缺文件的目录，或让页面拿不到 `caches` / `crypto.subtle`（非 HTTPS 打开）；单条片段太慢——把页面 CPU 压到 §6 那个量级，让**某一条**片段的实时因子超过 1.0，其余片段仍留在客户端（判据按片段，不按平均）。

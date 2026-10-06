@@ -20,14 +20,14 @@ import {
   resolveVoiceCaptureDir,
   voiceCaptureDirStartupLine,
 } from './voice-capture.js';
-import { createVoiceRouter } from './voice.routes.js';
+import { createVoiceClientAssetsRouter, createVoiceRouter } from './voice.routes.js';
 import {
   createVoiceDataStore,
   resolveVoiceDataDir,
   voiceDataDirStartupLine,
 } from './voice-data.js';
 import { voiceLexicon } from './voice-lexicon.js';
-import { createVoiceService, createVoiceSettingsService } from './voice.service.js';
+import { createVoiceClientAssetsService, createVoiceService, createVoiceSettingsService } from './voice.service.js';
 import {
   createSensevoiceWorker,
   nodeSensevoiceSpawn,
@@ -358,6 +358,37 @@ const rawAudioUpload = multer({
 // routes. Stored per user so a key no longer lives only in one browser profile.
 const voiceSettingsService = createVoiceSettingsService(voiceSettingsDb);
 
+/**
+ * THE ONE READ of `VOICE_CLIENT_MODEL_DIR` in this process, and the directory the browser
+ * recogniser's model files are served from.
+ *
+ * IT FALLS BACK TO `SENSEVOICE_MODEL_DIR` (see `resolveVoiceClientModelDir`), so a deployment that
+ * already runs the on-host recogniser needs no new configuration at all. The runtime files come from
+ * this repo's own pinned `onnxruntime-web` install under `node_modules`, so nothing about them is
+ * configurable — the front end was validated against that exact distribution, and serving another
+ * would be serving a runtime it was not tested with.
+ */
+const voiceClientAssets = createVoiceClientAssetsService({
+  voiceClientModelDir: process.env.VOICE_CLIENT_MODEL_DIR,
+  sensevoiceModelDir: process.env.SENSEVOICE_MODEL_DIR,
+  ortDistDir: path.join(sensevoiceApplicationRoot, 'node_modules', 'onnxruntime-web', 'dist'),
+});
+
+// ANNOUNCED, like the two directories above and for the same reason: whether the browser recogniser
+// can be served at all is a property of the deployment, and this line is where an operator learns it
+// without opening a page. It carries the resolved directory and whether the artifacts are present —
+// both already in the process's own configuration — and never a transcript.
+{
+  const reading = voiceClientAssets.readiness();
+  voiceLog.info(
+    reading.ready
+      ? `voice client assets: ready (model dir ${reading.directory ?? '<unset>'})`
+      : `voice client assets: unavailable (${
+        reading.configured ? `the model directory ${reading.directory} is missing an artifact` : 'no model directory configured'
+      })`,
+  );
+}
+
 /** Voice router assembled for the server entrypoint. */
 export const voiceRoutes = createVoiceRouter({
   voiceService,
@@ -371,4 +402,15 @@ export const voiceRoutes = createVoiceRouter({
   // never learns a size; which figure bounds which endpoint is decided here, at the one place that
   // knows the deployment.
   parseRawAudioUpload: rawAudioUpload.single('audio'),
+  // The provisioning reading the authenticated `GET /client-assets` route republishes.
+  voiceClientAssets,
 });
+
+/**
+ * The UNAUTHENTICATED same-origin artifact router, mounted at `/voice-client` by `server/index.ts`.
+ *
+ * Exported separately from `voiceRoutes` because it is mounted OUTSIDE the authenticated
+ * `/api/voice` prefix: the entry module and the `.wasm` are fetched by the browser and the runtime
+ * themselves, and both must be reachable before a user has a session.
+ */
+export const voiceClientAssetRoutes = createVoiceClientAssetsRouter({ voiceClientAssets });

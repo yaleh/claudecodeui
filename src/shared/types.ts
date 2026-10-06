@@ -2601,3 +2601,48 @@ type TaskStatus =
 
 /** A TaskMaster task's priority; high, medium and low are the known values and the string fallback tolerates anything else TaskMaster emits. */
 type TaskPriority = 'high' | 'medium' | 'low' | string;
+
+//----------------- VOICE CLIENT ASSETS ------------
+
+/**
+ * One file of the browser recogniser's deployment, as the SERVER reads its own disk: whether it is
+ * there and how large it is. `expectedBytes` is the pinned size where the front end pins one and null
+ * otherwise. Produced by the client-assets reading and consumed when the reason for a refusal is
+ * built.
+ */
+export type VoiceClientAssetFile = {
+  name: string;
+  present: boolean;
+  bytes: number | null;
+  expectedBytes: number | null;
+};
+
+/**
+ * The server's reading of the browser recogniser's model directory: whether one is configured, which
+ * environment variable supplied it (`VOICE_CLIENT_MODEL_DIR`, or the `SENSEVOICE_MODEL_DIR`
+ * fallback), and the state of the two files it must hold. `ready` is the server's verdict, true only
+ * when both files are present and `model.int8.onnx` is the pinned size. The front end reads this
+ * before it downloads anything.
+ */
+export type VoiceClientReadiness = {
+  configured: boolean;
+  directory: string | null;
+  source: 'VOICE_CLIENT_MODEL_DIR' | 'SENSEVOICE_MODEL_DIR' | null;
+  model: VoiceClientAssetFile;
+  tokens: VoiceClientAssetFile;
+  ready: boolean;
+};
+
+/**
+ * The same-origin URLs the browser recogniser fetches: the two model-directory files and the
+ * onnxruntime-web entry plus its WASM directory prefix. Produced by `voiceClientAssetPaths` from
+ * Vite's `BASE_URL`, so a sub-path deployment resolves every one of them under its prefix.
+ */
+export type VoiceClientAssetPaths = {
+  modelUrl: string;
+  tokensUrl: string;
+  ortScriptUrl: string;
+  ortWasmPaths: string;
+};
+
+// ---------------------------

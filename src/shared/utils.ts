@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-import type { Project, ProjectSession, SessionHostLease, SessionHostsSnapshot } from '@/shared/types';
+import type { Project, ProjectSession, SessionHostLease, SessionHostsSnapshot, VoiceClientAssetPaths } from '@/shared/types';
 
 //----------------- DEPLOYMENT MODE ------------
 
@@ -269,3 +269,40 @@ export function findBackgroundTaskLeases(
   }
   return [];
 }
+
+//----------------- VOICE CLIENT ASSET PATHS ------------
+
+/** The model-directory file names the server whitelists; the browser asks for exactly these two. */
+const VOICE_CLIENT_MODEL_FILE = 'model.int8.onnx';
+const VOICE_CLIENT_TOKENS_FILE = 'tokens.txt';
+
+/**
+ * Normalises Vite's `BASE_URL` into a leading-and-trailing-slash prefix, so concatenating a path onto
+ * it can neither drop nor double a separator: `/`, `/sub/` and a bare `sub` all come out safe.
+ */
+function voiceClientBasePrefix(baseUrl: string | undefined): string {
+  const raw = typeof baseUrl === 'string' ? baseUrl.trim() : '';
+  if (raw === '' || raw === '/') return '/';
+  return `${raw.startsWith('/') ? '' : '/'}${raw.replace(/\/+$/, '')}/`;
+}
+
+/**
+ * The same-origin URLs the browser recogniser loads, all under one `BASE_URL` prefix.
+ *
+ * Use it wherever the client ASR path needs the model, the token list or the runtime: the server
+ * serves the model directory at `/voice-client/model` and the `onnxruntime-web` distribution at
+ * `/voice-client/ort`, and deriving both from `import.meta.env.BASE_URL` is what keeps a sub-path
+ * deployment (`docs/nginx-subpath-template.conf`) working. Pass the raw `import.meta.env.BASE_URL`; a
+ * missing or blank value is treated as the site root rather than producing a protocol-relative URL.
+ */
+export function voiceClientAssetPaths(baseUrl: string | undefined): VoiceClientAssetPaths {
+  const prefix = voiceClientBasePrefix(baseUrl);
+  return {
+    modelUrl: `${prefix}voice-client/model/${VOICE_CLIENT_MODEL_FILE}`,
+    tokensUrl: `${prefix}voice-client/model/${VOICE_CLIENT_TOKENS_FILE}`,
+    ortScriptUrl: `${prefix}voice-client/ort/ort.wasm.min.mjs`,
+    ortWasmPaths: `${prefix}voice-client/ort/`,
+  };
+}
+
+// ---------------------------

@@ -67,6 +67,10 @@ export default defineConfig(({ mode }) => {
       allowedHosts: ['.shares.zrok.io'],
       proxy: {
         '/api': `http://${proxyHost}:${serverPort}`,
+        // The browser recogniser's runtime and model files. The server serves them same-origin at
+        // `/voice-client` in production; in dev this proxy puts them on the same path, so the front
+        // end's `BASE_URL`-derived URLs are identical in both.
+        '/voice-client': `http://${proxyHost}:${serverPort}`,
         '/ws': {
           target: `ws://${proxyHost}:${serverPort}`,
           ws: true

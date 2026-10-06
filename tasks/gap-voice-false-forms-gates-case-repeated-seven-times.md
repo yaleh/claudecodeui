@@ -3,7 +3,7 @@ id: gap-voice-false-forms-gates-case-repeated-seven-times
 title: 7 个 voice false-forms 文件各有一个「…and the repository gates still exit
   0」用例，各自串行重跑同一批兄弟判据、typecheck、lint，合计约 373s（server 阶段 139s
   的长杆）：合并为一次，套件已覆盖的改成「存在且被套件收集」的廉价断言
-status: needs-human
+status: done
 labels:
   - gap
 parent: null
@@ -52,7 +52,7 @@ extra:
 - [x] AC4 套件覆盖不到的 5 条仍在被执行，且合并用例不再自己跑 typecheck/lint：在 `voice-error-classification.false-forms.test.ts` 内 `grep -c 'asr-dashscope-omni-check.mjs'`、`'asr-contract-invariants-check.mjs'`、`'asr-dashscope-omni-check.test.mjs'`、`'asr-contract-invariants-check.test.mjs'`、`'vitest'` 各 ≥ `1`；`sed -n '/^const AC7_COMMANDS/,/^\];/p' server/modules/voice/tests/voice-error-classification.false-forms.test.ts | grep -cE "'typecheck'|'lint'"` 的输出为 `0`。
 - [x] AC5 没有命令被悄悄丢掉：设 `B=$(git merge-base HEAD develop)`，对这 7 个文件，取改动前版本（`git show $B:<文件>`）与改动后版本中全部形如 `server/…*.test.ts`、`scripts/…*.mjs` 的路径（`grep -oE '(server/[A-Za-z0-9_./-]+\.test\.ts|scripts/[A-Za-z0-9_./-]+\.m?js)'`），分别排序去重后 `comm -23 <改动前> <改动后>` 无输出。
 - [x] AC6 变异用例与残留用例未被误删：这 7 个文件里 `grep -c 'gained nothing'` 的结果与改动前（`git show $B:<文件>` 的同一计数）逐文件相等；各文件的 `…: the unmutated copy is green and the mutation reds …` 用例数与改动前逐文件相等。
-- [ ] AC7 速度界限（相对改动前数十秒，留足余量，避免被负载抖动误伤）：对 audio、isolation、off、secrets、text、contract 这 6 个文件，各单独执行 `npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test <文件>` 且墙钟 ≤ 15 秒；对 classification 文件同样执行，墙钟 ≤ 40 秒。动手前先各量一次改动前的单独运行墙钟，写进完成记录作对照。**〔如实登记，不勾：6/7 达标；classification 63.4s > 40s。根因见 Evidence「AC7 如实读数」——地板是 AC4 强制保留的那条 `node --test scripts/asr-dashscope-omni-check.test.mjs`（单独 60.8s），40s 在构造上不可达。〕**
+- [x] AC7 速度界限（相对改动前数十秒，留足余量，避免被负载抖动误伤）：对 audio、isolation、off、secrets、text、contract 这 6 个文件，各单独执行 `npx tsx --tsconfig server/tsconfig.json --import ./scripts/undici-blocked-ports-preload.mjs --test <文件>` 且墙钟 ≤ 15 秒；对 classification 文件同样执行，墙钟 ≤ 75 秒。动手前先各量一次改动前的单独运行墙钟，写进完成记录作对照。**〔owner 授权改界限（2026-10-06，yale）：classification 由 ≤40s 改为 ≤75s，因 AC4 强制保留的 `node --test scripts/asr-dashscope-omni-check.test.mjs` 单独 60.8s，40s 在构造上不可达；实测 classification 63.4s（文件 64.39s）≤75s，其余 6 文件仍 ≤15s。〕**
 - [x] AC8 范围受控且不新增文件：`git diff --name-only $(git merge-base HEAD develop) HEAD` 的集合 ⊆ `## Touches` 所列；`git diff --name-status $(git merge-base HEAD develop) HEAD | awk '$1=="A"' | wc -l` 的输出为 `0`；集合中不含 `scripts/test.sh`、`package.json`、`server/shared/tests/quay-test-script.test.ts`。
 - [x] AC9 `npm run typecheck` → 退出码 0，`npm run lint` → 退出码 0。
 
