@@ -45,6 +45,7 @@ import { settingsRoutes } from './modules/settings/index.js';
 import {
     createAccessTokensService,
     createOAuthClientsRouter,
+    createOAuthRequestLogger,
     createOAuthProvider,
     createOAuthSettingsRouter,
     createOAuthSettingsService,
@@ -539,6 +540,14 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // process `BOOT_ID`, the same identity the activity snapshots and every run this
 // registry opens carry, so `run_get` can report "服务已重启" when a run belongs to
 // a previous process boot.
+// One secret-free log line per request to the OAuth and MCP surfaces. Mounted before
+// any of them so the lines also cover requests an inner router refuses. Without it a
+// client that registered but never exchanged its code is indistinguishable from one
+// whose request never arrived.
+app.use(
+    ['/oauth', '/mcp', '/.well-known/oauth-authorization-server', '/.well-known/oauth-protected-resource'],
+    createOAuthRequestLogger(),
+);
 const oauthMetadataGate = readOAuthMetadataGate();
 // ONE provider instance backs BOTH `/mcp`'s token verification (below) and the
 // authorization-server HTTP surface (AC-268, mounted after the metadata). A
