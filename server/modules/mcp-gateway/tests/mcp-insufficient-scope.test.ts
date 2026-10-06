@@ -629,6 +629,10 @@ test('(d) a permitted token really stops the task and no tool is scope-denied', 
     });
     assert.equal(stopped.isError, false, 'a token holding the control scope must be allowed to stop');
     assert.equal(stopped.details, null, 'a success carries no error details');
+    // AC5's own field: the payload really reports the stop, and names what it
+    // stopped — `isError: false` alone would also hold for a listing response.
+    assert.equal(stopped.structuredContent?.stopped, true, 'the success payload must report stopped: true');
+    assert.equal(stopped.structuredContent?.taskId, BG_IDS[0], 'the success payload must name the stopped task');
     assert.equal(harness.background.stopTaskCalls.length, 1, 'the control service must be reached exactly once');
     assert.deepEqual(harness.background.stopTaskCalls[0].input, { sessionId: SESSION_ID, taskId: BG_IDS[0] });
 
