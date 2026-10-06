@@ -105,6 +105,7 @@ for f in server/modules/mcp-gateway/tests/mcp-english-only.test.ts; do [ -f "$f"
 - server/modules/mcp-gateway/mcp-session-reconfigure.ts
 - server/modules/mcp-gateway/mcp-session-send.ts
 - server/modules/mcp-gateway/index.ts
+- server/modules/mcp-gateway/mcp-approvals.ts
 - server/modules/websocket/services/chat-control.service.ts
 - server/modules/mcp-gateway/tests/mcp-english-only.test.ts (new)
 - server/modules/mcp-gateway/tests/mcp-run-get.test.ts
