@@ -35,6 +35,7 @@ import type { McpResolveDeps } from './mcp-resolve-target.js';
 import type { McpRunGetDeps } from './mcp-run-get.js';
 import type { SelfTargetDeps } from './mcp-self-target.js';
 import type { McpSessionRunGetSeam } from './mcp-session-send.js';
+import { readMcpToolAnnotations } from './mcp-tool-annotations.js';
 
 /**
  * The MCP gateway's production assembly (AC-240). The consumer is
@@ -132,6 +133,11 @@ function createMcpServer(
    * Applies AC-246's target gate then AC-244's audit wrapper, in that order, to
    * one tool body. Composed once per registration, not per call: the gate closes
    * over the injected entry lists and the tool body, and nothing else.
+   *
+   * It also attaches the tool's declaration hints from the one
+   * `MCP_TOOL_ANNOTATIONS` table (AC1–AC7), keyed by name — so every tool the
+   * gateway registers on `tools/list` carries accurate annotations without any
+   * of the eight registration seams restating them.
    */
   const audited = (
     name: string,
@@ -147,6 +153,10 @@ function createMcpServer(
       description,
       inputSchema,
       outputSchema,
+      // Every production tool's declaration hints come from the one table
+      // (AC1–AC7). Annotations are metadata only and are attached OUTSIDE the
+      // target gate and the scope check, so they cannot alter either.
+      annotations: readMcpToolAnnotations(name),
       requiredScopes: [requiredScope],
       handler: (args) => guarded(args as Record<string, unknown>),
     })(server, principal);

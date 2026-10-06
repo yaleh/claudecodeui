@@ -20,7 +20,7 @@
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import { mcpAuditLogDb } from '@/modules/database/index.js';
@@ -174,6 +174,17 @@ export type McpToolRegistration = {
    * tool that declares an output schema without one.
    */
   outputSchema?: z.ZodRawShape;
+  /**
+   * The declaration hints (`readOnlyHint` / `destructiveHint` /
+   * `idempotentHint` / `openWorldHint`) forwarded verbatim to
+   * `registerTool`. Optional, and absent keeps the AC-244 shape exactly: those
+   * criteria register tools with no annotations and must keep answering as they
+   * did. The transport's one seam attaches the gateway's table
+   * (`readMcpToolAnnotations`) to every production tool. Annotations carry NO
+   * authorization weight — the audit wrapper still decides `denied`/`ok`/`error`
+   * from `requiredScopes` alone (AC6).
+   */
+  annotations?: ToolAnnotations;
   /** Every scope the caller's token must carry; a missing one denies the call. */
   requiredScopes: readonly string[];
   handler: (args: unknown, ctx: { principal: McpPrincipal }) => unknown;
@@ -225,6 +236,11 @@ function toStructuredContent(result: unknown): Record<string, unknown> {
  * shape would strip unknown keys before the handler ever ran. A registration
  * that declares an output schema gets its result emitted as `structuredContent`
  * alongside the text, because the SDK refuses a non-error result that has none.
+ *
+ * A registration may also declare `annotations` (AC1–AC7); they are forwarded to
+ * `registerTool` verbatim and appear on `tools/list`, but they are metadata only
+ * — the `denied`/`ok`/`error` decision below is made from `requiredScopes`
+ * alone, so a declaration can never widen or narrow what a token may call.
  */
 export function withMcpAudit(registration: McpToolRegistration): McpToolHandler {
   return (server, principal) => {
@@ -234,6 +250,9 @@ export function withMcpAudit(registration: McpToolRegistration): McpToolHandler 
         ...(registration.description === undefined ? {} : { description: registration.description }),
         inputSchema: registration.inputSchema ?? z.record(z.string(), z.unknown()),
         ...(registration.outputSchema === undefined ? {} : { outputSchema: registration.outputSchema }),
+        // Metadata only: forwarded to the SDK so it appears verbatim on
+        // `tools/list`. It changes nothing about the scope check below.
+        ...(registration.annotations === undefined ? {} : { annotations: registration.annotations }),
       },
       async (args: Record<string, unknown>): Promise<CallToolResult> => {
         const startedAt = Date.now();

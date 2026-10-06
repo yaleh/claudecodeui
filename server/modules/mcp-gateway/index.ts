@@ -391,3 +391,17 @@ export type {
   McpApprovalsDeps,
   McpApprovalsListInput,
 } from './mcp-approvals.js';
+
+// The tool annotations (AC1–AC7). `MCP_TOOL_ANNOTATIONS` is the ONE table a
+// `tools/list` hint is written down in — every name the gateway can register,
+// with the `readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`
+// it declares, so a tool's declaration is a reviewable row rather than an
+// omission that falls back to the write-leaning spec defaults.
+// `readMcpToolAnnotations` is the reader the transport's one `audited` seam calls
+// per registration (and throws on a name the table does not own, so a tool
+// cannot ship unlabelled); `McpGatewayToolName` is the key union, derived from the
+// three tool tables so a name added to any of them without a row here fails to
+// compile. Consumers: `mcp-gateway.transport.ts` and this module's annotation
+// criterion, which mounts the gateway and compares `tools/list` against the table.
+export { MCP_TOOL_ANNOTATIONS, readMcpToolAnnotations } from './mcp-tool-annotations.js';
+export type { McpGatewayToolName } from './mcp-tool-annotations.js';
