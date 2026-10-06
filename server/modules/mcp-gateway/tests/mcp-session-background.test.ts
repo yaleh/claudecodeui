@@ -557,6 +557,15 @@ test('(b) a read-only stop is refused before the control service, the control to
       'INSUFFICIENT_SCOPE',
       'the refusal must name the missing control scope with the gateway-wide scope code',
     );
+    // AC-286: the refusal also carries the MISSING scope as a machine field, so a
+    // caller can re-authorize with exactly it — the same `details.requiredScopes`
+    // the audited wrapper's generic check renders.
+    assert.deepEqual(
+      (denied.payload?.details as AnyRecord | undefined)?.requiredScopes,
+      [SESSION_CONTROL_SCOPE],
+      'the stop refusal must carry the missing control scope in details.requiredScopes',
+    );
+    assert.equal(denied.payload?.retryable, false, 'a missing scope is not retryable');
     assert.equal(callsAfterDenied, 0, 'the refused stop must never reach the control service');
     assert.ok(
       (afterDenied.payload?.tasks as AnyRecord[]).some((task) => task.id === BG_ID),

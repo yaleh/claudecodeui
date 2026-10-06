@@ -660,6 +660,12 @@ test('(f) a token lacking the write scope is denied, audits one denied row, and 
     assert.equal(newRows.length, 1, 'exactly one audit row must be written');
     assert.equal(newRows[0].tool, 'session_send', 'the audit row must name session_send');
     assert.equal(newRows[0].outcome, 'denied', 'the audit row must read denied');
+    // AC-286: the denied row carries the scope the caller was missing.
+    assert.deepEqual(
+      JSON.parse(newRows[0].denied_scopes ?? 'null'),
+      [SESSION_SEND_SCOPE],
+      'the denied row must carry the missing send scope',
+    );
     assert.equal(sendCallsBefore, 0, 'the control service was not called before the denied call');
     assert.equal(sendCallsAfter, 0, 'the control service must NOT be called for a denied tool');
   });

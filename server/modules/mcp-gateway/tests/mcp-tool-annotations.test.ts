@@ -15,8 +15,9 @@
  * `registerMcpReadTools` / `registerMcpWriteTools` / `registerMcpResidentTools`
  * install every name their tables own. That is the point — the criterion is about
  * the DECLARATION surface, not the behaviour a handler would produce, and using
- * empty bags keeps the fixture honest about that rather than dragging in a
- * database for services nothing reads.
+ * empty bags keeps the fixture honest about that. The one backing store the file
+ * needs is a migrated temp database, because leg (f) drives a real refusal
+ * through the audited wrapper, which writes the denial to `mcp_audit_log`.
  *
  * Readings, one leg each:
  *   (a) `tools/list` is exactly the keys of `MCP_TOOL_ANNOTATIONS` — completeness
@@ -42,9 +43,12 @@
 
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import test from 'node:test';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test, { after } from 'node:test';
 
 import express from 'express';
 import type { RequestHandler } from 'express';
@@ -65,6 +69,21 @@ import type {
 // below therefore comes in dynamically.
 process.env.JWT_SECRET = 'mcp-tool-annotations-test-secret';
 delete process.env.VITE_IS_PLATFORM;
+
+// Leg (f) drives a real call through the audited wrapper, which writes one
+// `mcp_audit_log` row per denial (AC-286 adds the `denied_scopes` column that row
+// carries). A file that writes audit rows needs a database with the CURRENT
+// schema, so give it its own migrated temp DB rather than riding the ambient
+// `DATABASE_PATH` — the ambient file is a developer's real DB, and one that
+// predates a migration reds the insert with a bare "no such column".
+const annotationsDbDirectory = mkdtempSync(path.join(tmpdir(), 'mcp-tool-annotations-'));
+process.env.DATABASE_PATH = path.join(annotationsDbDirectory, 'annotations.db');
+const { closeConnection, initializeDatabase } = await import('@/modules/database/index.js');
+await initializeDatabase();
+after(() => {
+  closeConnection();
+  rmSync(annotationsDbDirectory, { recursive: true, force: true });
+});
 
 const {
   MCP_GATEWAY_PATH,
@@ -269,9 +288,22 @@ test('(f) AC6: the annotations are metadata only — the scope check still refus
   await withGateway(async (client) => {
     const reading = await client.callTool({ name: 'session_send', arguments: { session: 'x', message: 'y' } });
     assert.equal(reading.isError, true, 'a token without cloudcli:session:send must still be refused');
+    // AC-286: the refusal names the scope the caller is missing, in the machine
+    // field AND in the sentence — the old fixed "Insufficient scope for this
+    // tool." text no longer carries the reading.
+    const envelope = reading.structuredContent as
+      | { code?: unknown; message?: unknown; details?: { requiredScopes?: unknown } }
+      | undefined;
+    assert.equal(envelope?.code, 'INSUFFICIENT_SCOPE', 'the refusal must be the audited wrapper scope check');
+    assert.deepEqual(
+      envelope?.details?.requiredScopes,
+      ['cloudcli:session:send'],
+      'the refusal must name the scope the caller is missing',
+    );
     const text = (reading.content as Array<{ type: string; text?: string }>)
       .map((block) => (block.type === 'text' ? (block.text ?? '') : ''))
       .join('');
-    assert.match(text, /Insufficient scope/, 'the refusal must be the audited wrapper scope check');
+    assert.match(text, /cloudcli:session:send/, 'the sentence must name the missing scope');
+    assert.doesNotMatch(text, /^Insufficient scope for this tool\.$/, 'the pre-AC-286 fixed sentence must be gone');
   });
 });

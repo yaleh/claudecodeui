@@ -676,6 +676,12 @@ test('(e) a token lacking cloudcli:session:control is denied on both tools and a
     assert.equal(afterStart.length, 1, 'exactly one audit row must be written for the start');
     assert.equal(afterStart[0].tool, 'session_start', 'the audit row must name session_start');
     assert.equal(afterStart[0].outcome, 'denied', 'the audit row must read denied');
+    // AC-286: the denied row carries the scope the caller was missing.
+    assert.deepEqual(
+      JSON.parse(afterStart[0].denied_scopes ?? 'null'),
+      [CONTROL_SCOPE],
+      'the denied row must carry the missing control scope',
+    );
     assert.equal(harness.spies.start, 0, 'the start service must NOT be reached for a denied call');
 
     const deniedClose = await harness.call('session_close', { session: harness.residentA }, 'sendOnly');
@@ -688,6 +694,11 @@ test('(e) a token lacking cloudcli:session:control is denied on both tools and a
     assert.equal(afterClose.length, 2, 'a second audit row must be written for the close');
     assert.equal(afterClose[1].tool, 'session_close', 'the second audit row must name session_close');
     assert.equal(afterClose[1].outcome, 'denied', 'the second audit row must read denied');
+    assert.deepEqual(
+      JSON.parse(afterClose[1].denied_scopes ?? 'null'),
+      [CONTROL_SCOPE],
+      'the second denied row must carry the missing control scope',
+    );
     assert.equal(harness.spies.close, 0, 'the close service must NOT be reached for a denied call');
 
     const allowedStart = await harness.call('session_start', { session: harness.residentA }, 'control');

@@ -42,7 +42,7 @@ import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
 import type { ControlStopTaskOutcome } from '@/modules/providers/index.js';
 import type { HostLease } from '@/shared/types.js';
 
-import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
+import { MCP_ERROR_CODES, McpScopeDeniedError, McpToolError } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
 import type { McpControlCaller } from './mcp-session-send.js';
 
@@ -251,15 +251,13 @@ export async function buildSessionBackground(
   // (b) The control scope is owned HERE, before the control service is reached,
   // so a read-only token's stop never increments the control service's count.
   if (!ctx.principal.scopes.includes(SESSION_CONTROL_SCOPE)) {
-    // The in-handler check uses the SAME code the audited wrapper's generic
-    // scope check does (`INSUFFICIENT_SCOPE`), so "the token lacks a scope"
-    // reads identically wherever it is caught (AC-284 / AC-286).
-    throw new McpToolError(
-      MCP_ERROR_CODES.INSUFFICIENT_SCOPE,
-      `Stopping a background task requires the ${SESSION_CONTROL_SCOPE} scope.`,
-      false,
-      { session: sessionId, taskId },
-    );
+    // AC-286: this refusal is the SAME denial the audited wrapper's generic
+    // check renders — `McpScopeDeniedError` carries the missing scope both in
+    // the sentence and as `details.requiredScopes`, so the envelope (and the
+    // denied audit row the wrapper writes) names the scope wherever the refusal
+    // is caught. The details hold `requiredScopes` alone: the session/task
+    // context on the not-found refusals below belongs to those, not to a denial.
+    throw new McpScopeDeniedError([SESSION_CONTROL_SCOPE], 'session_background');
   }
 
   // (c) The id must be in the snapshot BEFORE the control service is reached, so

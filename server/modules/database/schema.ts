@@ -396,15 +396,19 @@ CREATE TABLE IF NOT EXISTS access_tokens (
 /**
  * One row per MCP tool invocation (mcp-gateway-SPEC §389, AC-244).
  *
- * The DDL is copied verbatim from the SPEC. `at` defaults to the insert instant
- * but a caller may pass it explicitly, which is what lets the retention
- * criterion plant rows 91 and 89 days old without waiting on wall time.
- * `outcome` is always one of `ok` / `denied` / `error`; `args_digest` holds only
- * a summary (session/project ids verbatim, free text reduced to its length and
- * first 40 characters), never the full arguments. `token_id` is the invoking
- * token's row id and `client_id` is NULL for a personal access token (an OAuth
- * client id, GOAL-021, is not recorded yet). `CREATE TABLE IF NOT EXISTS` makes
- * re-running migrations a no-op over an existing table.
+ * The DDL follows the SPEC with the AC-286 addition: `denied_scopes` holds the
+ * JSON array of scopes a `denied` row's caller was missing (NULL on every other
+ * outcome), so an operator can read WHICH scope a refusal was about. It is the
+ * last column so the pre-AC-286 column prefix (and every reading written against
+ * it) is unchanged. `at` defaults to the insert instant but a caller may pass it
+ * explicitly, which is what lets the retention criterion plant rows 91 and 89
+ * days old without waiting on wall time. `outcome` is always one of `ok` /
+ * `denied` / `error`; `args_digest` holds only a summary (session/project ids
+ * verbatim, free text reduced to its length and first 40 characters), never the
+ * full arguments. `token_id` is the invoking token's row id and `client_id` is
+ * NULL for a personal access token (an OAuth client id, GOAL-021, is not
+ * recorded yet). `CREATE TABLE IF NOT EXISTS` makes re-running migrations a
+ * no-op over an existing table.
  */
 export const MCP_AUDIT_LOG_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS mcp_audit_log (
@@ -415,7 +419,8 @@ CREATE TABLE IF NOT EXISTS mcp_audit_log (
   tool TEXT NOT NULL,
   args_digest TEXT,
   outcome TEXT NOT NULL,
-  duration_ms INTEGER
+  duration_ms INTEGER,
+  denied_scopes TEXT
 );
 `;
 

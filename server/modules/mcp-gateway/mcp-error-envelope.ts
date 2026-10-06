@@ -388,6 +388,92 @@ export class McpToolError extends Error {
   }
 }
 
+// --------------------------- the insufficient-scope envelope (AC-286) ---------------------------
+
+/**
+ * The `details` shape the `INSUFFICIENT_SCOPE` envelope carries (AC-286):
+ * `requiredScopes` is the set the CALLER is actually missing — the tool's
+ * declared scopes minus the ones the token already holds — never the tool's
+ * whole declared set. Naming only what is missing is what lets a caller act on
+ * it (re-authorize with exactly those scopes) instead of re-reading its token.
+ *
+ * The key set is fixed so the two places that refuse for a missing scope — the
+ * audited wrapper's generic check and a handler's own check (the
+ * `session_background` stop branch) — render the SAME `details` keys. The
+ * `session` / `taskId` context that other refusals carry is deliberately NOT a
+ * member: those belong to a tool's not-found refusals, not to a scope denial.
+ */
+type McpInsufficientScopeDetails = { requiredScopes: string[] };
+
+/**
+ * The one-sentence `message` an `INSUFFICIENT_SCOPE` envelope carries: EVERY
+ * missing scope is named verbatim, and the sentence tells the caller to
+ * re-authorize with it. Every scope is named (never truncated) because the
+ * criterion reads the message back per scope, so a summary that dropped one
+ * would hide a scope the caller has to add.
+ */
+function insufficientScopeMessage(requiredScopes: readonly string[], tool: string): string {
+  const named = requiredScopes.map((scope) => `"${scope}"`).join(', ');
+  const plural = requiredScopes.length === 1;
+  return `Missing required scope${plural ? '' : 's'} ${named}. Re-authorize with ${
+    plural ? 'that scope' : 'those scopes'
+  } to call ${tool}.`;
+}
+
+/**
+ * Builds the `INSUFFICIENT_SCOPE` envelope for a caller whose token lacks scopes
+ * (AC-286): the missing scopes named in the sentence and carried as
+ * `details.requiredScopes`, with `retryable: false` — no amount of repeating the
+ * same call can add a scope to a token.
+ *
+ * Consumers: `mcp-gateway.audit.ts`'s generic scope branch (which passes the
+ * scopes the caller is missing) and this module's criterion, which reads the
+ * shape back off the wire. A handler that owns its own scope check throws
+ * {@link McpScopeDeniedError} instead, which renders through this same sentence.
+ */
+export function insufficientScopeResult(requiredScopes: readonly string[], tool: string): CallToolResult {
+  const details: McpInsufficientScopeDetails = { requiredScopes: [...requiredScopes] };
+  return mcpErrorResult(
+    MCP_ERROR_CODES.INSUFFICIENT_SCOPE,
+    insufficientScopeMessage(details.requiredScopes, tool),
+    false,
+    details,
+  );
+}
+
+/**
+ * The refusal a tool HANDLER throws when the caller's token lacks a scope the
+ * handler itself owns — the `session_background` stop branch, whose control
+ * scope cannot be left to the audited registration seam (the tool's static scope
+ * is the read half).
+ *
+ * It is a {@link McpToolError}, so {@link toMcpErrorResult} renders it onto the
+ * SAME envelope shape as {@link insufficientScopeResult}: same `code`, same
+ * `retryable`, same `details` key set (`{ requiredScopes }`). Being a distinct
+ * type is what lets the audited wrapper's catch branch record the throw as
+ * `denied` (with the missing scopes in the audit row) rather than `error`, while
+ * every other handler throw keeps its `error` reading.
+ *
+ * Consumers: `mcp-session-background.ts` (the stop branch) and
+ * `mcp-gateway.audit.ts` (the catch branch that discriminates it).
+ */
+export class McpScopeDeniedError extends McpToolError {
+  /** The scopes the caller's token is missing — the same set `details.requiredScopes` carries. */
+  readonly requiredScopes: string[];
+
+  constructor(requiredScopes: readonly string[], tool: string) {
+    const details: McpInsufficientScopeDetails = { requiredScopes: [...requiredScopes] };
+    super(
+      MCP_ERROR_CODES.INSUFFICIENT_SCOPE,
+      insufficientScopeMessage(details.requiredScopes, tool),
+      false,
+      details,
+    );
+    this.name = 'McpScopeDeniedError';
+    this.requiredScopes = details.requiredScopes;
+  }
+}
+
 /**
  * Reads a JSON object out of an `Error` whose message is a stringified body, the
  * shape every tool module used before this task (`new Error(JSON.stringify(body))`).

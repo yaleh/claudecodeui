@@ -59,7 +59,18 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MCP_ACCEPT = 'application/json, text/event-stream';
 
 /** The columns the SPEC DDL declares, in order — the idempotency leg compares against these. */
-const SPEC_AUDIT_COLUMNS = ['id', 'at', 'token_id', 'client_id', 'tool', 'args_digest', 'outcome', 'duration_ms'];
+const SPEC_AUDIT_COLUMNS = [
+  'id',
+  'at',
+  'token_id',
+  'client_id',
+  'tool',
+  'args_digest',
+  'outcome',
+  'duration_ms',
+  // AC-286: the missing scopes a denied row names, appended after AC-244's set.
+  'denied_scopes',
+];
 
 // --------------------------- fake tools ---------------------------
 
@@ -320,6 +331,16 @@ test('(a) every tool call writes exactly one row, for ok, denied and error', asy
     assert.equal(deniedRow.tool, 'needs_send');
     assert.equal(deniedRow.outcome, 'denied');
     assertIdentity(deniedRow, readOnly.id);
+    // AC-286: a denied row names the scope the caller was missing, and only a
+    // denied row carries one — the ok/error rows above recorded none.
+    assert.deepEqual(
+      JSON.parse(deniedRow.denied_scopes ?? 'null'),
+      ['cloudcli:session:send'],
+      'the denied row must carry the missing scope',
+    );
+    assert.equal(echoRow.denied_scopes, null, 'an ok row carries no denied scopes');
+    assert.equal(sendRow.denied_scopes, null, 'an ok row carries no denied scopes');
+    assert.equal(boomRow.denied_scopes, null, 'an error row carries no denied scopes');
     readings.push(`denied count ${beforeDenied}->${mcpAuditLogDb.count()} row=${JSON.stringify(deniedRow)}`);
 
     console.log(`(a) ${readings.join(' | ')}`);

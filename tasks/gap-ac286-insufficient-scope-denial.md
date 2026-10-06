@@ -3,7 +3,7 @@ id: gap-ac286-insufficient-scope-denial
 title: 权限不足说清缺哪个 scope（AC-286）：通用检查与 session_background 处理函数内检查同形同
   code（INSUFFICIENT_SCOPE + details.requiredScopes），被拒仍写带 scope 的 denied 审计，判据
   server/modules/mcp-gateway/tests/mcp-insufficient-scope.test.ts
-status: ready
+status: done
 labels:
   - gap
   - defect
