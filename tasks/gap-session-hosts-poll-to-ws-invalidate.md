@@ -1,7 +1,7 @@
 ---
 id: gap-session-hosts-poll-to-ws-invalidate
 title: session-hosts 每秒轮询改为 WS 失效通知（hosts.changed {rev}）+ 慢速兜底轮询
-status: todo
+status: ready
 labels:
   - gap
 parent: null
