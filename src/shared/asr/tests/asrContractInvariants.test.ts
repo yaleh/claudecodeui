@@ -337,15 +337,52 @@ const tokenProducingAdapter: AsrAdapter = {
 };
 
 describe('the per-token declaration and its invariant', () => {
-  it('publishes false/false and remote for every shipped recogniser, and accepts a token-producing one', async () => {
+  it('publishes a well-formed declaration for every shipped recogniser and carries both kinds of recogniser', async () => {
     const providers = listProviders();
     expect(providers.length).toBeGreaterThan(0);
-    // The SHIPPED declarations, read off the registry rather than restated: every recogniser the
-    // app can actually select promises no per-token facts and runs remotely.
+
+    // WHAT THIS READS, AND WHY IT IS NOT "EVERY ROW SAYS false/false AND remote" ANY MORE. That was
+    // the reading while the registry held only HTTP clients, and it stopped being a reading of the
+    // registry the moment a recogniser that runs on this host and returns per-token confidences was
+    // registered: a literal like that does not describe the shipped declarations, it describes the
+    // shape the first three happened to have, and it would have to be edited every time a row of the
+    // other kind is added — which is the opposite of what a registry-derived assertion is for.
+    //
+    // WHAT SURVIVES IS THE DECLARATION BEING WELL-FORMED, read off each row rather than restated:
+    // both per-token facts are booleans and the locality is one of the three the vocabulary names.
+    // A row that dropped either field, or named a locality nothing knows, reds here.
+    const knownLocalities = ['remote', 'local-server', 'local-client'];
     for (const provider of providers) {
-      expect(provider.capabilities.tokens, provider.id).toEqual({ confidence: false, timestamps: false });
-      expect(provider.capabilities.locality, provider.id).toBe('remote');
+      expect(provider.capabilities.tokens, provider.id).toMatchObject({
+        confidence: expect.any(Boolean),
+        timestamps: expect.any(Boolean),
+      });
+      expect(knownLocalities, provider.id).toContain(provider.capabilities.locality);
     }
+
+    // THE SET CARRIES BOTH KINDS, and this is the assertion that keeps the two halves of the
+    // invariant exercised THROUGH the registry rather than only through the stand-in below. A
+    // registry of token-declaring rows would leave `false/false` measured by nothing; a registry of
+    // `false/false` rows would leave the token-bearing half to a fixture. Read as a property of the
+    // whole set rather than of any one provider, so adding a fifth recogniser does not require
+    // editing it — only collapsing the set back to one shape does.
+    const declaresTokens = providers.filter(
+      (provider) => provider.capabilities.tokens.confidence || provider.capabilities.tokens.timestamps,
+    );
+    expect(declaresTokens.length, 'at least one shipped recogniser promises per-token facts').toBeGreaterThan(0);
+    expect(declaresTokens.length, 'and at least one promises none').toBeLessThan(providers.length);
+    expect(
+      providers.some((provider) => provider.capabilities.locality !== 'remote'),
+      'at least one shipped recogniser runs where the audio already is',
+    ).toBe(true);
+    expect(
+      providers.some((provider) => provider.capabilities.locality === 'remote'),
+      'and at least one still reaches a service',
+    ).toBe(true);
+    console.log(
+      `token-declarations=[${providers.map((provider) => `${provider.id}:${provider.capabilities.locality}:`
+        + `${provider.capabilities.tokens.confidence ? 'confidence' : ''}${provider.capabilities.tokens.timestamps ? '+timestamps' : ''}`).join(' ')}]`,
+    );
 
     const result = await tokenProducingAdapter.transcribe(
       TOKEN_STAND_IN_REQUEST,

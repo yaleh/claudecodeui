@@ -43,6 +43,13 @@ import {
   id as openaiCompatibleId,
   transcribe as openaiCompatibleTranscribe,
 } from './list/openai-compatible/openai-compatible.asr-provider.js';
+import {
+  capabilities as sensevoiceLocalCapabilities,
+  ensureRuntime as sensevoiceLocalEnsureRuntime,
+  id as sensevoiceLocalId,
+  runtime as sensevoiceLocalRuntime,
+  transcribe as sensevoiceLocalTranscribe,
+} from './list/sensevoice-local/sensevoice-local.asr-provider.js';
 import type { TranscriptionTolerance } from './transcriptionWire.js';
 
 /** A provider id, as it is written in user-level configuration. */
@@ -177,7 +184,26 @@ export type AsrErrorCode =
   | 'NOT_CONFIGURED'
   | 'INVALID_BASE_URL'
   | 'OVERSIZE'
-  | 'UNSUPPORTED_MIME';
+  | 'UNSUPPORTED_MIME'
+  /**
+   * The recogniser this deployment selected cannot run HERE — and it is a member of its own rather
+   * than a reuse of `UPSTREAM_UNAVAILABLE`, which is the one distinction this vocabulary was missing.
+   *
+   * `UPSTREAM_UNAVAILABLE` is about a SERVICE: it answered 5xx, it never accepted the connection, the
+   * deadline passed. Every remedy it implies is a remedy at the far end — wait, retry, fix the
+   * account. This member is about THIS HOST: the model directory is unset or does not hold the pinned
+   * weights, the patched runtime is not the one on `PYTHONPATH`, no engine was wired at all. Nothing
+   * at the far end is wrong, because in that case there is no far end; the remedy is entirely local
+   * and an operator reads a different sentence for it. Folding the two together would tell a user to
+   * retry a request that cannot succeed until the machine is fixed, and would leave
+   * `GET /api/voice/health` unable to say which of the two it was reporting.
+   *
+   * IT IS NOT A FALLBACK TRIGGER. A deployment that reaches this code answers with it; it does not
+   * quietly route the audio to another recogniser. For a `locality: 'local-server'` provider the
+   * whole reason the user selected it is that the audio does not leave the host, so a substitution
+   * would send it somewhere the user did not choose.
+   */
+  | 'ENGINE_UNAVAILABLE';
 
 /**
  * One recognised token: the piece of text, and the per-token facts a token-aware recogniser can
@@ -383,6 +409,7 @@ export const ASR_ERROR_CODE_ALIGNMENT: Readonly<Record<AsrErrorCode, true>> = {
   INVALID_BASE_URL: true,
   OVERSIZE: true,
   UNSUPPORTED_MIME: true,
+  ENGINE_UNAVAILABLE: true,
 };
 
 /** Every member of the vocabulary, in the order `ASR_ERROR_CODE_ALIGNMENT` declares them. */
@@ -607,6 +634,29 @@ export type AsrCredentialFields = {
   defaultModel?: string;
 };
 
+/**
+ * What a caller can learn about a provider's OWN RUNTIME without running it.
+ *
+ * WHY THIS EXISTS, AND WHY IT IS NOT `AsrInvocation`. Every adapter before the fourth is an HTTP
+ * client, and for those "is this provider ready" is a question about the USER'S SETTINGS: an address
+ * and a key, read off a stored document, answered by `voice.service.ts` without touching the network.
+ * A recogniser that runs ON THIS HOST has no such document. Whether it is ready is a fact about this
+ * machine — is the model directory there, is the pinned build the one on the path, did the process
+ * come up — and no amount of reading the user's settings can answer it. The first three fields below
+ * are therefore the shape of an answer that only a local provider can give, and the reason the
+ * service asks the ADAPTER rather than a table keyed by provider id.
+ *
+ * `buildId` IS ON THE AVAILABLE ARM AND NOT THE UNAVAILABLE ONE, deliberately. A local engine's text
+ * is a property of the exact artifacts that produced it — the engine version, the model weights, the
+ * capability the patch added — so a reading taken here has to be attributable to a build; an engine
+ * that cannot run has no build to name and says why instead. That asymmetry is the type doing the
+ * work: a caller cannot report a build id for an engine that is not available, because the compiler
+ * does not hand it one.
+ */
+export type AsrRuntimeStatus =
+  | { available: true; state: 'stopped' | 'starting' | 'ready'; buildId: string }
+  | { available: false; state: 'unavailable'; reason: string };
+
 /** What a provider module must supply to be registered. */
 export type AsrAdapter = {
   id: AsrProviderId;
@@ -642,6 +692,25 @@ export type AsrAdapter = {
    * settings key is a one-line change in that provider's module and nothing else.
    */
   credentials?: AsrCredentialFields;
+  /**
+   * What this provider's own runtime can say about itself WITHOUT being run, or absent for a
+   * provider whose readiness is a property of the user's settings rather than of this machine.
+   *
+   * SYNCHRONOUS ON PURPOSE. It is read on the health path, which must answer in a request and must
+   * not be able to hang on a model load; a provider that has nothing to say synchronously simply
+   * omits this field and the server keeps the answer it has always given for it.
+   */
+  runtime?: () => AsrRuntimeStatus;
+  /**
+   * The one call that may pay for bringing this provider's runtime up, or absent for a provider that
+   * has no runtime to bring up.
+   *
+   * IT IS SEPARATE FROM `runtime` BECAUSE THE TWO QUESTIONS HAVE DIFFERENT COSTS. "Is it ready" is
+   * cheap and must stay cheap; "make it ready" can take as long as a quarter-gigabyte model takes to
+   * load, so only a caller that has decided it can wait asks it. Keeping them one method would force
+   * every status read to be either slow or a lie.
+   */
+  ensureRuntime?: () => Promise<AsrRuntimeStatus>;
   transcribe(request: AsrRequest, invocation: AsrInvocation): Promise<AsrResult>;
 };
 
@@ -758,6 +827,29 @@ const REGISTERED: readonly AsrAdapter[] = [
     allowedBaseUrl: dashscopeOmniAllowedBaseUrl,
     credentials: dashscopeOmniCredentials,
     transcribe: dashscopeOmniTranscribe,
+  },
+  // APPENDED LAST, for the reason the row above gives and one of its own.
+  //
+  // The shared half: `listProviders()[0]` is the recogniser an id-less deployment resolves to and the
+  // row the client reads a trim decision off (see the comment on `REGISTERED`), so a new selectable
+  // provider goes at the END and the shipped default does not move.
+  //
+  // THIS ROW'S OWN HALF IS THAT IT IS NOT REACHED THE SAME WAY AT ALL. The three above are HTTP
+  // clients whose address, key and model the user stores; this one runs on this host, over a pipe to
+  // a Python process, and has no address to store. That is why this row carries two fields no other
+  // row does — `runtime` and `ensureRuntime` — and why it declares no `wire` (there is no wire to
+  // name), no `allowedBaseUrl` (there is no address to hold to a rule) and no `credentials` (there is
+  // no key, which is the declaration the settings form reads to decide not to render one).
+  //
+  // The two new fields are registered HERE, by name, exactly as every other provider's are, and the
+  // server reads them off whichever adapter it has already selected — so a second local engine is a
+  // declaration in its own module and not a branch in the service.
+  {
+    id: sensevoiceLocalId,
+    capabilities: sensevoiceLocalCapabilities,
+    transcribe: sensevoiceLocalTranscribe,
+    runtime: sensevoiceLocalRuntime,
+    ensureRuntime: sensevoiceLocalEnsureRuntime,
   },
 ];
 

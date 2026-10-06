@@ -1,11 +1,15 @@
+import path from 'node:path';
+
 import multer from 'multer';
 
 import { voiceSettingsDb } from '@/modules/database/index.js';
 import type { VoiceLogPort } from '@/shared/types.js';
+import { findApplicationRoot, getModuleDirectory } from '@/shared/utils.js';
 
 // The provider address book, read here for the one figure the transport layer can know without
 // knowing which provider will serve the request: the ceiling above every declared budget.
 import { listProviders } from '../../../shared/asr/asrRegistry.js';
+import { installSensevoiceEngine } from '../../../shared/asr/list/sensevoice-local/sensevoice-local.asr-provider.js';
 
 import {
   announceVoiceCapture,
@@ -24,6 +28,13 @@ import {
 } from './voice-data.js';
 import { voiceLexicon } from './voice-lexicon.js';
 import { createVoiceService, createVoiceSettingsService } from './voice.service.js';
+import {
+  createSensevoiceWorker,
+  nodeSensevoiceSpawn,
+  readSensevoiceManifest,
+  sensevoiceLogFrom,
+  unavailableSensevoiceEngine,
+} from './sensevoice-worker.js';
 
 /**
  * Where this deployment's own voice lines go.
@@ -35,6 +46,16 @@ import { createVoiceService, createVoiceSettingsService } from './voice.service.
  * invariant board), so this binding changes nothing for them.
  */
 const voiceLog: VoiceLogPort = console;
+
+/**
+ * The same output, in the shape the SenseVoice manager asks for.
+ *
+ * DERIVED ONCE RATHER THAN AT EACH SITE, because the two places this module says something about the
+ * engine — the line below when the manifest cannot be read, and the manager's own log when the worker
+ * starts or fails — have to reach the same stream, and a fallback rule written twice is a fallback
+ * rule that can differ. See `sensevoiceLogFrom` for why the translation exists at all.
+ */
+const sensevoiceLog = sensevoiceLogFrom(voiceLog);
 
 /**
  * THE ONE READ of `VOICE_CAPTURE` in this process, and the one place it is announced.
@@ -109,6 +130,108 @@ const voiceDataDirectory = resolveVoiceDataDir(process.env.VOICE_DATA_DIR, proce
 voiceLog.info(voiceDataDirStartupLine(voiceDataDirectory));
 
 /**
+ * How long any one voice request may take, when the deployment names no figure.
+ *
+ * DECLARED HERE, ABOVE THE SENSEVOICE BLOCK, rather than beside the service that reads it below.
+ * The on-host recogniser's own timeout defaults to this one, and a default that read a `const` from
+ * further down the module would be in its temporal dead zone at module evaluation — the block below
+ * runs eagerly, so "which line comes first" is a correctness property here and not a style choice.
+ * The service's own use of the same figure is unaffected: this is the same binding, moved up.
+ */
+const DEFAULT_VOICE_TIMEOUT_MS = 300_000;
+const parsedTimeoutMs = Number(process.env.VOICE_TIMEOUT_MS);
+const voiceTimeoutMs = Number.isFinite(parsedTimeoutMs) && parsedTimeoutMs > 0
+  ? parsedTimeoutMs
+  : DEFAULT_VOICE_TIMEOUT_MS;
+
+/**
+ * THE ONE READ of the `SENSEVOICE_*` variables in this process, and the one place the on-host
+ * recogniser's engine is built.
+ *
+ * IT FOLLOWS THE RULE THIS FILE ALREADY KEEPS FOR `VOICE_CAPTURE_DIR` AND `VOICE_DATA_DIR`: the
+ * environment belongs to the composition root, so "where are the weights, which interpreter runs
+ * them, how many requests may be in flight" has one answer that the deployment's own configuration
+ * produced. `createSensevoiceWorker` reads no variable itself — every value below is handed to it —
+ * which is what lets a test build a worker over a fake child without mutating the process first.
+ *
+ * IT SPAWNS NOTHING. This runs at module evaluation and only stats two files; the Python process
+ * appears when a request actually selects `sensevoice-local` (see `createSensevoiceWorker`). A
+ * deployment that never uses this recogniser therefore pays two `statSync` calls and no memory.
+ *
+ * ABSENT CONFIGURATION IS A STATE, NOT A CRASH. `SENSEVOICE_MODEL_DIR` unset is the ordinary case
+ * for every deployment that does not use this recogniser, and it is reported rather than thrown:
+ * the engine is installed in its unavailable form with the reason, `GET /api/voice/health` answers
+ * `ENGINE_UNAVAILABLE` with that sentence, and nothing about the other three providers changes.
+ */
+const sensevoiceApplicationRoot = findApplicationRoot(getModuleDirectory(import.meta.url));
+
+/** How many requests one worker serves at once, when the deployment names no figure. */
+const DEFAULT_SENSEVOICE_CONCURRENCY = 2;
+const parsedSensevoiceConcurrency = Number(process.env.SENSEVOICE_CONCURRENCY);
+const sensevoiceConcurrency =
+  Number.isInteger(parsedSensevoiceConcurrency) && parsedSensevoiceConcurrency >= 1
+    ? parsedSensevoiceConcurrency
+    : DEFAULT_SENSEVOICE_CONCURRENCY;
+
+const parsedSensevoiceTimeoutMs = Number(process.env.SENSEVOICE_TIMEOUT_MS);
+const sensevoiceTimeoutMs =
+  Number.isFinite(parsedSensevoiceTimeoutMs) && parsedSensevoiceTimeoutMs > 0
+    ? parsedSensevoiceTimeoutMs
+    : voiceTimeoutMs;
+
+const sensevoiceEngine = ((): ReturnType<typeof createSensevoiceWorker> | null => {
+  const modelDir = (process.env.SENSEVOICE_MODEL_DIR || '').trim();
+  const python = (process.env.SENSEVOICE_PYTHON || '').trim() || 'python3';
+  const pythonPath = (process.env.SENSEVOICE_PYTHONPATH || '').trim() || null;
+  const workerPath = (process.env.SENSEVOICE_WORKER || '').trim()
+    || path.join(sensevoiceApplicationRoot, 'scripts', 'sensevoice', 'worker.py');
+  const manifestPath = (process.env.SENSEVOICE_MANIFEST || '').trim()
+    || path.join(sensevoiceApplicationRoot, 'scripts', 'sensevoice', 'manifest.json');
+
+  let manifest;
+  try {
+    manifest = readSensevoiceManifest(manifestPath);
+  } catch (error) {
+    // A manifest that cannot be read leaves the engine's IDENTITY unknown, and an engine whose
+    // identity is unknown is not one this deployment may report a build for. It is installed in its
+    // unavailable form carrying the parse failure, rather than omitted — see
+    // `unavailableSensevoiceEngine` for why the reason has to survive.
+    const reason = `the SenseVoice manifest at ${manifestPath} could not be read: ${String(error)}`;
+    sensevoiceLog.warn(`sensevoice: ${reason}`);
+    installSensevoiceEngine(unavailableSensevoiceEngine(reason));
+    return null;
+  }
+
+  const engine = createSensevoiceWorker({
+    manifest,
+    modelDir: modelDir === '' ? null : modelDir,
+    python,
+    pythonPath,
+    workerPath,
+    concurrency: sensevoiceConcurrency,
+    timeoutMs: sensevoiceTimeoutMs,
+    spawn: nodeSensevoiceSpawn,
+    log: sensevoiceLog,
+  });
+  installSensevoiceEngine(engine);
+  return engine;
+})();
+
+// ANNOUNCED, like the two directories above and for the same reason: whether this recogniser can
+// run at all is a property of the deployment, and the line is the only place an operator learns it
+// without making a request. It carries the model directory and the pinned build id — both of which
+// are already in the process's own configuration — and never a transcript.
+{
+  const state = sensevoiceEngine?.status() ?? null;
+  const modelDir = (process.env.SENSEVOICE_MODEL_DIR || '').trim();
+  voiceLog.info(
+    state !== null && state.available
+      ? `sensevoice engine: ready to start (build ${state.buildId}, model dir ${modelDir || '<unset>'})`
+      : `sensevoice engine: unavailable (${state !== null && !state.available ? state.reason : 'the manifest could not be read'})`,
+  );
+}
+
+/**
  * The instant this process came up, for the one figure the attempt ids rest on.
  *
  * `Date.now()` AT MODULE EVALUATION is the closest this side has to "when did this instance start":
@@ -120,12 +243,6 @@ voiceLog.info(voiceDataDirStartupLine(voiceDataDirectory));
  * identity, and the factory is handed the token it should mint ids from.
  */
 const voiceStartedAtMs = Date.now();
-
-const DEFAULT_VOICE_TIMEOUT_MS = 300_000;
-const parsedTimeoutMs = Number(process.env.VOICE_TIMEOUT_MS);
-const voiceTimeoutMs = Number.isFinite(parsedTimeoutMs) && parsedTimeoutMs > 0
-  ? parsedTimeoutMs
-  : DEFAULT_VOICE_TIMEOUT_MS;
 
 const voiceService = createVoiceService({
   defaults: {

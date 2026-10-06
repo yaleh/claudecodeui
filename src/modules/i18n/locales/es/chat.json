@@ -122,6 +122,7 @@
       "INVALID_BASE_URL": "La URL base del proveedor de voz no es válida — corrígela en los ajustes del proveedor de voz.",
       "OVERSIZE": "La grabación es demasiado grande para subirla — graba un fragmento más corto y vuelve a intentarlo.",
       "UNSUPPORTED_MIME": "Este formato de audio no es compatible — prueba con otro archivo o graba con el micrófono.",
+      "ENGINE_UNAVAILABLE": "El motor de voz local no está disponible en este servidor — comprueba que esté instalado o elige otro proveedor de voz.",
       "unknown": "La transcripción ha fallado — vuelve a intentarlo o revisa los ajustes del proveedor de voz."
     }
   },

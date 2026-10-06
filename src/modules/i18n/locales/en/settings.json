@@ -87,7 +87,11 @@
     "dataClear": "Clear voice data",
     "dataClearConfirm": "Yes, delete everything",
     "dataClearCancel": "Cancel",
-    "dataCleared": "Deleted {{count}} recording(s)."
+    "dataCleared": "Deleted {{count}} recording(s).",
+    "providerLocalTitle": "{{provider}} runs on this server",
+    "providerLocalNotice": "This recogniser runs on the machine hosting this server. It needs no key and no address — the audio never leaves the host — so the shared backend fields below do not apply to it.",
+    "providerBuild": "Engine build: {{buildId}}",
+    "providerUnavailable": "This recogniser cannot run here: {{reason}}"
   },
   "quickSettings": {
     "title": "Quick Settings",

@@ -34,6 +34,17 @@
  * declaration implies. Each case is also namespaced by the provider it ran against, so with two
  * registered adapters no case can be satisfied by the other adapter's reading of it (AC8).
  *
+ * ...AND ONE KIND OF ADAPTER SENDS NO REQUEST AT ALL, so "per wire" is not the whole vocabulary.
+ * `AsrCapabilities.locality` says where the audio goes, and a provider that declares it stays on
+ * this host (`'local-server'`, `'local-client'`) speaks no HTTP shape — it hands the bytes to
+ * something running here. That declaration selects a SECOND case set (`NO_WIRE_CASES`, see
+ * `runNoWireCases`) which measures the same guards one level down — the adapter's own byte ceiling,
+ * the line between refused and let through, the budget covering the whole request — plus the reading
+ * the wire set cannot take at all: the injected transport, the only way out of this module, is never
+ * called. The branch is read off the declaration and never off a provider id, and which inventory a
+ * provider owes follows from the same field, so a correct adapter of either kind is held to the list
+ * its own declaration implies.
+ *
  * THE VOCABULARY IS A TABLE WITH ONE ROW PER DECLARED WIRE (`WIRE_MODELS`), NOT A CLOSED SET WIDER
  * THAN IT. It used to be the latter — `wire === 'multipart' ? 'multipart' : 'inline-json'` — and
  * the fold was a defect with a live cost: a third adapter declaring `'chat-audio'` was scored as
@@ -224,6 +235,16 @@ function headerValue(init, name) {
  * four times: the parts join to this string, and the expectation below is this string.
  */
 const TRANSCRIPT_TEXT = 'hello world';
+
+/**
+ * The code a recogniser this process runs answers with when no engine has been installed into it.
+ *
+ * It is the seam's own vocabulary (`AsrErrorCode`), and it is what an ACCEPTED request looks like
+ * from here — the guards let it through and there is nothing on this host to run it. Spelled once,
+ * so the no-wire cases and the failure they discriminate against (`OVERSIZE`, `UNSUPPORTED_MIME`)
+ * cannot drift apart in three string literals.
+ */
+const ENGINE_UNAVAILABLE = 'ENGINE_UNAVAILABLE';
 
 /**
  * @typedef {{ credentialHeader: string,
@@ -448,6 +469,80 @@ function base64Length(byteLength) {
 }
 
 /**
+ * Whether this adapter's transcription reaches a wire at all, read off its own declaration.
+ *
+ * THE DECLARATION'S ANSWER, never a list of ids kept here — the same rule the wire vocabulary
+ * follows. A provider that declares `locality: 'remote'` sends its bytes to a service, and every
+ * case below is a statement about the request it sends: the header its key rides in, the body that
+ * carries the audio, the answer envelope read back. A recogniser this process runs itself, over a
+ * pipe to a model loaded on this host, sends no request — and asking the wire cases of it would
+ * score an absent request against a golden body and report the absence as the defect.
+ *
+ * `'local-client'` COUNTS AS NO WIRE TOO, for the same reason: a recogniser the BROWSER runs reaches
+ * no wire from here either.
+ *
+ * @param {any} adapter
+ * @returns {boolean}
+ */
+function reachesAWire(adapter) {
+  return adapter?.capabilities?.locality === 'remote';
+}
+
+/**
+ * The margin an affordable audio leaves under a no-wire provider's budget.
+ *
+ * A margin rather than the exact bound: the case has to be a request the guard must NOT refuse, and
+ * a size one byte under the line would make "the guard accepted it" and "the guard has an off-by-one"
+ * the same reading. It is also what the context case is sized against — see `CONTEXT_PUSH_BYTES`.
+ */
+const AFFORDABLE_MARGIN_BYTES = 4096;
+
+/**
+ * The context a no-wire provider's request carries in the "is the budget the WHOLE request" case.
+ *
+ * Twice the margin above, so the case discriminates: a declaration that acknowledges the context
+ * has it counted and this pushes the otherwise-affordable audio over the line, while a declaration
+ * that acknowledges nothing must leave the request exactly where it was. A budget-sized string — what
+ * the wire branch uses — is unnecessary here: for a provider that reaches no wire the hint's own
+ * BYTES are the only thing that could matter, and tens of megabytes of transient allocation would buy
+ * nothing.
+ */
+const CONTEXT_PUSH_BYTES = AFFORDABLE_MARGIN_BYTES * 2;
+
+/**
+ * A container the declaration accepts, so the size cases are refused (or not) for the reason they
+ * are about rather than by the mime guard standing in front of them.
+ *
+ * Read out of the declaration rather than written in: the first entry a provider declares is by
+ * construction one it accepts, and a written-in `'audio/webm;codecs=opus'` would red a provider that
+ * legitimately narrowed its set.
+ *
+ * @param {any} capabilities
+ * @returns {string}
+ */
+function firstDeclaredMime(capabilities) {
+  const declared = capabilities?.acceptsMime;
+  return Array.isArray(declared) && typeof declared[0] === 'string' ? declared[0] : 'application/octet-stream';
+}
+
+/**
+ * What an audio of `byteLength` bytes costs the budget of a provider that reaches NO wire: its own
+ * bytes.
+ *
+ * A named function rather than the identity inlined at the call site, because it is the second answer
+ * to the question `measuredBytes` answers for a wire and the two must be read side by side: a
+ * recogniser reached over a pipe never encodes the audio, so sizing its inputs with the inline wire's
+ * base64 arithmetic would hand it an audio its own guard correctly accepts — and the reading would
+ * report the guard working as the guard failing.
+ *
+ * @param {number} byteLength
+ * @returns {number}
+ */
+function noWireMeasuredBytes(byteLength) {
+  return byteLength;
+}
+
+/**
  * The wire an adapter declared, VERBATIM. The tag is optional on the contract and an absent one
  * means the inline shape, which is the same default the registry documents — read here rather than
  * inferred from the body, because a probe that scored an adapter against whatever it happened to
@@ -663,6 +758,26 @@ const EXPECTED_CASES = [
 ];
 
 /**
+ * The cases a provider that reaches NO WIRE is scored on, and the inventory `requireAll` holds it to.
+ *
+ * THE THREE OVERLAPPING IDS ARE THE SAME THREE INVARIANTS, not a copy of the wire branch's list: the
+ * budget is a line the adapter draws for itself, an affordable request is not refused, and the budget
+ * covers the WHOLE request rather than the audio alone. What changes is the reading an ACCEPTED
+ * request produces — there is no wire to carry it, so it comes back as the engine's absence — and
+ * that difference is asserted in exactly one place below rather than smuggled into the ids.
+ *
+ * The fourth id is this branch's own, and it is the reading the wire branch cannot take: the audio
+ * leaves this host zero times. `audio-stays-on-host` is therefore NOT in `EXPECTED_CASES` — a remote
+ * provider is never asked for it, and a local one is never let off it.
+ */
+const NO_WIRE_CASES = [
+  'oversize-refused',
+  'budget-audio-alone',
+  'budget-audio-plus-context',
+  'audio-stays-on-host',
+];
+
+/**
  * The positive control for the hint rules: a text that IS acknowledged must reach the wire. It is
  * the same request as the prompt case with the one hint the declaration accepts, so "the prompt is
  * absent" cannot be satisfied by a builder that puts nothing anywhere.
@@ -681,15 +796,21 @@ const CONTEXT_TEXT = 'quarterly revenue recognition policy';
 async function runCases(adapter, capabilities, ledger, providerId) {
   /** @param {string} id @returns {string} */
   const scoped = (id) => `${providerId}:${id}`;
+  const reachesTransport = reachesAWire(adapter);
   const wire = wireOf(adapter);
   const budget = capabilities.maxInlineRequestBytes;
-  ledger.record(scoped('wire'), wire);
+  ledger.record(scoped('reaches-a-wire'), reachesTransport);
+  ledger.record(scoped('wire'), reachesTransport ? wire : 'none');
   // A declaration the vocabulary has no row for is an EMPTY READING, not a green one. Every case
   // below is an expectation about a request that exists in the declared shape, so scoring an
   // unmodelled shape against a modelled one would measure a request nobody sent — the fault the
   // `WIRE_MODELS` table exists to remove. Reported by name and then stopped, which leaves the cases
   // un-run and therefore `EMPTY_READING` below: "nothing was looked at" stays distinguishable.
-  if (WIRE_MODELS[wire] === undefined) {
+  //
+  // ASKED ONLY OF A PROVIDER THAT REACHES A WIRE. A recogniser this process runs speaks no shape at
+  // all, so it has no tag to model and no `wireOf` default to be folded onto — its cases are the
+  // no-wire set below, which reads the declaration's locality and never its wire.
+  if (reachesTransport && WIRE_MODELS[wire] === undefined) {
     ledger.fail(
       'WIRE_NOT_MODELLED',
       `'${providerId}' declares wire '${wire}', which this probe has no model for (it models ` +
@@ -698,11 +819,16 @@ async function runCases(adapter, capabilities, ledger, providerId) {
     );
     return;
   }
-  const transcriptBody = responseCases(wire)[0].body;
+  const transcriptBody = reachesTransport ? responseCases(wire)[0].body : '';
   ledger.record(scoped('budget-bytes'), budget);
 
   // ── AC6: the declaration is a real one, with every field present and of the declared kind ──
-  for (const field of ['acceptsMime', 'maxInlineRequestBytes', 'oversize', 'honors', 'billing', 'pauseCues', 'style', 'oneShot']) {
+  //
+  // `tokens` and `locality` are on this list because they are the two the recognisers DIFFER on —
+  // the per-token promise, and where the audio goes — and a declaration that dropped either would
+  // otherwise be measured by nothing at all: the wire cases read the rest of the declaration, and
+  // this loop is what makes a missing field a named failure rather than a silent `undefined`.
+  for (const field of ['acceptsMime', 'maxInlineRequestBytes', 'oversize', 'honors', 'billing', 'pauseCues', 'style', 'oneShot', 'tokens', 'locality']) {
     ledger.record(scoped(`capabilities.${field}`), capabilities[field]);
     if (capabilities[field] === undefined) {
       ledger.fail('CAPABILITIES_MISSING_FIELD', `the resolved declaration for '${providerId}' has no '${field}'`);
@@ -717,6 +843,14 @@ async function runCases(adapter, capabilities, ledger, providerId) {
       'OVERSIZE_POLICY_NOT_REJECT',
       `'${providerId}' declares oversize='${String(capabilities.oversize)}'; the first version only allows 'reject' — an over-budget request must be refused here, not handed to the service to refuse`,
     );
+  }
+
+  // ── the branch: the cases above are statements about a request, and only a provider that sends
+  //    one has any. The no-wire set measures the same guards one level down, plus the property the
+  //    wire branch cannot state: the audio never leaves. ─────────────────────────────────────
+  if (!reachesTransport) {
+    await runNoWireCases(adapter, capabilities, ledger, providerId, budget);
+    return;
   }
 
   // ── AC1: over budget ⇒ OVERSIZE, and the stand-in's counter must read zero ────────────────
@@ -954,6 +1088,183 @@ async function runCases(adapter, capabilities, ledger, providerId) {
   }
 }
 
+// ── the no-wire cases ────────────────────────────────────────────────────────────────────────
+
+/**
+ * The cases a provider that reaches NO WIRE can honestly be scored on.
+ *
+ * WHY THIS IS A SEPARATE SET AND NOT A FLAG INSIDE `runCases`. Every case in the wire set is a claim
+ * about a REQUEST — which header the key rides in, what the body carries, what the answer envelope
+ * parses to, whether a hint's text is on the wire — and a recogniser reached over a pipe to a local
+ * process has no request at all. Driving the wire set against it would produce a page of reds that
+ * describe the SHAPE OF THE SEAM rather than a defect in the adapter, which is exactly what this
+ * probe's own design statement forbids. Three of the wire set's four groups survive the absence and
+ * are read here in the provider's own terms; the fourth (`hints-on-the-wire`, a statement about a
+ * body) has no honest reading and is not asked for.
+ *
+ * WHAT IS MEASURED, one mechanical reading each:
+ *
+ *   · the guards still run, and they still run FIRST — an over-budget request is refused with code
+ *     OVERSIZE and costs the injected transport nothing (AC1's invariant, one level down: the
+ *     adapter's own bytes are the charge, because nothing encodes them);
+ *   · the guards are a LINE, not a wall — an audio just inside the declared budget is NOT refused;
+ *   · the budget covers the WHOLE request, read from both sides of the `honors` declaration exactly
+ *     as the wire branch reads it;
+ *   · the audio leaves this host zero times — the count on the injected transport, which is the only
+ *     way out of this module. THIS IS THE ONE READING THE WIRE BRANCH CANNOT TAKE, and it is the
+ *     whole promise `locality: 'local-server'` makes.
+ *
+ * AN ACCEPTED REQUEST READS AS THE ENGINE'S ABSENCE. This probe installs no engine — it is the
+ * operator check, and the thing under test is the adapter, not a host's model — so a request the
+ * guards let through comes back as `ENGINE_UNAVAILABLE` with zero calls. That is a DIFFERENT reading
+ * from a refusal (`OVERSIZE`, `UNSUPPORTED_MIME`), which is the whole discrimination these cases
+ * need: if the guard wrongly refused the affordable audio, the code says which guard did it.
+ *
+ * @param {any} adapter
+ * @param {any} capabilities
+ * @param {Ledger} ledger
+ * @param {string} providerId
+ * @param {number} budget
+ */
+async function runNoWireCases(adapter, capabilities, ledger, providerId, budget) {
+  /** @param {string} id @returns {string} */
+  const scoped = (id) => `${providerId}:${id}`;
+  const mimeType = firstDeclaredMime(capabilities);
+  ledger.record(scoped('mime-type-used'), mimeType);
+
+  // ── the guard is the adapter's OWN ceiling, drawn in the bytes themselves ───────────────────
+  const oversizeBytes = budget + 1;
+  const oversizeStandIn = makeStandIn('');
+  ledger.record(scoped('oversize-audio-bytes'), oversizeBytes);
+  ledger.record(scoped('oversize-measured-bytes'), noWireMeasuredBytes(oversizeBytes));
+  if (noWireMeasuredBytes(oversizeBytes) <= budget) {
+    ledger.fail(
+      'CASE_INPUT_STALE',
+      `'${providerId}': the oversize input no longer exceeds the declared budget of ${budget} B in the arithmetic a provider that reaches no wire uses — the bytes themselves`,
+    );
+  }
+  const oversizeOutcome = await callAdapter(
+    adapter,
+    { audio: { bytes: new Uint8Array(oversizeBytes), mimeType, fileName: 'oversize.wav' } },
+    invocationFor(oversizeStandIn),
+    ledger,
+    scoped('oversize-refused'),
+  );
+  if (oversizeOutcome !== null) {
+    ledger.record(scoped('oversize-code'), oversizeOutcome.code);
+    ledger.record(scoped('oversize-calls'), oversizeStandIn.count());
+    if (oversizeOutcome.ok || oversizeOutcome.code !== 'OVERSIZE') {
+      ledger.fail(
+        'OVERSIZE_NOT_REJECTED',
+        `'${providerId}': an over-budget request returned ${JSON.stringify(oversizeOutcome)} instead of a failure with code OVERSIZE — this adapter sets its own ceiling, so nothing downstream will refuse it`,
+      );
+    }
+    if (oversizeStandIn.count() !== 0) {
+      ledger.fail(
+        'OVERSIZE_NOT_ZERO_REQUEST',
+        `'${providerId}': an over-budget request cost ${oversizeStandIn.count()} transport call(s) — the guard runs after the bytes are handed on, so they left`,
+      );
+    }
+  }
+
+  // ── the same audio, just inside the line: NOT refused ───────────────────────────────────────
+  const affordableBytes = Math.max(1, budget - AFFORDABLE_MARGIN_BYTES);
+  const contextText = 'x'.repeat(CONTEXT_PUSH_BYTES);
+  const contextHonored = capabilities.honors?.context === true;
+  ledger.record(scoped('affordable-audio-bytes'), affordableBytes);
+  ledger.record(scoped('affordable-measured-bytes'), noWireMeasuredBytes(affordableBytes));
+  ledger.record(scoped('context-bytes'), contextText.length);
+  ledger.record(scoped('context.honored'), contextHonored);
+  // EACH HALF'S PREMISE IS CHECKED WHERE IT IS USED, rather than one guard for both. The affordable
+  // input must be inside the budget, or "it was not refused" would say nothing; and if the
+  // declaration acknowledges the context, the context must be able to push that same audio over, or
+  // the honored half of the pair would be measuring a request that never crossed the line.
+  if (noWireMeasuredBytes(affordableBytes) >= budget) {
+    ledger.fail(
+      'CASE_INPUT_STALE',
+      `'${providerId}': the 'affordable' input is not inside the declared budget of ${budget} B in the arithmetic a provider that reaches no wire uses, so the pair below would prove nothing`,
+    );
+  }
+  if (contextHonored && noWireMeasuredBytes(affordableBytes) + CONTEXT_PUSH_BYTES <= budget) {
+    ledger.fail(
+      'CASE_INPUT_STALE',
+      `'${providerId}': the declaration acknowledges the context, but this case's context (${CONTEXT_PUSH_BYTES} B) cannot push the affordable audio past the declared budget of ${budget} B — the case would pass for a request that never crossed the line`,
+    );
+  }
+
+  const aloneStandIn = makeStandIn('');
+  const aloneOutcome = await callAdapter(
+    adapter,
+    { audio: { bytes: new Uint8Array(affordableBytes), mimeType, fileName: 'alone.wav' } },
+    invocationFor(aloneStandIn),
+    ledger,
+    scoped('budget-audio-alone'),
+  );
+  if (aloneOutcome !== null) {
+    ledger.record(scoped('budget-audio-alone-code'), aloneOutcome.code);
+    ledger.record(scoped('budget-audio-alone-calls'), aloneStandIn.count());
+    if (aloneOutcome.ok || aloneOutcome.code !== ENGINE_UNAVAILABLE) {
+      ledger.fail(
+        'AUDIO_ALONE_REFUSED',
+        `'${providerId}': an audio inside the declared budget was not let through the guards (${JSON.stringify(aloneOutcome)}, ${aloneStandIn.count()} call(s)) — expected the engine's own absence, since this probe installs none; OVERSIZE or UNSUPPORTED_MIME here means the guard refused a request it declares it accepts`,
+      );
+    }
+  }
+
+  // ── the budget is the WHOLE request, read from both sides of the declaration ────────────────
+  const withContextStandIn = makeStandIn('');
+  const withContextOutcome = await callAdapter(
+    adapter,
+    {
+      audio: { bytes: new Uint8Array(affordableBytes), mimeType, fileName: 'with-context.wav' },
+      hints: { context: contextText },
+    },
+    invocationFor(withContextStandIn),
+    ledger,
+    scoped('budget-audio-plus-context'),
+  );
+  if (withContextOutcome !== null) {
+    ledger.record(scoped('budget-audio-plus-context-code'), withContextOutcome.code);
+    ledger.record(scoped('budget-audio-plus-context-calls'), withContextStandIn.count());
+    if (contextHonored) {
+      if (withContextOutcome.ok || withContextOutcome.code !== 'OVERSIZE') {
+        ledger.fail(
+          'BUDGET_IS_AUDIO_ONLY',
+          `'${providerId}': the same audio that was let through alone returned ${JSON.stringify(withContextOutcome)} once ${contextText.length} B of context joined it — the declaration acknowledges the context, so the budget is the whole request and the context is what pushed it over`,
+        );
+      }
+    } else if (withContextOutcome.ok || withContextOutcome.code !== ENGINE_UNAVAILABLE) {
+      // The mirror reading: a hint the declaration does not acknowledge is not handed to the engine
+      // and its bytes are not counted against the budget either. An adapter that sized a hint it
+      // never sends would refuse a recording this host can transcribe.
+      ledger.fail(
+        'UNHONORED_HINT_COUNTED_AGAINST_BUDGET',
+        `'${providerId}': the same audio that was let through alone returned ${JSON.stringify(withContextOutcome)} once a context the declaration does not acknowledge joined it — an unacknowledged hint is not part of the request, so it cannot be what pushes the request over the budget`,
+      );
+    }
+  }
+
+  // ── the property the wire branch cannot state: the audio never leaves this host ─────────────
+  const hostStandIn = makeStandIn('');
+  const hostOutcome = await callAdapter(
+    adapter,
+    { audio: { bytes: new Uint8Array(2048), mimeType, fileName: 'stays.wav' } },
+    invocationFor(hostStandIn),
+    ledger,
+    scoped('audio-stays-on-host'),
+  );
+  if (hostOutcome !== null) {
+    ledger.record(scoped('audio-stays-on-host.code'), hostOutcome.code);
+    ledger.record(scoped('audio-stays-on-host.transport-calls'), hostStandIn.count());
+    if (hostStandIn.count() !== 0) {
+      ledger.fail(
+        'AUDIO_LEFT_THE_HOST',
+        `'${providerId}' declares locality='${String(capabilities.locality)}', but transcribing one clip cost the injected transport ${hostStandIn.count()} call(s) — the transport is the only way out of this module, so the recording left the machine the declaration says it never leaves`,
+      );
+    }
+  }
+}
+
 // ── main ─────────────────────────────────────────────────────────────────────────────────────
 
 /** @returns {Promise<number>} the process exit code */
@@ -1047,7 +1358,13 @@ async function main() {
           await runCases(resolved, resolved.capabilities, ledger, String(providerId));
           // Scoped to THIS provider: with two adapters registered, an unscoped inventory would let
           // one provider's reading of a case stand in for the other's missing one (AC8).
-          ledger.requireAll(EXPECTED_CASES.map((id) => `${String(providerId)}:${id}`));
+          //
+          // WHICH INVENTORY IS THE DECLARATION'S ANSWER TOO, not a second branch on a provider id:
+          // a recogniser that reaches a wire owes the request-shaped cases, one that reaches none
+          // owes the set readable without a request. Holding either to the other's list would print
+          // an inventory mismatch for a provider that was measured correctly.
+          const inventory = reachesAWire(resolved) ? EXPECTED_CASES : NO_WIRE_CASES;
+          ledger.requireAll(inventory.map((id) => `${String(providerId)}:${id}`));
         } else {
           ledger.fail(
             'EMPTY_READING',

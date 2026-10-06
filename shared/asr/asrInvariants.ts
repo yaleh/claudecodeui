@@ -924,6 +924,82 @@ function replaceJsonLiteral(source: string, value: string, token: string): strin
  */
 const THINKING_MODEL = 'gemini-2.5-flash-lite';
 
+/**
+ * Whether this provider's transcription reaches a wire at all.
+ *
+ * THE DECLARATION'S OWN ANSWER, never a list of ids kept here. A provider that declares
+ * `locality: 'remote'` sends its bytes to a service, and four of the five groups are statements
+ * about the REQUEST it sends — its method, its URL, its headers, its body against a recorded golden
+ * one, the statuses it reads back. A recogniser this process runs itself, over a pipe to a model
+ * loaded in this host's memory, sends none: there is no method to read, no URL to compare, no
+ * envelope to parse. Asking those questions anyway would score an absent request against a golden
+ * body and report the absence as the defect, which is the fault this predicate exists to prevent.
+ *
+ * `'local-client'` COUNTS AS NO WIRE TOO, and for the same reason: a recogniser the BROWSER runs
+ * reaches no wire from here either. The predicate is therefore "is it remote", not "is it local".
+ *
+ * Exported because the operator command and the unit suite both describe a provider's mode with it,
+ * and a second definition of "reaches a wire" in either of those would be a second thing to keep in
+ * step with the declaration.
+ */
+export function reachesAWire(provider: AsrAdapter): boolean {
+  return provider.capabilities.locality === 'remote';
+}
+
+/**
+ * What a no-wire provider answers a request its own guards ACCEPTED, in this harness.
+ *
+ * The board injects a transport and installs no engine, so the three groups that read "the request
+ * went out" have for such a provider a different success reading: the guards passed, nothing was
+ * sent, and the answer is the engine's own absence. Written once here rather than spelt out in each
+ * of the three probes, because it is one reading — if the adapter's failure vocabulary or the
+ * harness's engine-less state changed, three copies would drift and two of them would keep passing.
+ */
+const NO_WIRE_ACCEPTED = 'ENGINE_UNAVAILABLE requests=0';
+
+/**
+ * The size that is past `budget`, in the arithmetic a provider that reaches NO wire uses.
+ *
+ * WHY IT DIFFERS FROM `overBudgetAudioBytes`. That function derives its size from the wire's own
+ * encoding — the inline-JSON wire spends the budget on base64 of the audio, so a size whose ENCODING
+ * is past the line can still be well inside it as raw bytes. An adapter that reaches no wire never
+ * encodes anything: it measures the bytes it is handed (see the provider's `measureRequestBytes`, and
+ * the board reads the same rule it declares). Sizing such a request with the encoding's arithmetic
+ * would hand it an audio its own guard correctly accepts, and the reading would report the guard
+ * working as the guard failing.
+ *
+ * `budget + 1` rather than a fraction of it, so the case stays a one-byte margin — the tightest
+ * reading available, and the one a guard that used `>=` instead of `>` would go red on.
+ */
+export function overBudgetLocalBytes(budget: number): number {
+  return budget + 1;
+}
+
+/**
+ * The largest audio comfortably inside `budget` for a provider that reaches no wire.
+ *
+ * Deliberately a margin rather than the exact bound: the case's job is to be a request the guard
+ * must NOT refuse, and a size one byte under the line would make "the guard accepted it" and "the
+ * guard has an off-by-one" the same reading.
+ */
+export function affordableLocalBytes(budget: number): number {
+  return Math.max(1, budget - LOCAL_BUDGET_MARGIN_BYTES);
+}
+
+/** The slack `affordableLocalBytes` leaves under the declared budget. */
+const LOCAL_BUDGET_MARGIN_BYTES = 4096;
+
+/**
+ * The context a no-wire provider's request carries when the board tests whether an UNACKNOWLEDGED
+ * hint is counted against the budget.
+ *
+ * NOT `'x'.repeat(budget)`, which is what the remote branch uses: for a provider that reaches no
+ * wire the hint's BYTES are the only thing that could matter, so a context larger than the margin
+ * above is the whole of the reading, and a budget-sized string would be tens of megabytes of
+ * transient allocation bought for nothing.
+ */
+const LOCAL_CONTEXT_TEXT = 'x'.repeat(LOCAL_BUDGET_MARGIN_BYTES * 2);
+
 /** Everything the adapter was asked to send, per method, URL, headers and body. */
 export async function probeRequestConstruction(provider: AsrAdapter): Promise<InvariantReading[]> {
   const group: InvariantGroupId = 'request-construction';
@@ -935,6 +1011,30 @@ export async function probeRequestConstruction(provider: AsrAdapter): Promise<In
   const sent = await drive(provider, invariantRequest(), step);
   const first = sent.transport.requests[0];
   const body = first?.body ?? '';
+
+  // A PROVIDER THAT REACHES NO WIRE GETS TWO READINGS, and they are the whole of what this group can
+  // honestly say about it. Everything below is a statement about a request — and there is none. These
+  // two are the invariants that survive the absence, and both are measured rather than asserted:
+  //
+  //   · the audio does not leave. The injected transport counts calls, so a provider that quietly
+  //     POSTed the recording somewhere reds here — which is the entire promise `locality` makes.
+  //   · the answer is the ENGINE's state, not a fabrication. With nothing installed on this host the
+  //     adapter reports `ENGINE_UNAVAILABLE`; an adapter that returned `ok:` with text no model
+  //     produced would red, and it is the one failure that would be invisible from the outside.
+  //
+  // The group is not left unmeasured for other providers by this early return: `groupVerdict` scores
+  // the group over every provider that produced a reading for it.
+  if (!reachesAWire(provider)) {
+    readings.push(
+      reading(group, `request.no-wire[${provider.id}]`, provider.id,
+        String(sent.transport.calls), '0',
+        'a recogniser this process runs itself reaches the injected transport zero times — the audio stays on this host, which is what its declared locality promises'),
+      reading(group, `request.engine-owned-answer[${provider.id}]`, provider.id,
+        outcome(sent.result, sent.transport.calls), 'ENGINE_UNAVAILABLE requests=0',
+        'with no engine installed on this host the adapter answers with the engine\'s own absence rather than inventing a transcript or reaching for a wire it does not have'),
+    );
+    return readings;
+  }
 
   readings.push(
     reading(group, `request.count[${provider.id}]`, provider.id, String(sent.transport.calls), '1',
@@ -1060,10 +1160,21 @@ export function errorScenarios(wire: AsrWire): ErrorScenario[] {
   ];
 }
 
-/** One reading per failure shape, so "the error mapping changed" reads as which row moved. */
+/**
+ * One reading per failure shape, so "the error mapping changed" reads as which row moved.
+ *
+ * A PROVIDER THAT REACHES NO WIRE PRODUCES NO READING HERE, deliberately, and the group is not left
+ * unmeasured by it: `groupVerdict` scores a group over every provider that answered for it, so the
+ * remote rows carry this one. Every scenario in the table below is a STATUS or a transport fault
+ * read back off a wire — a 401, an aborted request, a gateway page — and a recogniser reached over a
+ * pipe has none of them. Driving the table anyway would hand a status to a provider that never reads
+ * one and score the resulting absence against `failedWith(code)`, which would print eleven reds for
+ * the shape of a seam rather than for a defect in it.
+ */
 export async function probeErrorMapping(provider: AsrAdapter): Promise<InvariantReading[]> {
   const group: InvariantGroupId = 'error-mapping';
   const readings: InvariantReading[] = [];
+  if (!reachesAWire(provider)) return readings;
   for (const scenario of errorScenarios(wireModelFor(provider).wire)) {
     const driven = await drive(provider, invariantRequest(), scenario.step);
     readings.push(
@@ -1094,15 +1205,24 @@ export async function probeSizeLayering(provider: AsrAdapter): Promise<Invariant
   const budget = capabilities.maxInlineRequestBytes;
   const step: InvariantStep = { kind: 'json', payload: model.answers.transcript };
 
-  const affordable = model.affordableAudioBytes(budget);
-  const overBudget = model.overBudgetAudioBytes(budget);
-  const spentBy = model.wire === 'multipart' ? 'measures' : 'encodes';
+  // THE TWO SIZES ARE DERIVED FROM WHAT THE BUDGET IS SPENT BY, which is the third case of the same
+  // distinction the wire models already draw between encoding and bytes: a provider that reaches no
+  // wire spends the budget on the bytes it is handed, so the wire's own encoding arithmetic would
+  // size `overBudget` at three quarters of the budget — an audio its guard correctly accepts — and
+  // the reading would report the guard working as the guard failing.
+  const reachesTransport = reachesAWire(provider);
+  const affordable = reachesTransport ? model.affordableAudioBytes(budget) : affordableLocalBytes(budget);
+  const overBudget = reachesTransport ? model.overBudgetAudioBytes(budget) : overBudgetLocalBytes(budget);
+  const spentBy = reachesTransport && model.wire !== 'multipart' ? 'encodes' : 'measures';
 
   const oversize = await drive(provider, invariantRequest({ bytes: new Uint8Array(overBudget), hints: {} }), step);
   const fitting = await drive(provider, invariantRequest({ bytes: new Uint8Array(affordable), hints: {} }), step);
   const pushedOver = await drive(
     provider,
-    invariantRequest({ bytes: new Uint8Array(affordable), hints: { context: 'x'.repeat(budget) } }),
+    invariantRequest({
+      bytes: new Uint8Array(affordable),
+      hints: { context: reachesTransport ? 'x'.repeat(budget) : LOCAL_CONTEXT_TEXT },
+    }),
     step,
   );
 
@@ -1111,7 +1231,7 @@ export async function probeSizeLayering(provider: AsrAdapter): Promise<Invariant
   // so a long one is what pushes an otherwise-affordable audio over. A declaration that does not
   // acknowledges nothing, so the same audio must go out UNCHANGED — a budget that counted a hint
   // the adapter never sends would refuse an upload the service would have accepted.
-  const accepted = `ok:${model.answers.transcriptText} requests=1`;
+  const accepted = reachesTransport ? `ok:${model.answers.transcriptText} requests=1` : NO_WIRE_ACCEPTED;
   const pushedOverExpected = capabilities.honors.context ? 'OVERSIZE requests=0' : accepted;
 
   readings.push(
@@ -1119,10 +1239,12 @@ export async function probeSizeLayering(provider: AsrAdapter): Promise<Invariant
       'the first version declares rejection as the only oversize policy'),
     reading(group, `size.audio-alone-over-limit[${provider.id}]`, provider.id,
       outcome(oversize.result, oversize.transport.calls), `OVERSIZE requests=0`,
-      `an audio of ${overBudget} B ${spentBy} past the declared ${budget} B budget: refused, and with zero requests the audio was never put on the wire`),
+      reachesTransport
+        ? `an audio of ${overBudget} B ${spentBy} past the declared ${budget} B budget: refused, and with zero requests the audio was never put on the wire`
+        : `an audio of ${overBudget} B ${spentBy} one byte past the declared ${budget} B budget: refused by the adapter's own guard, and with zero requests nothing was handed to the engine — this recogniser sets the ceiling itself rather than publishing a service's`),
     reading(group, `size.audio-alone-affordable[${provider.id}]`, provider.id,
       outcome(fitting.result, fitting.transport.calls), accepted,
-      `an audio of ${affordable} B ${spentBy} inside the declared ${budget} B budget: sent — the guard is a line, not a wall`),
+      `an audio of ${affordable} B ${spentBy} inside the declared ${budget} B budget: ${reachesTransport ? 'sent' : 'past the guard'} — the guard is a line, not a wall`),
     reading(group, `size.context-pushes-over-limit[${provider.id}]`, provider.id,
       outcome(pushedOver.result, pushedOver.transport.calls), pushedOverExpected,
       capabilities.honors.context
@@ -1210,13 +1332,27 @@ export async function probeRedaction(provider: AsrAdapter): Promise<InvariantRea
   // The two results below are the surfaces a leak would appear on, and the two readings above them
   // are what make their absence meaningful: the request DID carry both, so "not in the answer" is
   // a discrimination rather than a statement about a credential that was never used.
+  //
+  // FOR A PROVIDER THAT REACHES NO WIRE THE CONTROL IS A STRONGER STATEMENT RATHER THAN A MISSING
+  // ONE. There is no request to carry a credential and no body to carry the audio, so read as
+  // `present`/`match` these two would red for the shape of the seam. Read as what the declaration
+  // actually promises — no credential on any request, and zero departures from this host — they are
+  // the reading that a recogniser claiming `locality: 'local-server'` keeps the audio where it says
+  // it does, and they still discriminate: an adapter that POSTed the bytes somewhere would read a
+  // wire call count above zero here.
   readings.push(
     reading(group, `redaction.credential.reaches-the-wire[${provider.id}]`, provider.id,
-      sent.transport.requests[0]?.credential ?? 'no-request', 'present',
-      `the credential is on the request, in the header this wire declares (${model.credentialHeader}), so its absence from the answer surface says something`),
+      sent.transport.requests[0]?.credential ?? 'no-request',
+      reachesAWire(provider) ? 'present' : 'no-request',
+      reachesAWire(provider)
+        ? `the credential is on the request, in the header this wire declares (${model.credentialHeader}), so its absence from the answer surface says something`
+        : 'this recogniser declares no credential fields at all, and the reading is that the fixture\'s credential reaches no request — a provider that put one on a request would red here'),
     reading(group, `redaction.payload.reaches-the-wire[${provider.id}]`, provider.id,
-      model.audioOnWire(body), 'match',
-      'the audio is on the request in the shape the declared wire carries it, so its absence from the answer surface says something'),
+      reachesAWire(provider) ? model.audioOnWire(body) : String(sent.transport.calls),
+      reachesAWire(provider) ? 'match' : '0',
+      reachesAWire(provider)
+        ? 'the audio is on the request in the shape the declared wire carries it, so its absence from the answer surface says something'
+        : 'the audio leaves this host zero times: the bytes go to a process on this machine, and the injected transport — the only way out of this module — is never called'),
   );
 
   const scenarios: InvariantStep[] = [
@@ -1283,7 +1419,14 @@ export async function probeLogRedaction(
 export async function probeMimeGate(provider: AsrAdapter): Promise<InvariantReading[]> {
   const group: InvariantGroupId = 'mime-gate';
   const readings: InvariantReading[] = [];
-  const step: InvariantStep = { kind: 'json', payload: wireModelFor(provider).answers.transcript };
+  const model = wireModelFor(provider);
+  const step: InvariantStep = { kind: 'json', payload: model.answers.transcript };
+
+  // THE TWO ACCEPT ROWS ARE THE SAME INVARIANT ON BOTH KINDS OF PROVIDER — the gate let a declared
+  // base type through — and only the SUCCESS they lead to differs: a wire sends it and answers with
+  // text, a recogniser this process runs answers with the engine's absence. The two REJECT rows need
+  // no such distinction: a refusal is a refusal, and it costs zero requests on every provider.
+  const accepted = reachesAWire(provider) ? `ok:${model.answers.transcriptText} requests=1` : NO_WIRE_ACCEPTED;
 
   const withParameters = await drive(provider, invariantRequest({ mimeType: 'audio/webm;codecs=opus' }), step);
   const upperCase = await drive(provider, invariantRequest({ mimeType: 'AUDIO/WEBM' }), step);
@@ -1292,19 +1435,17 @@ export async function probeMimeGate(provider: AsrAdapter): Promise<InvariantRead
 
   readings.push(
     reading(group, `mime.accept.base-type-with-parameters[${provider.id}]`, provider.id,
-      outcome(withParameters.result, withParameters.transport.calls),
-      `ok:${wireModelFor(provider).answers.transcriptText} requests=1`,
+      outcome(withParameters.result, withParameters.transport.calls), accepted,
       'a declared base type carrying parameters is accepted, so the gate matches the base type'),
     reading(group, `mime.accept.case-insensitive-base-type[${provider.id}]`, provider.id,
-      outcome(upperCase.result, upperCase.transport.calls),
-      `ok:${wireModelFor(provider).answers.transcriptText} requests=1`,
+      outcome(upperCase.result, upperCase.transport.calls), accepted,
       'the base type is matched case-insensitively'),
     reading(group, `mime.reject.outside-declaration[${provider.id}]`, provider.id,
       outcome(outside.result, outside.transport.calls), 'UNSUPPORTED_MIME requests=0',
       'a container outside the declaration is refused with no request, so nothing undeclared is ever uploaded'),
     reading(group, `mime.reject.unset-container[${provider.id}]`, provider.id,
       outcome(unset.result, unset.transport.calls), 'UNSUPPORTED_MIME requests=0',
-      'an unset container is refused rather than sent as a guess'),
+      'an unset container is refused rather than sent as a guess — a declaration that listed `application/octet-stream` would turn "the client did not say" into a container the recogniser claims to know'),
   );
 
   const declared = provider.capabilities.acceptsMime;
@@ -1417,14 +1558,16 @@ export function assertTokenInvariants(capabilities: AsrCapabilities, result: Asr
 /**
  * The board's reading for the token contract.
  *
- * WHAT IT CAN AND CANNOT SEE FROM THE REGISTRY. The three shipped recognisers declare `false/false`,
- * so the two-sided half of the axis — "declared true and the result carries a confidence in range"
- * against "declared true and the result carries none, which is the red" — is unreachable through
- * the registry and is measured in the unit suite with a stand-in that declares it
- * (`src/shared/asr/tests/asrContractInvariants.test.ts`). What this probe reads from the registry is
- * that each declaration is present and of the declared kind, names a locality the vocabulary knows,
- * and agrees with the (token-less) success a recogniser that declares no per-token facts would
- * produce — so an adapter whose new fields went missing or malformed reds here.
+ * WHAT IT CAN AND CANNOT SEE FROM THE REGISTRY. The three hosted recognisers declare `false/false`
+ * and the on-host one declares `true/true`, so both sides of the declaration are reachable here and
+ * the probe must therefore build its agreement case from the declaration rather than assuming the
+ * token-less shape — a token-less result is the RED for a recogniser that promises a confidence, not
+ * a neutral input. What is still measured only in the unit suite
+ * (`src/shared/asr/tests/asrContractInvariants.test.ts`) is a real `transcribe` driven over a
+ * stand-in whose declared tokens and returned tokens disagree: this probe reads the DECLARATION
+ * against a result of the shape it promises, not an engine's actual output, which needs the engine.
+ * So what reds here is a declaration that went missing or malformed, a locality outside the
+ * vocabulary, and a declaration the invariant itself cannot satisfy.
  */
 export async function probeTokenContract(provider: AsrAdapter): Promise<InvariantReading[]> {
   const group: InvariantGroupId = 'token-contract';
@@ -1441,17 +1584,46 @@ export async function probeTokenContract(provider: AsrAdapter): Promise<Invarian
       ? locality
       : 'unknown';
 
-  // The success a recogniser that produces no per-token facts would return. The invariant must
-  // accept it under a `false/false` declaration and red a declaration that promised more.
-  const tokenless: AsrSuccess = {
+  // The success this declaration promises, ASSEMBLED FROM THE DECLARATION — tokens when either
+  // per-token fact is promised, and on each token exactly the fields that are promised. Absence
+  // rather than `undefined` for the promised-false case, because the invariant's second half is
+  // precisely "a token that carries a field the declaration says the recogniser does not produce",
+  // and a key present with the value `undefined` is a different object from one that is not there.
+  //
+  // THE VALUES SIT ON THE BOUNDARIES THE INVARIANT DRAWS — `startMs: 0`, which is the smallest
+  // non-negative start, and `confidence: 1`, the top of `[0, 1]` — so a declared range that quietly
+  // became exclusive at either end would red on this reading rather than on nothing.
+  const promised: AsrToken[] =
+    declared.confidence || declared.timestamps
+      ? [
+          {
+            text: INVARIANT_TRANSCRIPT,
+            ...(declared.confidence ? { confidence: 1 } : {}),
+            ...(declared.timestamps ? { startMs: 0 } : {}),
+          },
+        ]
+      : [];
+  const asPromised: AsrSuccess = {
     ok: true,
     text: INVARIANT_TRANSCRIPT,
     style: provider.capabilities.style,
     transformations: [],
     providerId: provider.id,
+    ...(promised.length === 0 ? {} : { tokens: promised }),
   };
   const agreement =
-    tokenInvariantViolations(provider.capabilities, tokenless).length === 0 ? 'consistent' : 'inconsistent';
+    tokenInvariantViolations(provider.capabilities, asPromised).length === 0 ? 'consistent' : 'inconsistent';
+
+  // Named from the two booleans so the printed detail says which fields the promise was about, and
+  // says it in the declaration's own terms rather than by describing the object built above.
+  const promisedFields = [
+    declared.confidence ? 'confidence' : null,
+    declared.timestamps ? 'startMs' : null,
+  ].filter((field): field is string => field !== null);
+  const promisedShape =
+    promised.length === 0
+      ? 'no tokens'
+      : `one token carrying exactly ${promisedFields.join(' and ')}`;
 
   return [
     reading(group, `token-contract.declaration[${provider.id}]`, provider.id, shape, 'booleans',
@@ -1459,7 +1631,7 @@ export async function probeTokenContract(provider: AsrAdapter): Promise<Invarian
     reading(group, `token-contract.locality[${provider.id}]`, provider.id, knownLocality, locality,
       'the declaration names a locality from the vocabulary'),
     reading(group, `token-contract.result-agrees[${provider.id}]`, provider.id, agreement, 'consistent',
-      'a success result without per-token facts satisfies the declaration that promises none'),
+      `a success result of the shape this declaration promises — ${promisedShape}, at the boundary of each declared range — satisfies the invariant it declares`),
   ];
 }
 

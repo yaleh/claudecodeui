@@ -212,6 +212,21 @@ function providerConfigured(
   settings: VoiceSettings | undefined,
   defaults: VoiceServiceDependencies['defaults'],
 ): boolean {
+  // A RECOGNISER THIS PROCESS RUNS ITSELF IS NOT CONFIGURED BY AN ADDRESS. The on-host engine is
+  // reached in this process, so the question "would a recording get to it" has nothing to do with
+  // the user's `baseUrl` or the deployment's: there is no address in the path. Answering it from
+  // `baseUrl` would report a fully provisioned local recogniser as unconfigured on a deployment
+  // that never set a shared backend — which is the ordinary shape of the deployment that uses one.
+  //
+  // WHAT ACTUALLY DECIDES IT is the engine's own runtime state, and that is not a boolean the user
+  // can fix by typing: it is published beside this flag as the row's `runtime` (see `getHealth`),
+  // and the effective-provider reading below turns an unavailable engine into `ENGINE_UNAVAILABLE`.
+  // Splitting it that way keeps `configured` the question it has always been — "is there anything
+  // for the user to fill in" — while the runtime field carries the deployment's own answer.
+  if (adapter.capabilities.locality !== 'remote') {
+    return true;
+  }
+
   const fields = adapter.credentials;
   if (fields === undefined) {
     return Boolean(readStoredField(settings, 'baseUrl') || defaults.baseUrl);
@@ -423,6 +438,14 @@ export const PROVIDER_ERROR_STATUS: Readonly<Record<AsrErrorCode, number>> = {
   UNSUPPORTED_MIME: 415,
   NO_SPEECH_DETECTED: 422,
   UPSTREAM_UNAVAILABLE: 502,
+  // `503`, the same number as `NOT_CONFIGURED`, and the sameness is the reading rather than a
+  // coincidence: both say "the recogniser this deployment would use is not usable right now", and
+  // both are the OPERATOR's to fix rather than the caller's. What separates them is the code — this
+  // one names specifically that the engine on THIS host is absent or mis-provisioned, which is the
+  // actionable half ("install the patched build", "point SENSEVOICE_MODEL_DIR at the weights")
+  // that a bare 503 from the other row does not carry. It is a per-host condition, not a service
+  // one: no other provider's answer changes because this one is unavailable.
+  ENGINE_UNAVAILABLE: 503,
 };
 
 /**
@@ -876,6 +899,33 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
       const configuredFor = (adapter: AsrAdapter): boolean =>
         providerConfigured(adapter, settings, dependencies.defaults);
 
+      /**
+       * THE ENGINE'S OWN STATE, asked of the EFFECTIVE adapter and of nothing else, before the
+       * payload is built.
+       *
+       * WHY THE ENDPOINT FAILS RATHER THAN REPORTING A ROW. A row saying `available: false` would be
+       * a fact nobody acts on: the caller that asked "is voice usable right now" gets `ok: true`,
+       * and the first thing that discovers the recogniser cannot run is a user's upload. The
+       * reading the caller needs is the one the other linkage failures already give — `ok: false`
+       * with a stable code and the sentence naming the remedy — so an engine that cannot be built on
+       * this host answers exactly that, and answers it before any bytes are accepted.
+       *
+       * IT IS ASKED ONLY OF THE PROVIDER THAT DECLARES ONE (`AsrAdapter.runtime`), so a registry
+       * with no on-host recogniser behaves exactly as it did: the three remote adapters declare no
+       * runtime, this branch is not entered, and their payload is byte-for-byte the payload of
+       * before. And it is the CHEAP reading — `runtime()` reports what the process already knows and
+       * starts nothing, so asking health never boots an interpreter.
+       */
+      const effectiveRuntime = effectiveAdapter.runtime?.();
+      if (effectiveRuntime !== undefined && !effectiveRuntime.available) {
+        return {
+          ok: false,
+          status: PROVIDER_ERROR_STATUS.ENGINE_UNAVAILABLE,
+          code: 'ENGINE_UNAVAILABLE',
+          error: effectiveRuntime.reason,
+        };
+      }
+
       return {
         ok: true,
         value: {
@@ -891,13 +941,22 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           // entry keyed by id, and no branch that names one: the map's argument is the adapter and
           // every field of a row comes off that adapter, which is what keeps a provider added to
           // the registry from needing a second edit on this side.
-          providers: listProviders().map((adapter) => ({
-            id: adapter.id,
-            label: adapter.id,
-            capabilities: adapter.capabilities,
-            configured: configuredFor(adapter),
-            credentialFields: adapter.credentials,
-          })),
+          providers: listProviders().map((adapter) => {
+            // Republished the same way the capability and credential declarations are: straight off
+            // the adapter, for the rows that declare one. A row with no runtime says so by ABSENCE
+            // rather than by a null-valued key — this module's convention, and the one the client's
+            // `=== undefined` checks are written against — so the spread below is what keeps a
+            // remote provider's row shape identical to what it was before this seam existed.
+            const runtime = adapter.runtime?.();
+            return {
+              id: adapter.id,
+              label: adapter.id,
+              capabilities: adapter.capabilities,
+              configured: configuredFor(adapter),
+              credentialFields: adapter.credentials,
+              ...(runtime === undefined ? {} : { runtime }),
+            };
+          }),
         },
       };
     },
@@ -1186,7 +1245,39 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         return endpointFailure;
       }
 
-      const configurationFailure = validateConfiguredBackend(config);
+      // THE FORMAT GATE IS A REMOTE PROVIDER'S GATE. It asks whether the address a request is about
+      // to be sent to is present and well-formed, and for a recogniser this process runs itself
+      // there is no such address: the request never reaches `fetchBackend`, the adapter reads the
+      // bytes it is handed and answers from the engine installed in this process. Asking it anyway
+      // would refuse every local transcription on a deployment with no shared backend — the exact
+      // deployment the recogniser exists for — and it would refuse it with `NOT_CONFIGURED`, a code
+      // naming a setting the user cannot usefully fill in.
+      //
+      // WHAT REPLACES IT IS THE ENGINE'S OWN GATE, asked through the seam's `ensureRuntime` so this
+      // module names no provider id: a recogniser this process runs is "configured" exactly when its
+      // engine can be brought up, and the reading is taken HERE — before the dispatch — so a host
+      // with no interpreter, or weights that disagree with the pins, is refused with a stable code
+      // and the sentence naming the fix, rather than failing somewhere inside the attempt. The
+      // gates above are unchanged and still run for every provider: the container and the budget are
+      // the DECLARATION's, not an address's.
+      //
+      // A PROVIDER THAT DECLARES NO RUNTIME IS ASKED NOTHING, which is what keeps this branch a no-op
+      // for every remote adapter — including one whose `locality` is not `'remote'` but which has no
+      // engine to bring up, if such a provider is ever registered.
+      let configurationFailure: VoiceRefusal | null = null;
+      if (adapter.capabilities.locality === 'remote') {
+        configurationFailure = validateConfiguredBackend(config);
+      } else if (adapter.ensureRuntime !== undefined) {
+        const engine = await adapter.ensureRuntime();
+        if (!engine.available) {
+          configurationFailure = {
+            ok: false,
+            status: PROVIDER_ERROR_STATUS.ENGINE_UNAVAILABLE,
+            code: 'ENGINE_UNAVAILABLE',
+            error: engine.reason,
+          };
+        }
+      }
       if (configurationFailure) {
         logAttempt('fail', configurationFailure.status);
         return configurationFailure;

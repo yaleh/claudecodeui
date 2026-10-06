@@ -5,7 +5,12 @@ import type { Readable } from 'node:stream';
 // repository-root shared tree rather than restated here: the whole point of the payload is
 // that it carries the registry's own declaration, so a restatement could drift from it
 // silently. `import type` only — the backend never calls an adapter from this file.
-import type { AsrCapabilities, AsrCredentialFields, AsrErrorCode } from '../../shared/asr/asrRegistry.js';
+import type {
+  AsrCapabilities,
+  AsrCredentialFields,
+  AsrErrorCode,
+  AsrRuntimeStatus,
+} from '../../shared/asr/asrRegistry.js';
 
 //----------------- HTTP RESPONSE SHAPES ------------
 /**
@@ -1584,6 +1589,22 @@ export type VoiceProviderSummary = {
    * the request path read one shape rather than two.
    */
   credentialFields?: AsrCredentialFields;
+  /**
+   * THE ON-HOST ENGINE'S STATE, for a provider that runs one, republished verbatim from
+   * `AsrAdapter.runtime` — the same way `capabilities` and `credentialFields` are.
+   *
+   * ABSENT FOR A PROVIDER THAT DECLARES NO RUNTIME, which today is every provider reached over the
+   * network: their availability is a property of a service the client can reach itself, and this
+   * field would have nothing to say about it. A provider that DOES declare one is a process this
+   * deployment owns, so "is it up, and which build is it" is answerable here and nowhere else — and
+   * `buildId` is the figure that makes a transcript's provenance checkable against the build a
+   * deployment believes it is running.
+   *
+   * `state` is carried as well as `available` because the two are not the same reading for a
+   * provider that is merely not started yet: `stopped` is a healthy engine nothing has asked to
+   * run, and folding it into the unavailable form would report an idle deployment as a broken one.
+   */
+  runtime?: AsrRuntimeStatus;
 };
 
 /**
@@ -1774,6 +1795,18 @@ export type VoiceSettingsService = {
  */
 export type VoiceLogPort = {
   info(message: string): void;
+  /**
+   * Where a failure goes, when the deployment's port keeps the distinction.
+   *
+   * OPTIONAL, and the optionality is the point rather than an oversight. This port is implemented by
+   * `console` and by three test doubles that build a literal with an `info` and stop there; a
+   * REQUIRED `warn` would make every one of them incomplete for the sake of a severity one provider
+   * prefers. What must not be optional is that the sentence SURVIVES — so a consumer that has a
+   * failure to report routes it here when the port keeps a `warn` and through `info` when it does
+   * not (`sensevoice-worker.ts`'s own log adapter is the one that does), and no deployment loses a
+   * line because its port was written before this field existed.
+   */
+  warn?(message: string): void;
 };
 
 // ---------------------------
