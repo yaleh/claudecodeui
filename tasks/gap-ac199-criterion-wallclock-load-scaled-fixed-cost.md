@@ -97,19 +97,99 @@ quay-e2e-RHTPBc  (23:48:57Z, tree 829496b7): … Received:    46801
 
 ## AC
 
-- [ ] AC1 红态真因机械入档：四个 data dir 的 `error-context.md` 的 `# Error details` 逐字打印为 `Error: the criterion must complete within 40s` + `Expected: <= 40000` + `Received: 49607 / 49866 / 46688 / 46801`，四个 `watchdog-state.json` 逐字为 `fired:false`；写明断言落点 `e2e/activity-dock-background.spec.ts:755`，并写明 task B 的「无测试输出 / 启动即哑」归因被这四份 artifact 推翻。
-- [ ] AC2 安静臂基线：净 worktree 上出货命令逐字跑 ≥3 次，全部 exit 0 且 spec 自印 `AC-199 wall clock` ≤ 40000；入档 worktree 路径、`HEAD`、`HEAD^{tree}`、每次墙钟。
-- [ ] AC3 负载臂达标：在能复现膨胀的并发负载下跑 ≥2 次，全部 exit 0 且 `AC-199 wall clock` ≤ 40000；入档负载生成命令、并发度、宿主 `load1`、每次墙钟，且负载臂墙钟与安静臂有可见差距（证明负载真的造出来了）。
-- [ ] AC4 读数与上限都未弱化：`grep -n "toBeLessThanOrEqual(40_000)" e2e/activity-dock-background.spec.ts` 仍命中 AC-199 那处；spec 输出里 `ac3.main click-instant: before=running after=running green=true`、`ac7.falseForm click-instant: before=running after=stopped green=false`、`ac4.backgrounded … toolUseId==foreground`、`ac6.partition … stopDisabled=true bgDisabled=true` 逐字仍在；`goals/AC-199-…md` 与判据命令逐字未改（`git diff <base>..HEAD -- goals/` 为空）。
-- [ ] AC5 兄弟判据不回归：`npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"` exit 0 且其墙钟 ≤ 40000（该 spec 与 AC-194 共享）。
-- [ ] AC6 失败路径如实：若负载臂仍 >40000ms，停手并置 `needs-human`，附逐字读数与已排除项；⛔ 不得放宽 40s 上限、不得删除断言、不得把安静臂通过写成「flake 已修」。
+- [x] AC1 红态真因机械入档：四个 data dir 的 `error-context.md` 的 `# Error details` 逐字打印为 `Error: the criterion must complete within 40s` + `Expected: <= 40000` + `Received: 49607 / 49866 / 46688 / 46801`，四个 `watchdog-state.json` 逐字为 `fired:false`；写明断言落点 `e2e/activity-dock-background.spec.ts:755`，并写明 task B 的「无测试输出 / 启动即哑」归因被这四份 artifact 推翻。
+- [x] AC2 安静臂基线：净 worktree 上出货命令逐字跑 ≥3 次，全部 exit 0 且 spec 自印 `AC-199 wall clock` ≤ 40000；入档 worktree 路径、`HEAD`、`HEAD^{tree}`、每次墙钟。
+- [x] AC3 负载臂达标：在能复现膨胀的并发负载下跑 ≥2 次，全部 exit 0 且 `AC-199 wall clock` ≤ 40000；入档负载生成命令、并发度、宿主 `load1`、每次墙钟，且负载臂墙钟与安静臂有可见差距（证明负载真的造出来了）。
+- [x] AC4 读数与上限都未弱化：`grep -n "toBeLessThanOrEqual(40_000)" e2e/activity-dock-background.spec.ts` 仍命中 AC-199 那处；spec 输出里 `ac3.main click-instant: before=running after=running green=true`、`ac7.falseForm click-instant: before=running after=stopped green=false`、`ac4.backgrounded … toolUseId==foreground`、`ac6.partition … stopDisabled=true bgDisabled=true` 逐字仍在；`goals/AC-199-…md` 与判据命令逐字未改（`git diff <base>..HEAD -- goals/` 为空）。
+- [x] AC5 兄弟判据不回归：`npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"` exit 0 且其墙钟 ≤ 40000（该 spec 与 AC-194 共享）。
+- [x] AC6 失败路径如实：若负载臂仍 >40000ms，停手并置 `needs-human`，附逐字读数与已排除项；⛔ 不得放宽 40s 上限、不得删除断言、不得把安静臂通过写成「flake 已修」。
 
-## DoD
+## Evidence
 
-- 判据本体（真实浏览器 spec，出货命令逐字不改）在**负载臂**下真的达标过 ≥2 次、exit 0、`AC-199 wall clock ≤ 40000`，读数逐字入档 —— 不是只跑安静臂、不是复述 `expect:`、不是读台账尾巴。
-- 红态归因段里每一条读数（四份 `error-context.md`、四个 `watchdog-state.json`、台账尾部 `pass/pass/fail` 序列）都能由任何人在同一 checkout 上用 `cat` / `jq` 复现，不依赖本条转述。
-- 改动后 `ac3.main` / `ac4.backgrounded` / `ac6.partition` / `ac7.falseForm` 四条读数与 40s 上限逐字不变 —— 固定开销是被**做小/做实**的，不是被绕过的。
-- 交付物只动 Touches 列出的文件 + `tasks/<本条 id>.md`；`goals/`、判据命令、40s 上限一个字节未动。
+### AC1 — 红态真因（本轮重读，逐字）
+
+四个 data dir 的 `test-results/activity-dock-background-a-65906-only-on-the-server’s-events/error-context.md`，`# Error details` 段逐字：
+
+```
+quay-e2e-inGCF7  Error: the criterion must complete within 40s / Expected: <= 40000 / Received:    49607
+quay-e2e-WY3mdE  Error: the criterion must complete within 40s / Expected: <= 40000 / Received:    49866
+quay-e2e-KkIGnM  Error: the criterion must complete within 40s / Expected: <= 40000 / Received:    46688
+quay-e2e-RHTPBc  Error: the criterion must complete within 40s / Expected: <= 40000 / Received:    46801
+```
+
+断言落点，逐字取自 inGCF7 的 error-context.md（文件第 126 行）：
+
+```
+> 755 |     expect(elapsedMs, 'the criterion must complete within 40s').toBeLessThanOrEqual(40_000);
+      |                                                                 ^ Error: the criterion must complete within 40s
+```
+
+四个 `watchdog-state.json` 逐字一致：`{"armed": true, "fired": false, "ceilingMs": 55000, "detail": "boot 40000ms, re-armed to 55000ms once past boot"}` —— 运行是自己 exit 1 的，55s 天花板未触发；且每个 test-results 目录同时含 `trace.zip`，即运行**产出了**测试输出。⇒ task B 的「无测试输出 / 启动即哑」归因被四份 artifact 推翻。
+
+### AC2 — 安静臂（worktree `/data/home/yale/work/claudecodeui-worktrees/gap-ac199-criterion-wallclock-load-scaled-fixed-cost`；`HEAD=6cc8b657af2786a78e6f47bd137ce10452c71387`；`HEAD^{tree}=5b1d19315dc92313e3cd764715adb3e65a793885`）
+
+出货命令逐字 `npx playwright test e2e/activity-dock-background.spec.ts -g "AC-199"`：
+
+| run | exit | spec `AC-199 wall clock` | 整轮墙钟 |
+|---|---|---|---|
+| 1 | 0 | 14342ms | 15.20s |
+| 2 | 0 | 12737ms | 13.48s |
+| 3 | 0 | 13377ms | 14.15s |
+| 4（带时间戳） | 0 | 18179ms | 19.2s |
+
+全部 ≤ 40000。（改动前同机安静臂为 24356 / 24524ms。）
+
+### AC3 — 负载臂
+
+负载生成命令（逐字）：与判据并发的 6 个 `npx playwright test`——2× `e2e/activity-dock-background.spec.ts -g "AC-194"`、`e2e/session-filter.spec.ts`、`e2e/sidebar-resize.spec.ts`、`e2e/activity-dock-truthful.spec.ts`、`e2e/transcript-edge-layout.spec.ts`；判据在它们启动 12s 后开跑，以覆盖其浏览器阶段。并发度 = 6。
+
+| run | 宿主 `load1`（前→后） | exit | spec `AC-199 wall clock` | 整轮墙钟 |
+|---|---|---|---|---|
+| 1 | 15.81 → 18.31 | 0 | 25330ms | 26.09s |
+| 2 | 19.99 → 18.19 | 0 | 29465ms | 30.29s |
+
+可见差距：安静臂 12737–14342ms vs 负载臂 25330–29465ms（≈1.8–2.3×）。两次皆 ≤ 40000。
+（并发的两个兄弟 spec 自身在本机负载下红：transcript-edge-layout 的移动端滚动条几何断言、activity-dock-truthful 的 `AUTH_USER_ALREADY_CONFIGURED` 单用户注册冲突——都与本条 diff 无关，truthful 的控制面用例仍绿。）
+
+### Plan step 5 — 每条杠杆自己的墙钟贡献（隔离实测）
+
+在已提交的树上逐个回退一条杠杆（每次用 `git checkout --` 还原；最终 `git status --porcelain` 空、与 `6cc8b657` 逐字一致）：
+
+- 完整修复：12737–14342ms
+- **只回退杠杆 1**（恢复固定 12s 偏移、删掉 `await-release` 障碍；启动修复保留）：**23525ms**（`release … "woken":0`）⇒ 杠杆 1 贡献 ≈ 10.1s
+- **只回退杠杆 2**（无 Vite 预打包预热；恢复单次 25s 侧栏等待 + 重载回退；障碍保留，`woken:1`）：**37884ms** ⇒ 杠杆 2 贡献 ≈ 24.5s
+- 两条相加 ≈ 48s，与四次红 artifact（46.7–49.9s）吻合 ⇒ 两条杠杆解释了几乎全部缺口。
+
+带时间戳的三段固定开销，改动前（Proposal 立案实测）vs 改动后：
+
+```
+pre   : 5011ms webServer 引导完成 | 13584ms beforeAll | 13662ms ac3.main | 24567ms ac3.settled
+post  : 8115ms webServer 引导完成 | 18208ms beforeAll | 18362ms ac3.main | 18537ms ac3.settled
+```
+
+第 (3) 段「等事件到达」由 10905ms 塌缩到 175ms——释放握手落在 `release.status=200 … "woken":1` 之后，事件几乎立刻到达。
+
+### AC4 — 读数与上限未弱化
+
+- `grep -n "toBeLessThanOrEqual(40_000)" e2e/activity-dock-background.spec.ts` → `431:`（AC-194 的）与 `909:`（AC-199 判据自己的）——AC-199 那处仍在（改动只是把该行从 755 顺移到 909，断言逐字不变）。
+- 还原后一次直跑，逐字：
+  - `ac3.main click-instant: before=running after=running green=true`
+  - `ac7.falseForm click-instant: before=running after=stopped green=false`
+  - `ac4.backgrounded: bgTask=task-bg state=running toolUseId=ada689cd-3e68-49d5-b22c-c1b99e2ad102 foreground=ada689cd-3e68-49d5-b22c-c1b99e2ad102`（两值相等）
+  - `ac6.partition: dockState=unreachable stopDisabled=true bgDisabled=true reasons=["Stop is unavailable while the server is unreachable","Stop is unavailable while the server is unreachable","Stop is unavailable while the server is unreachable"]`
+- `git diff ad1b63219ca7af835bd0718b6c9dcee311231668..HEAD -- goals/` → 0 行。
+
+### AC5 — 兄弟 AC-194 不回归
+
+`npx playwright test e2e/activity-dock-background.spec.ts -g "AC-194"` → exit 0，`AC-194 wall clock: 16500ms`（≤ 40000）。
+
+### AC6 — 未触发
+
+负载臂两次皆 ≤ 40000，失败路径未走；40s 上限、断言与四条读数一字未动。
+
+### 改动文件（全部在 Touches 内）
+
+`e2e/activity-dock-background.spec.ts`、`server/modules/debug-agent/debug-agent.engine.ts`、`server/modules/debug-agent/debug-agent.routes.ts`、`server/modules/debug-agent/debug-agent.scenario.ts`、`server/modules/debug-agent/tests/debug-agent-control-plane.test.ts`、`server/modules/debug-agent/tests/debug-agent-typed-turn.test.ts`。
 
 ## Touches
 
