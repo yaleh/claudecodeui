@@ -2,7 +2,7 @@
 id: gap-ac199-criterion-wallclock-load-scaled-fixed-cost
 title: AC-199 判据整轮墙钟在扇入负载下越过 AC 自己的 40s 上限而红（四次红的 artifact 都是 spec:755 的 40s
   断言；task B 的「无测试输出即死」归因被四份 error-context.md 推翻）——把判据的固定开销做成负载不敏感并在负载臂下实测达标
-status: ready
+status: done
 labels:
   - gap
 parent: null
