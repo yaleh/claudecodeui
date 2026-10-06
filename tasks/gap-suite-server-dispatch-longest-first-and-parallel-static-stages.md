@@ -1,7 +1,7 @@
 ---
 id: gap-suite-server-dispatch-longest-first-and-parallel-static-stages
 title: 套件提速：全量服务端阶段按历史耗时「长任务先跑」派发（缺基线回退字母序），typecheck 与 lint 两个静态阶段并行
-status: ready
+status: done
 labels:
   - gap
 parent: null
