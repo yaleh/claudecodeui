@@ -102,5 +102,8 @@ goal_ac: AC-286
 - server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts
 - server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts
 - server/modules/mcp-gateway/tests/mcp-session-send.test.ts
+- server/modules/mcp-gateway/tests/mcp-invalid-argument.test.ts
+- server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts
+- server/modules/mcp-gateway/tests/mcp-error-vocabulary.test.ts
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-ac286-insufficient-scope-denial.md (self-touch)
