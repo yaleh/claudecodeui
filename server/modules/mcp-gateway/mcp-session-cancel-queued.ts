@@ -11,11 +11,18 @@
  * answers with the shared union `HostQueuedInputCancelResult`
  * (`server/shared/types.ts`): a message still in the queue really leaves it and
  * is answered `withdrawn`; one already taken — already started — is answered
- * `unknown` by the debug driver (`already-started` by the real Claude driver,
- * covered by AC-275). AC-271 requires the TOOL to report `cancelled` for the
+ * `already-started`. AC-271 requires the TOOL to report `cancelled` for the
  * successful withdrawal, so this adapter maps `withdrawn` -> `cancelled` and
- * must never pass `withdrawn` through verbatim; the other members map to
- * themselves, so a message that already started is never reported `cancelled`.
+ * must never pass `withdrawn` through verbatim; `already-started` maps to
+ * itself, so a message that already started is never reported `cancelled`.
+ *
+ * AC-287 moves the third member off the success side: a uuid the queue never
+ * held (never pushed, or belonging to another session) is no longer a
+ * `unknown` SUCCESS outcome but an `isError` envelope,
+ * `QUEUED_MESSAGE_NOT_FOUND`. The success enum therefore shrinks to
+ * `'cancelled' | 'already-started'` — both of which describe a message this
+ * session really queued — and the "this process never saw that uuid" fact is
+ * stated as the error it is.
  *
  * Everything is injected ({@link McpSessionCancelQueuedDeps}): production wires
  * the process singleton (`server/index.ts`); the criterion wires the real control
@@ -56,16 +63,18 @@ export type McpSessionCancelQueuedDeps = {
 // --------------------------- input and payload ---------------------------
 
 /**
- * AC-271's report vocabulary — the words THIS tool uses.
+ * AC-271's report vocabulary — the words THIS tool uses on SUCCESS.
  *
  * `cancelled` is the control service's `withdrawn` (the message really left the
- * queue and will never become a round); `already-started` is the real Claude
- * driver's reading of a message that had already been taken (the debug driver
- * reports it as `unknown`, per AC-238); `unknown` is "this session's queue holds
- * no such uuid" — a uuid that never existed, belongs to another session, or a
- * session with no resident host.
+ * queue and will never become a round); `already-started` is the reading of a
+ * message that had already been dequeued, so it is running or has run and the
+ * process was not disturbed. Both describe a message this session really queued,
+ * which is why both are successes. The third member AC-271 used to carry —
+ * `unknown`, "this session's queue holds no such uuid" — was moved off the
+ * success side by AC-287: it is now the `QUEUED_MESSAGE_NOT_FOUND` error, since a
+ * reference that names nothing is not a state of a thing that exists.
  */
-export type SessionCancelQueuedOutcome = 'cancelled' | 'already-started' | 'unknown';
+export type SessionCancelQueuedOutcome = 'cancelled' | 'already-started';
 
 /** The `session_cancel_queued` tool's typed input. */
 export type McpSessionCancelQueuedInput = {
@@ -95,12 +104,19 @@ export type SessionCancelQueuedPayload = {
   message: string;
 };
 
-/** The sentence each outcome carries. The three are AC-271's own words, verbatim. */
+/** The sentence each SUCCESS outcome carries. The two are AC-271's own words, verbatim. */
 const OUTCOME_MESSAGES: Record<SessionCancelQueuedOutcome, string> = {
   cancelled: '该排队消息已撤回，不会成为一轮。',
   'already-started': '该消息已不在队列（已被取出开始执行），无法再撤回。',
-  unknown: '该会话队列里没有这个消息 uuid（可能从未存在、属于别的会话，或没有常驻宿主）。',
 };
+
+/**
+ * The sentence the `QUEUED_MESSAGE_NOT_FOUND` error carries — AC-271's own
+ * wording for a uuid this session's queue never held, now stated as the error it
+ * is (AC-287).
+ */
+const QUEUED_MESSAGE_NOT_FOUND_MESSAGE =
+  '该会话队列里没有这个消息 uuid（可能从未存在、属于别的会话，或没有常驻宿主）。';
 
 /** Reads and validates `session_cancel_queued`'s arguments. */
 export function readSessionCancelQueuedInput(args: Record<string, unknown>): McpSessionCancelQueuedInput {
@@ -130,10 +146,10 @@ export function readSessionCancelQueuedInput(args: Record<string, unknown>): Mcp
  * send path uses, so the control service's shared access entry decides the same
  * way it does for a send. The verdict is translated HERE and only here:
  * `withdrawn` -> `cancelled` (the tool's word for a successful withdrawal),
- * `already-started` / `unknown` -> themselves, and `forbidden` -> a structured
- * `FORBIDDEN` refusal rather than any outcome. Passing `withdrawn` through, or
- * reading a non-`withdrawn` verdict as `cancelled`, would each be a wrong answer
- * AC-271 pins against.
+ * `already-started` -> itself, `unknown` -> the `QUEUED_MESSAGE_NOT_FOUND` error
+ * envelope (AC-287), and `forbidden` -> a structured `FORBIDDEN` refusal rather
+ * than any outcome. Passing `withdrawn` through, or reading a non-`withdrawn`
+ * verdict as `cancelled`, would each be a wrong answer AC-271 pins against.
  *
  * Consumers: `registerMcpSessionCancelQueuedTool` (the registered handler) and
  * this module's criterion, which drives it through the real mount.
@@ -156,6 +172,13 @@ export async function buildSessionCancelQueued(
       MCP_ERROR_CODES.FORBIDDEN,
       'The caller is not allowed to withdraw this session\'s queued message.',
     );
+  }
+
+  if (verdict === 'unknown') {
+    // AC-287: a uuid this session's queue never held is a reference to nothing,
+    // so it is an ERROR rather than a third success outcome. `already-started`
+    // stays a success — that message really was queued and really did start.
+    throw new McpToolError(MCP_ERROR_CODES.QUEUED_MESSAGE_NOT_FOUND, QUEUED_MESSAGE_NOT_FOUND_MESSAGE);
   }
 
   const outcome: SessionCancelQueuedOutcome = verdict === 'withdrawn' ? 'cancelled' : verdict;
@@ -210,7 +233,10 @@ export function registerMcpSessionCancelQueuedTool(
     requiredScope,
     inputSchema: SESSION_CANCEL_QUEUED_INPUT_SCHEMA,
     outputSchema: {
-      outcome: z.string(),
+      // AC-287: the success enum is exactly the two outcomes a queued message
+      // this session really holds can take. `unknown` left it — that case is now
+      // the QUEUED_MESSAGE_NOT_FOUND error.
+      outcome: z.enum(['cancelled', 'already-started']),
       session: z.string(),
       messageUuid: z.string(),
       message: z.string(),

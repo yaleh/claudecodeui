@@ -605,7 +605,36 @@ export type ProviderPermissionDecision = {
 export type ProviderRuntimePermissionGateway = {
   resolve(requestId: string, decision: ProviderPermissionDecision): void;
   listPending(sessionId: string): unknown[];
+  /**
+   * Why a `requestId` is absent from the pending registry.
+   *
+   * The two answers are different facts and AC-287 requires the MCP surface to
+   * report them apart: `expired` means the runtime HELD this request and no
+   * longer does (it timed out or was already decided), so a caller who waited is
+   * told its case went away; `never_issued` means no trace of the id exists at
+   * all, so the caller named something this process never minted. A registry
+   * that deletes a settled request without a trace cannot answer this, which is
+   * why the runtime keeps a bounded ledger of held ids separate from the live
+   * pending map.
+   *
+   * Optional, and read as `expired` when absent, because the conservative
+   * degradation is the one that never asserts a request never existed: a
+   * gateway assembled without this verb still answers "that request is gone"
+   * rather than inventing `never_issued` for an id it simply cannot classify.
+   */
+  classifyMissingApproval?(requestId: string): MissingApprovalReason;
 };
+
+/**
+ * Why a `requestId` is not in the pending registry: it was held and is gone
+ * (`expired`), or nothing this process minted ever carried it (`never_issued`).
+ *
+ * Consumed by `provider-runtime.service.ts` (which forwards it from whichever
+ * provider's permissions facet answers), `chat-control.service.ts` (which folds
+ * it into the refusal), and `mcp-approvals.ts` (which reports it as the
+ * `APPROVAL_NOT_FOUND` envelope's `details.reason`).
+ */
+export type MissingApprovalReason = 'expired' | 'never_issued';
 
 /**
  * Provider-scoped application capabilities supplied to a runtime for one run.

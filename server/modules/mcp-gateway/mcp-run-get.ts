@@ -16,10 +16,15 @@
  *  - a HIT (`ChatRunSummary`) is the run's summary plus its live turn phase and
  *    pending tool from the activity store; a settled run additionally carries its
  *    session's last assistant message.
- *  - a MISS is typed. `expired` (the run existed and aged out of retention),
- *    `unknown` (the id was never handed out) and `restarted` (the run belongs to
- *    a previous process boot) each carry a DIFFERENT explanation and, when a
- *    session can be named, a fallback read of that session's recent messages.
+ *  - a MISS is an ERROR (AC-287): the `runId` named nothing this process has, so
+ *    the handler throws `RUN_NOT_FOUND` — an `isError` envelope whose `message`
+ *    is the cause's own explanation and whose `details` carries
+ *    `{ runId, reason, bootId, fallback }`. `reason` is `'expired'` for a run
+ *    that aged out of retention AND for `restarted` (a previous boot's run: the
+ *    id no longer names anything this process has), `'never_issued'` for an id
+ *    that was never handed out. The `fallback` read — the named session's recent
+ *    messages, verbatim — rides in `details` so a caller still gets the context
+ *    the old success-shaped miss carried.
  *  - a WAIT returns as soon as one of three things happens — the run reaches a
  *    terminal state, its turn parks on `awaitingPermission`, or the deadline
  *    passes — and never sleeps for a requested `waitSeconds` above
@@ -31,7 +36,8 @@
  * what `getRunById` refusing them means), so their fallback target is the
  * caller's optional `session` argument; `restarted` reads it from the summary
  * the lookup DID return. When no session can be named at all the fallback says
- * so in words rather than throwing.
+ * so in words (its `note`), and the envelope is still thrown — the error is the
+ * missing run, not the missing fallback.
  *
  * Cross-module vocabulary comes through the barrels (`ActivityProtocolSnapshot`,
  * `ChatRunLookupResult` from the websocket module). `formatMcpTime` is AC-245's
@@ -47,6 +53,7 @@ import { z } from 'zod';
 import type { NormalizedMessage } from '@/shared/types.js';
 import type { ActivityProtocolSnapshot, ChatRunLookupResult } from '@/modules/websocket/index.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpToolInputSchema } from './mcp-gateway.audit.js';
 import { formatMcpTime } from './mcp-gateway.read-tools.js';
 import type { McpReadToolDeps, McpReadToolSeam, McpTime } from './mcp-gateway.read-tools.js';
@@ -72,17 +79,41 @@ const MCP_RUN_GET_HISTORY_LIMIT = 20;
 /** Why a wait returned. Present only when the caller asked to wait. */
 export type McpRunGetOutcome = 'settled' | 'awaitingPermission' | 'timeout';
 
-/** Why a by-id read found no run. The three are reported with distinct prose. */
-export type McpRunGetMissReason = 'expired' | 'unknown' | 'restarted';
+/**
+ * Why a by-id read found no run, as the `RUN_NOT_FOUND` envelope reports it
+ * (AC-287's two values).
+ *
+ * `expired` covers both a run aged out of retention and a run belonging to a
+ * previous boot; `never_issued` covers an id nothing ever handed out.
+ */
+export type McpRunGetMissReason = 'expired' | 'never_issued';
+
+/**
+ * The INTERNAL cause of a miss, which picks the sentence.
+ *
+ * Three causes, two reportable reasons: `restarted` is a fourth reading — a run
+ * whose record still exists but belongs to another boot — and it reports
+ * `'expired'` because the id no longer names anything this process has, while
+ * its SENTENCE still says the service restarted. Keeping the cause separate
+ * from the report lets the prose stay precise where the reason is coarse.
+ */
+type McpRunGetMissCause = 'expired' | 'unknown' | 'restarted';
 
 const EXPLANATION_EXPIRED = '该运行曾存在，但已超出保留期，结果不再可取。';
 const EXPLANATION_UNKNOWN = '该 runId 从未被发出过。';
 const EXPLANATION_RESTARTED = '服务已重启，该运行属于上一次启动。';
 
-const EXPLANATION_BY_REASON: Record<McpRunGetMissReason, string> = {
+const EXPLANATION_BY_CAUSE: Record<McpRunGetMissCause, string> = {
   expired: EXPLANATION_EXPIRED,
   unknown: EXPLANATION_UNKNOWN,
   restarted: EXPLANATION_RESTARTED,
+};
+
+/** The reportable reason each internal cause maps onto. */
+const REASON_BY_CAUSE: Record<McpRunGetMissCause, McpRunGetMissReason> = {
+  expired: 'expired',
+  unknown: 'never_issued',
+  restarted: 'expired',
 };
 
 /** The note carried when a session's activity store has no snapshot for it. */
@@ -158,19 +189,24 @@ export type McpRunGetHit = {
   explanation: null;
 };
 
-/** A typed miss: no run, but an explanation of why and a best-effort fallback read. */
+/**
+ * What a `RUN_NOT_FOUND` envelope carries in `details` (AC-287): which run was
+ * named, why it names nothing live, the boot that answered, and the best-effort
+ * fallback read. The old `status: 'unknown'` member is gone — a miss is no
+ * longer a success payload with a status, it is an error with details.
+ */
 export type McpRunGetMiss = {
   runId: string;
-  status: 'unknown';
+  /** Why the id names nothing this process has, as AC-287 spells it. */
   reason: McpRunGetMissReason;
-  explanation: string;
   /** The current process boot, so a caller can see which boot it was told from. */
   bootId: string;
+  /** The fallback read: the named session and the messages it yielded, verbatim. */
   fallback: McpRunGetFallback;
 };
 
-/** The `run_get` tool's result. */
-export type RunGetPayload = McpRunGetHit | McpRunGetMiss;
+/** The `run_get` tool's SUCCESS result — always a hit; a miss is thrown. */
+export type RunGetPayload = McpRunGetHit;
 
 // --------------------------- input ---------------------------
 
@@ -248,19 +284,23 @@ async function buildHit(
 // --------------------------- reading a miss ---------------------------
 
 /**
- * Builds a typed miss.
+ * Throws the `RUN_NOT_FOUND` envelope for a by-id read that found no run.
  *
  * `sessionHint` is the session the lookup itself named (only `restarted` has
  * one, because its record is still returned); otherwise the caller's optional
- * `session` is used. When neither exists the fallback says so in words — a miss
- * is a reading, not an error.
+ * `session` is used. When neither exists the fallback's `note` says so in words
+ * — the fallback is best-effort — while the error itself is unconditional: an
+ * id that names no run is a reference to nothing (AC-287).
+ *
+ * The `fallback` read is taken BEFORE the throw, so the envelope's `details`
+ * carries the same recent messages the old success-shaped miss carried.
  */
 async function buildMiss(
   input: McpRunGetInput,
   deps: McpRunGetDeps,
-  reason: McpRunGetMissReason,
+  cause: McpRunGetMissCause,
   sessionHint?: string,
-): Promise<McpRunGetMiss> {
+): Promise<never> {
   const target = sessionHint ?? input.session ?? null;
   let messages: NormalizedMessage[] = [];
   let note: string | null = null;
@@ -271,14 +311,13 @@ async function buildMiss(
     messages = history.messages;
   }
 
-  return {
+  const details: McpRunGetMiss = {
     runId: input.runId,
-    status: 'unknown',
-    reason,
-    explanation: EXPLANATION_BY_REASON[reason],
+    reason: REASON_BY_CAUSE[cause],
     bootId: deps.bootId(),
     fallback: { session: target, messages, note },
   };
+  throw new McpToolError(MCP_ERROR_CODES.RUN_NOT_FOUND, EXPLANATION_BY_CAUSE[cause], false, details);
 }
 
 // --------------------------- buildRunGet ---------------------------

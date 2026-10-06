@@ -28,6 +28,7 @@ import { z } from 'zod';
 
 import type { QuaySnapshot } from '@/modules/quay/index.js';
 
+import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpToolInputSchema } from './mcp-gateway.audit.js';
 import type {
   McpReadToolDeps,
@@ -159,7 +160,7 @@ export type McpOverviewHost = {
 
 /** One project's quay reading inside `overview`. */
 export type McpOverviewQuayEntry =
-  | { projectId: string; status: 'no-quay-config'; note: string }
+  | { projectId: string; status: 'no_quay_config'; note: string }
   | { projectId: string; status: 'unknown'; note: string }
   | {
       projectId: string;
@@ -289,7 +290,7 @@ export async function buildOverview(deps: McpOverviewReadDeps): Promise<Overview
 
   const quay: McpOverviewQuayEntry[] = projects.map((project) => {
     if (!deps.quay.hasQuayConfig(project.projectId)) {
-      return { projectId: project.projectId, status: 'no-quay-config', note: NO_QUAY_NOTE };
+      return { projectId: project.projectId, status: 'no_quay_config', note: NO_QUAY_NOTE };
     }
     const cached = deps.quay.readCached(project.projectId);
     return cached === null
@@ -319,11 +320,11 @@ export type McpQuaySnapshotReading = {
   warnings: string[];
 };
 
-/** The `quay_snapshot` tool's result. */
+/** The `quay_snapshot` tool's SUCCESS result. A project that does not exist is thrown. */
 export type McpQuaySnapshotPayload = {
   project: string;
   hasQuayConfig: boolean;
-  status: 'cached' | 'refreshed' | 'unknown' | 'no-quay-config';
+  status: 'cached' | 'refreshed' | 'unknown' | 'no_quay_config';
   note?: string;
   snapshot?: McpQuaySnapshotReading;
 };
@@ -349,19 +350,37 @@ function summarizeSnapshot(snapshot: QuaySnapshot): McpQuaySnapshotReading {
  *
  * `refresh` absent/false reads the TTL cache through `readCached` (zero runner
  * calls). `refresh: true` calls `quay.refresh(project)` exactly once, for the one
- * named project, and never touches any other project. A project without
+ * named project, and never touches any other project.
+ *
+ * The FIRST thing it does is establish that the project EXISTS (AC-287), and it
+ * reads that from the projects store (`deps.projects`), never from
+ * `hasQuayConfig`'s false: a project id nothing matches is a reference to
+ * nothing and throws `PROJECT_NOT_FOUND`. Only once the project is known to
+ * exist does the quay-config branch run, so a project without
  * `.quay/config.yml` reads {@link NO_QUAY_NOTE} with `hasQuayConfig: false` (a
- * reading, not an error); an uncached/absent project reads
- * {@link UNKNOWN_QUAY_NOTE}. Neither throws — an unknown project is a normal
- * answer.
+ * real state of a real project, still a success) and an uncached project reads
+ * {@link UNKNOWN_QUAY_NOTE}. The two cases are no longer conflated.
  */
 export async function buildQuaySnapshot(
   input: McpQuaySnapshotInput,
   deps: McpOverviewDeps,
 ): Promise<McpQuaySnapshotPayload> {
   const project = input.project;
+  const projects = await deps.projects.getProjectsWithSessions({
+    skipSynchronization: true,
+    includeHidden: true,
+  });
+  if (!projects.some((row) => row.projectId === project)) {
+    throw new McpToolError(
+      MCP_ERROR_CODES.PROJECT_NOT_FOUND,
+      `No project has id "${project}".`,
+      false,
+      { project },
+    );
+  }
+
   if (!deps.quay.hasQuayConfig(project)) {
-    return { project, hasQuayConfig: false, status: 'no-quay-config', note: NO_QUAY_NOTE };
+    return { project, hasQuayConfig: false, status: 'no_quay_config', note: NO_QUAY_NOTE };
   }
 
   if (input.refresh === true) {

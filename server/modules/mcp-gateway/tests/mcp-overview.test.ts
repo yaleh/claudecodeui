@@ -28,7 +28,10 @@
  *   (c) `quay_snapshot` reads the cache by default (no runner call), refreshes
  *       exactly once for exactly the named project when asked, and refuses an
  *       array `project`;
- *   (d) a project without `.quay/config.yml` is explained in words, not thrown;
+ *   (d) a project without `.quay/config.yml` is a SUCCESS (`status:
+ *       'no_quay_config'`, explained in words), while a project id nothing
+ *       matches is an error `PROJECT_NOT_FOUND` (AC-287; see the leg's note on
+ *       why not the prose `TARGET_NOT_FOUND`) — the two no longer collapse;
  *   (e) twenty projects still cost zero runner calls.
  */
 
@@ -393,7 +396,7 @@ async function withOverviewHarness(run: (harness: Harness, fixture: Fixture) => 
   const cachedSnapshots = new Map<string, QuaySnapshot>([[mainId, makeSnapshot(mainId)]]);
   // Every extra project is "has quay config" on ODD indices — index 0 (the
   // no-quay fixture) is deliberately config-less — and its snapshot is never
-  // cached, so the listing is a mix of unknown and no-quay-config entries.
+  // cached, so the listing is a mix of unknown and no_quay_config entries.
   const configProjects = new Set<string>([mainId, otherId]);
   EXTRA_DIRS.forEach((projectDir, index) => {
     const id = idByDir.get(dirByProject.get(projectDir) as string);
@@ -617,7 +620,7 @@ test('(c) quay_snapshot reads cache by default and refreshes exactly one project
 
 // --------------------------- (d) no quay config is a reading, not an error ---------------------------
 
-test('(d) a project without quay config is explained in words, not thrown', { concurrency: false }, async () => {
+test('(d) a project without quay config is a success, a project that does not exist is an error', { concurrency: false }, async () => {
   await withOverviewHarness(async (harness, fixture) => {
     const overview = await harness.call('overview');
     const quay = (overview.payload as AnyRecord).quay as AnyRecord[];
@@ -633,8 +636,35 @@ test('(d) a project without quay config is explained in words, not thrown', { co
     const snapshot = await harness.call('quay_snapshot', { project: fixture.noQuayId });
     console.log(`[d] quay_snapshot no-quay = ${JSON.stringify({ isError: snapshot.isError, payload: snapshot.payload })}`);
     assert.equal(snapshot.isError, false, 'a no-quay project must not be an error');
+    assert.equal((snapshot.payload as AnyRecord).status, 'no_quay_config', 'the AC-287 status literal is no_quay_config');
     assert.equal((snapshot.payload as AnyRecord).note, NO_QUAY_NOTE, 'quay_snapshot must explain the missing quay config');
     assert.equal((snapshot.payload as AnyRecord).hasQuayConfig, false, 'the reading must state there is no config');
+
+    // AC-287: a project id NOTHING matches is a DIFFERENT case — a reference to
+    // nothing, which is an error. Before this task the two collapsed onto the
+    // same `hasQuayConfig: false` branch, so this probe is what separates them.
+    //
+    // The code asserted here is `PROJECT_NOT_FOUND`, not AC-287's prose
+    // `TARGET_NOT_FOUND`: AC-284's achieved vocabulary has no such literal and
+    // its criterion reds if the string appears in this module, and AC-285's
+    // criterion pins the vocabulary key set in both directions. `PROJECT_NOT_FOUND`
+    // is that vocabulary's project-side code for exactly this fact; the task
+    // record carries the conflict and its resolution (AC5 left unticked).
+    const missingId = 'overview-no-such-project';
+    const missing = await harness.call('quay_snapshot', { project: missingId });
+    console.log(`[d] quay_snapshot missing = ${JSON.stringify({ isError: missing.isError, payload: missing.payload })}`);
+    assert.equal(missing.isError, true, 'a project that does not exist must be an error');
+    assert.equal(missing.payload?.code, 'PROJECT_NOT_FOUND', 'the missing project error carries PROJECT_NOT_FOUND');
+    assert.equal(
+      (missing.payload?.details as AnyRecord | undefined)?.project,
+      missingId,
+      'the error names the project that was asked for',
+    );
+
+    // Positive control: an EXISTING project with config is still a success, so
+    // the existence gate did not turn every read into an error.
+    const withConfig2 = await harness.call('quay_snapshot', { project: fixture.mainId });
+    assert.equal(withConfig2.isError, false, 'an existing project with config must still succeed');
   });
 });
 

@@ -79,7 +79,12 @@ export const MCP_TOOL_ERROR_CODES: Record<McpGatewayToolName, readonly McpErrorC
   sessions_list: [...WRAPPER_CODES, ...PROJECT_TARGET_CODES],
   session_get: [...WRAPPER_CODES, ...SESSION_TARGET_CODES],
   session_read: [...WRAPPER_CODES, ...SESSION_TARGET_CODES],
-  run_get: [...WRAPPER_CODES, ...SESSION_TARGET_CODES, 'MCP_TOOL_NOT_IMPLEMENTED'],
+  // AC-287: a by-id read that finds no run throws `RUN_NOT_FOUND`.
+  run_get: [...WRAPPER_CODES, ...SESSION_TARGET_CODES, 'RUN_NOT_FOUND', 'MCP_TOOL_NOT_IMPLEMENTED'],
+  // AC-287: a project id nothing matches throws `PROJECT_NOT_FOUND` — the
+  // project-side code of this one-code-per-category vocabulary (AC-284's goal
+  // retired the floating "target not found" name in favour of it, so there is
+  // no separate literal to mint here; see the task record's AC5 note).
   quay_snapshot: [...WRAPPER_CODES, ...PROJECT_TARGET_CODES, 'MCP_TOOL_NOT_IMPLEMENTED'],
 
   // -- stage-4 write tools ---------------------------------------------------
@@ -93,22 +98,30 @@ export const MCP_TOOL_ERROR_CODES: Record<McpGatewayToolName, readonly McpErrorC
 
   // -- stage-6 resident tools ------------------------------------------------
   // `session_cancel_queued` raises `FORBIDDEN` when the control service refuses
-  // the withdrawal.
-  session_cancel_queued: [...WRAPPER_CODES, ...SESSION_TARGET_CODES, 'FORBIDDEN'],
+  // the withdrawal, and — AC-287 — `QUEUED_MESSAGE_NOT_FOUND` when the uuid
+  // names no message this session's queue ever held. A message that already
+  // started stays a SUCCESS (`outcome: 'already-started'`).
+  session_cancel_queued: [
+    ...WRAPPER_CODES,
+    ...SESSION_TARGET_CODES,
+    'FORBIDDEN',
+    'QUEUED_MESSAGE_NOT_FOUND',
+  ],
   // `session_reconfigure` refuses a permission mode the provider does not list.
   session_reconfigure: [...WRAPPER_CODES, ...SESSION_TARGET_CODES, 'UNSUPPORTED_PERMISSION_MODE'],
   // `session_background` refuses a `stopTaskId` absent from the host snapshot.
   session_background: [...WRAPPER_CODES, ...SESSION_TARGET_CODES, 'TASK_NOT_FOUND'],
   // `approvals_list` forwards the control service's own `FORBIDDEN` refusal.
   approvals_list: [...WRAPPER_CODES, ...SESSION_TARGET_CODES, 'FORBIDDEN'],
-  // `approval_answer` refuses with `FORBIDDEN`, and reports an expired / unknown
-  // approval as `APPROVAL_EXPIRED_OR_NOT_FOUND` (currently inside its normal
-  // payload; AC-287 owns converting that to an envelope).
+  // `approval_answer` refuses with `FORBIDDEN`, and — AC-287 — reports an
+  // expired / unknown approval as `APPROVAL_NOT_FOUND`, an envelope whose
+  // `details.reason` is `'expired'` or `'never_issued'`. The old `ok:false`
+  // success carrying `APPROVAL_EXPIRED_OR_NOT_FOUND` is gone.
   approval_answer: [
     ...WRAPPER_CODES,
     ...SESSION_TARGET_CODES,
     'FORBIDDEN',
-    'APPROVAL_EXPIRED_OR_NOT_FOUND',
+    'APPROVAL_NOT_FOUND',
   ],
 };
 

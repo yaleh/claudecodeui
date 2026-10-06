@@ -427,8 +427,10 @@ export type {
 // for a session (or every running session), expanding an `AskUserQuestion` into
 // its questions and options; `buildApprovalAnswer` decides one through the shared
 // control service, forwarding `message` / `answers` (the latter as the runtime's
-// `updatedInput`) and reporting a no-longer-pending request as
-// `APPROVAL_EXPIRED_OR_NOT_FOUND` without calling the runtime.
+// `updatedInput`). A request that is no longer pending is an ERROR since AC-287 —
+// an `isError` envelope `APPROVAL_NOT_FOUND` whose `details.reason` distinguishes
+// an expired request from one this process never minted — raised without calling
+// the runtime.
 // `registerMcpApprovalTools` installs `approvals_list` (`cloudcli:read`) and
 // `approval_answer` (`cloudcli:approve`) through the audited seam; the transport
 // registers them via `registerMcpResidentTools` when `McpResidentToolDeps.approvals`

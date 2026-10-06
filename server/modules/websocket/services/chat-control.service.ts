@@ -14,6 +14,7 @@ import type {
   ChatRunSource,
   HostQueuedInputCancelResult,
   LLMProvider,
+  MissingApprovalReason,
   ProviderPermissionDecision,
   RealtimeClientConnection,
 } from '@/shared/types.js';
@@ -235,12 +236,26 @@ type AnswerApprovalInput = {
  * (`APPROVAL_EXPIRED_OR_NOT_FOUND`) or a caller the shared access entry refuses
  * (`FORBIDDEN`); BOTH refuse without calling `resolveToolApproval`, because the
  * in-registry check comes first and the access check before the call.
+ *
+ * The expired branch carries `reason`, the distinction AC-287 makes the MCP
+ * `approval_answer` envelope report: an id the runtime HELD and dropped is
+ * `'expired'`, one it never minted is `'never_issued'`. The distinction comes
+ * from the runtime's own `classifyMissingApproval` (read through the gateway's
+ * optional facet, defaulting to the conservative `'expired'`), never from this
+ * service guessing — the live pending map alone cannot tell the two apart.
  */
 type AnswerApprovalResult =
   | { ok: true; requestId: string }
   | {
       ok: false;
-      code: 'APPROVAL_EXPIRED_OR_NOT_FOUND' | 'FORBIDDEN';
+      code: 'APPROVAL_EXPIRED_OR_NOT_FOUND';
+      /** Why the request is absent: held-then-dropped, or never minted here. */
+      reason: MissingApprovalReason;
+      message: string;
+    }
+  | {
+      ok: false;
+      code: 'FORBIDDEN';
       message: string;
     };
 
@@ -812,9 +827,15 @@ export function createChatControlService(deps: ChatControlDependencies) {
   ): Promise<AnswerApprovalResult> {
     const holderSessionId = findApprovalSession(deps, input.requestId);
     if (holderSessionId === null) {
+      // The live pending map is empty for BOTH a settled id and an id nothing
+      // ever minted, so the distinction is read from the runtime's own ledger
+      // through the gateway's optional facet. A gateway that cannot classify
+      // degrades to `'expired'` — the reading that never claims the caller
+      // invented an id this process could not have seen.
       return {
         ok: false,
         code: 'APPROVAL_EXPIRED_OR_NOT_FOUND',
+        reason: deps.runtime.classifyMissingApproval?.(input.requestId) ?? 'expired',
         message: '该审批请求已过期或不存在（可能已超时被自动拒绝）。',
       };
     }

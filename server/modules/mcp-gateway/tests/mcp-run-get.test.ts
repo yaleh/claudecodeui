@@ -29,10 +29,12 @@
  *   (d) a turn that parks on `awaitingPermission` at the 2nd second returns
  *       early; a run that never parks does not carry that outcome;
  *   (e) `waitSeconds: 60` waits at most `MCP_RUN_GET_MAX_WAIT_SECONDS` seconds;
- *   (f) `expired` and `unknown` are explained in DIFFERENT words and both carry
- *       a fallback read of the session's recent messages;
- *   (g) a run whose boot differs from the current process reads as "服务已重启",
- *       with a fallback read of its own session's recent messages.
+ *   (f) `expired` and never-issued are RUN_NOT_FOUND ERRORS (AC-287) explained
+ *       in DIFFERENT words, with `details.reason` `'expired'` / `'never_issued'`,
+ *       and both carry a fallback read of the session's recent messages;
+ *   (g) a run whose boot differs from the current process is a RUN_NOT_FOUND
+ *       error reporting the coarse reason `'expired'` while its sentence says
+ *       "服务已重启", with a fallback read of its own session's recent messages.
  *
  * The false forms (AC10) mutate the implementation after this criterion is
  * green; they are recorded in the task's change notes.
@@ -522,7 +524,7 @@ test('(e) a 60-second request waits at most MCP_RUN_GET_MAX_WAIT_SECONDS', { con
 
 // --------------------------- (f) expired vs unknown ---------------------------
 
-test('(f) expired and unknown are explained differently and both carry a fallback read', { concurrency: false }, async () => {
+test('(f) expired and never-issued are RUN_NOT_FOUND errors, explained differently, both carrying a fallback read', { concurrency: false }, async () => {
   await withRunGetHarness(async (harness) => {
     const { runId } = harness.startRun(SESSION);
     harness.registry.completeRun(SESSION, { exitCode: 0 });
@@ -531,22 +533,29 @@ test('(f) expired and unknown are explained differently and both carry a fallbac
     harness.runtime.clock += 5 * 60 * 1000 + 1;
 
     const expired = await harness.call('run_get', { runId, session: SESSION });
-    const expiredPayload = expired.payload as AnyRecord;
+    const expiredPayload = (expired.payload?.details ?? {}) as AnyRecord;
     const unknownId = 'run-get-never-issued';
     const unknown = await harness.call('run_get', { runId: unknownId, session: SESSION });
-    const unknownPayload = unknown.payload as AnyRecord;
+    const unknownPayload = (unknown.payload?.details ?? {}) as AnyRecord;
 
-    console.log(`[f] expired reason=${JSON.stringify(expiredPayload.reason)} explanation=${JSON.stringify(expiredPayload.explanation)}`);
-    console.log(`[f] unknown reason=${JSON.stringify(unknownPayload.reason)} explanation=${JSON.stringify(unknownPayload.explanation)}`);
+    console.log(`[f] expired code=${JSON.stringify(expired.payload?.code)} reason=${JSON.stringify(expiredPayload.reason)} message=${JSON.stringify(expired.payload?.message)}`);
+    console.log(`[f] unknown code=${JSON.stringify(unknown.payload?.code)} reason=${JSON.stringify(unknownPayload.reason)} message=${JSON.stringify(unknown.payload?.message)}`);
     console.log(`[f] expired fallback=${JSON.stringify(expiredPayload.fallback)}`);
 
-    assert.equal(expired.isError, false, 'an expired run is a reading, not an error');
-    assert.equal(unknown.isError, false, 'an unknown run is a reading, not an error');
+    // AC-287: a run id naming nothing this process has is an ERROR, not a
+    // `status:'unknown'` success reading. The replacements are stronger: they
+    // name the code, the cause and its discrimination, and read the fallback out
+    // of `details`, which is where the context now rides.
+    assert.equal(expired.isError, true, 'an expired run is an error');
+    assert.equal(expired.payload?.code, 'RUN_NOT_FOUND', 'the expired error carries RUN_NOT_FOUND');
+    assert.equal(unknown.isError, true, 'a never-issued run is an error');
+    assert.equal(unknown.payload?.code, 'RUN_NOT_FOUND', 'the never-issued error carries RUN_NOT_FOUND');
     assert.equal(expiredPayload.reason, 'expired', 'a run past its retention window reads expired');
-    assert.equal(unknownPayload.reason, 'unknown', 'an id never handed out reads unknown');
-    assert.notEqual(expiredPayload.explanation, unknownPayload.explanation, 'the two explanations must be different text');
-    assert.match(String(expiredPayload.explanation), /保留期/, 'the expired explanation must say the run aged out');
-    assert.match(String(unknownPayload.explanation), /从未/, 'the unknown explanation must say the id was never issued');
+    assert.equal(unknownPayload.reason, 'never_issued', 'an id never handed out reads never_issued');
+    assert.notEqual(expiredPayload.reason, unknownPayload.reason, 'the two causes are distinguished, not collapsed');
+    assert.notEqual(expired.payload?.message, unknown.payload?.message, 'the two explanations must be different text');
+    assert.match(String(expired.payload?.message), /保留期/, 'the expired explanation must say the run aged out');
+    assert.match(String(unknown.payload?.message), /从未/, 'the never-issued explanation must say the id was never issued');
 
     assert.deepEqual(
       (expiredPayload.fallback as AnyRecord).messages,
@@ -556,7 +565,7 @@ test('(f) expired and unknown are explained differently and both carry a fallbac
     assert.deepEqual(
       (unknownPayload.fallback as AnyRecord).messages,
       FIXTURE_MESSAGES,
-      'the unknown fallback must read the session\'s recent messages verbatim',
+      'the never-issued fallback must read the session\'s recent messages verbatim',
     );
 
     // Positive control: the expired fallback is really populated.
@@ -566,7 +575,7 @@ test('(f) expired and unknown are explained differently and both carry a fallbac
 
 // --------------------------- (g) restarted ---------------------------
 
-test('(g) a run from a previous boot reads as restarted, with its session fallback', { concurrency: false }, async () => {
+test('(g) a run from a previous boot is RUN_NOT_FOUND (reason expired) saying restarted, with its session fallback', { concurrency: false }, async () => {
   await withRunGetHarness(async (harness) => {
     const { runId } = harness.startRun(SESSION);
 
@@ -577,15 +586,25 @@ test('(g) a run from a previous boot reads as restarted, with its session fallba
     // (which belongs to the old boot) is still held.
     harness.runtime.currentBoot = BOOT_TWO;
     const second = await harness.call('run_get', { runId, waitSeconds: 0 });
-    const secondPayload = second.payload as AnyRecord;
+    const secondPayload = (second.payload?.details ?? {}) as AnyRecord;
 
-    console.log(`[g] first bootId=${JSON.stringify(firstBoot)} explanation=${JSON.stringify((first.payload as AnyRecord).explanation)}`);
-    console.log(`[g] second bootId=${JSON.stringify(secondPayload.bootId)} reason=${JSON.stringify(secondPayload.reason)} explanation=${JSON.stringify(secondPayload.explanation)}`);
+    console.log(`[g] first bootId=${JSON.stringify(firstBoot)}`);
+    console.log(`[g] second code=${JSON.stringify(second.payload?.code)} bootId=${JSON.stringify(secondPayload.bootId)} reason=${JSON.stringify(secondPayload.reason)} message=${JSON.stringify(second.payload?.message)}`);
 
-    assert.equal(second.isError, false, 'a restarted run is a reading, not an error');
-    assert.equal(secondPayload.reason, 'restarted', 'a run whose boot differs from the current process reads restarted');
-    assert.match(String(secondPayload.explanation), /重启/, 'the explanation must say the service restarted');
-    assert.notEqual(secondPayload.explanation, (first.payload as AnyRecord).explanation, 'the restarted explanation must differ from the first reading\'s');
+    // AC-287: a previous boot's run is an error too — the id no longer names
+    // anything THIS process has. Its reportable reason is the coarse `'expired'`
+    // (AC-287 names only two), while its SENTENCE still says the service
+    // restarted; the stronger assertions below pin both halves separately.
+    assert.equal(second.isError, true, 'a restarted run is an error');
+    assert.equal(second.payload?.code, 'RUN_NOT_FOUND', 'the restarted error carries RUN_NOT_FOUND');
+    assert.equal(secondPayload.reason, 'expired', 'a previous boot\'s run reports the coarse expired reason');
+    assert.match(String(second.payload?.message), /重启/, 'the explanation must say the service restarted');
+    assert.doesNotMatch(
+      String(second.payload?.message),
+      /保留期/,
+      'the restarted sentence is its own text, not the plain retention-expired one',
+    );
+    assert.equal(secondPayload.bootId, BOOT_TWO, 'the details name the boot that answered');
     assert.notEqual(secondPayload.bootId, firstBoot, 'the two readings must expose the two different boots');
     assert.deepEqual(
       (secondPayload.fallback as AnyRecord).messages,

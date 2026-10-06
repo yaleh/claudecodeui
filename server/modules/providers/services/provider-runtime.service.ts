@@ -15,6 +15,7 @@ import type {
   HostResidentStartResult,
   HostTurnInput,
   LLMProvider,
+  MissingApprovalReason,
   ProcessHost,
   ProviderPermissionDecision,
   ProviderRunFunction,
@@ -1052,6 +1053,29 @@ export function createProviderRuntimeService(
       return dependencies.listProviders().flatMap(
         (provider) => provider.runtime.permissions?.listPending(sessionId) ?? [],
       );
+    },
+
+    /**
+     * Asks the first provider whose permission facet can classify an absent
+     * `requestId` why it is absent (`'expired'` vs `'never_issued'`).
+     *
+     * Returns `null` when no provider implements the facet — a runtime whose
+     * registry cannot tell the two apart — so the caller applies its own
+     * conservative default rather than reading a fabricated answer. A provider
+     * with the facet answers for itself: an id this process minted belongs to
+     * whichever provider armed it, and only that provider's ledger knows.
+     *
+     * Consumed by `chat-control.service.ts`'s `answerApproval` and, through it,
+     * the MCP `approval_answer` envelope's `details.reason` (AC-287).
+     */
+    classifyMissingApproval(requestId: string): MissingApprovalReason | null {
+      for (const provider of dependencies.listProviders()) {
+        const classify = provider.runtime.permissions?.classifyMissingApproval;
+        if (typeof classify === 'function') {
+          return classify(requestId);
+        }
+      }
+      return null;
     },
   };
 }

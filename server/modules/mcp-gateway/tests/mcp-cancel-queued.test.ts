@@ -31,10 +31,13 @@
  *       — the driver opened no round, the registry holds no second run, and the
  *       resident host's pid is unchanged;
  *   (b) once the queued command is dequeued (started), withdrawing the same
- *       uuid returns `unknown` — NOT `cancelled` — and the second message really
- *       started a round;
- *   (c) a uuid that was never returned, and another resident session's own
- *       uuid, both return `unknown` and leave both sessions' queues verbatim;
+ *       uuid returns the SUCCESS `outcome: 'already-started'` — NOT `cancelled`,
+ *       and no longer the ambiguous `unknown` (AC-287) — and the second message
+ *       really started a round;
+ *   (c) a uuid that was never returned, and another resident session's own uuid,
+ *       are BOTH errors `QUEUED_MESSAGE_NOT_FOUND` (AC-287: a reference to no
+ *       live queued message is an error, not a reading) and leave both sessions'
+ *       queues verbatim;
  *   (d) a token carrying only `cloudcli:session:send` is denied, exactly one
  *       `denied` audit row is written, and the control service's `cancelQueued`
  *       is never called.
@@ -558,7 +561,7 @@ test('(a) a queued withdrawal reports cancelled, never becomes a round, and keep
 
 // --------------------------- (b) already started is not cancelled ---------------------------
 
-test('(b) withdrawing an already-dequeued message is NOT cancelled and the message really started', { concurrency: false }, async () => {
+test('(b) withdrawing an already-dequeued message is already-started (not cancelled) and the message really started', { concurrency: false }, async () => {
   await withHarness({ label: 'started', sessions: 1, holdMs: 200, dequeueAt: 1_500, delta: 2 }, async (harness) => {
     const session = harness.sessionIds[0];
 
@@ -582,7 +585,14 @@ test('(b) withdrawing an already-dequeued message is NOT cancelled and the messa
 
     assert.equal(cancel.isError, false, `the withdrawal must not error (text=${cancel.text})`);
     assert.notEqual(cancel.payload?.outcome, 'cancelled', 'a message already taken must NOT be reported cancelled');
-    assert.equal(cancel.payload?.outcome, 'unknown', 'the debug driver reads an already-started message as unknown');
+    // AC-287: a dequeued message is `already-started` — the named fact the debug
+    // driver now reports instead of the ambiguous `unknown` it used to share with
+    // "never held at all". Still a SUCCESS: the message really started.
+    assert.equal(
+      cancel.payload?.outcome,
+      'already-started',
+      'the debug driver reads an already-started message as already-started',
+    );
     assert.equal(queueAfterDequeue.list.includes(String(uuid)), false, 'the dequeued message is already out of the queue');
     assert.ok(harness.openedRounds.length >= 1, 'the second message really started a round');
   });
@@ -590,7 +600,7 @@ test('(b) withdrawing an already-dequeued message is NOT cancelled and the messa
 
 // --------------------------- (c) unknown and cross-session ---------------------------
 
-test('(c) a never-returned uuid and another session uuid both read unknown and leave both queues verbatim', { concurrency: false }, async () => {
+test('(c) a never-returned uuid and another session uuid are both QUEUED_MESSAGE_NOT_FOUND and leave both queues verbatim', { concurrency: false }, async () => {
   await withHarness({ label: 'unknown', sessions: 2, holdMs: 2_000, delta: 1 }, async (harness) => {
     const [sessionA, sessionB] = harness.sessionIds;
 
@@ -625,10 +635,17 @@ test('(c) a never-returned uuid and another session uuid both read unknown and l
     say(`(c) queueABefore=${JSON.stringify(queueABefore)} queueAAfter=${JSON.stringify(queueAAfter)}`);
     say(`(c) queueBBefore=${JSON.stringify(queueBBefore)} queueBAfter=${JSON.stringify(queueBAfter)}`);
 
-    assert.equal(never.isError, false, `the unknown withdrawal must not error (text=${never.text})`);
-    assert.equal(never.payload?.outcome, 'unknown', 'a uuid that was never returned must read unknown');
-    assert.equal(cross.isError, false, `the cross-session withdrawal must not error (text=${cross.text})`);
-    assert.equal(cross.payload?.outcome, 'unknown', "another session's uuid must read unknown against the first");
+    // AC-287: a uuid the host never held is an ERROR (`QUEUED_MESSAGE_NOT_FOUND`),
+    // not an `unknown` success. Both the fabricated uuid and the other session's
+    // live uuid are, from session A's host, ids it never held.
+    assert.equal(never.isError, true, `the never-returned withdrawal must error (text=${never.text})`);
+    assert.equal(never.payload?.code, 'QUEUED_MESSAGE_NOT_FOUND', 'a uuid that was never returned reads QUEUED_MESSAGE_NOT_FOUND');
+    assert.equal(cross.isError, true, `the cross-session withdrawal must error (text=${cross.text})`);
+    assert.equal(
+      cross.payload?.code,
+      'QUEUED_MESSAGE_NOT_FOUND',
+      "another session's uuid reads QUEUED_MESSAGE_NOT_FOUND against the first",
+    );
     assert.deepEqual(queueAAfter.list, queueABefore.list, "session A's driver queue must be verbatim unchanged");
     assert.deepEqual(queueBAfter.list, queueBBefore.list, "session B's driver queue must be verbatim unchanged");
     assert.equal(queueABefore.list.includes(String(uuidA)), true, 'positive control: A still holds its own queued uuid');

@@ -17,9 +17,12 @@
  *  - `approval_answer` forwards `allow` (and `message` / `answers`) to the
  *    control service. `answers` is the runtime's `updatedInput` — it is not a
  *    distinct field — and `message` rides alongside it. A request that is no
- *    longer pending comes back `APPROVAL_EXPIRED_OR_NOT_FOUND` with a sentence
- *    that contains 已过期或不存在, as a NORMAL (non-thrown) result; the control
- *    service has already guaranteed `resolveToolApproval` was not called.
+ *    longer pending is an ERROR (AC-287): `isError: true` with
+ *    `code: APPROVAL_NOT_FOUND` and `details.reason` distinguishing a request
+ *    that timed out (`expired`) from one this process never minted
+ *    (`never_issued`). The sentence still contains 已过期或不存在; it is now the
+ *    envelope's `message`. The control service has already guaranteed
+ *    `resolveToolApproval` was not called.
  *
  * Everything is injected ({@link McpApprovalsDeps}): production wires the one
  * process control service and a real clock (`server/index.ts`); the criterion
@@ -34,6 +37,7 @@
 import { z } from 'zod';
 
 import { ACCESS_TOKEN_SCOPES } from '@/modules/oauth/index.js';
+import type { MissingApprovalReason } from '@/shared/types.js';
 
 import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import type { McpPrincipal } from './mcp-gateway.auth.js';
@@ -72,15 +76,22 @@ export type McpPendingApprovalsResult =
 /**
  * The result `answerApproval` returns, declared structurally.
  *
- * `APPROVAL_EXPIRED_OR_NOT_FOUND` is the one code this adapter's tool reports as
- * a normal payload; `FORBIDDEN` is translated to a structured refusal (AC-232's
- * vocabulary).
+ * The expired branch carries the control plane's `reason` — the distinction
+ * AC-287 makes this adapter report as `details.reason` on the
+ * `APPROVAL_NOT_FOUND` envelope — while `FORBIDDEN` is translated to a
+ * structured refusal (AC-232's vocabulary).
  */
 export type McpAnswerApprovalResult =
   | { ok: true; requestId: string }
   | {
       ok: false;
-      code: 'APPROVAL_EXPIRED_OR_NOT_FOUND' | 'FORBIDDEN';
+      code: 'APPROVAL_EXPIRED_OR_NOT_FOUND';
+      reason: MissingApprovalReason;
+      message: string;
+    }
+  | {
+      ok: false;
+      code: 'FORBIDDEN';
       message: string;
     };
 
@@ -143,14 +154,20 @@ export type ApprovalsListPayload = {
   approvals: McpApprovalListItem[];
 };
 
-/** The `approval_answer` result. */
+/**
+ * The `approval_answer` result, on success only.
+ *
+ * A failure is no longer a payload of this shape: AC-287 moved both refusals to
+ * the error side, so a caller sees either this (the decision was handed over) or
+ * an `isError` envelope (`APPROVAL_NOT_FOUND` / `FORBIDDEN`). The former
+ * `code` / `message` fields are gone with the `ok:false` payload that carried
+ * them — a "successful answer" now has exactly one shape.
+ */
 export type ApprovalAnswerPayload = {
-  ok: boolean;
-  requestId?: string;
-  /** `allow` / `deny` on success; absent on a refusal. */
-  decision?: string;
-  code?: string;
-  message?: string;
+  ok: true;
+  requestId: string;
+  /** `allow` / `deny` on success. */
+  decision: string;
 };
 
 // --------------------------- input schemas and readers ---------------------------
@@ -385,12 +402,13 @@ export async function buildApprovalsList(
  * Decides one pending approval, forwarding `allow` / `message` / `answers`.
  *
  * `answers` reaches the runtime as the decision's `updatedInput` — the control
- * service does that mapping — and `message` rides alongside it. A request the
- * control service reports as no longer pending is returned as a NORMAL payload
- * (`ok: false`, `code: APPROVAL_EXPIRED_OR_NOT_FOUND`, a message containing
- * 已过期或不存在), NOT thrown: it is a reading about a request, not a failed
- * tool. A refusal the control service attributes to access is thrown as a
- * structured `FORBIDDEN` body (AC-232 owns that vocabulary).
+ * service does that mapping — and `message` rides alongside it. BOTH refusals
+ * are THROWN as `isError` envelopes (AC-287): a request the control service
+ * reports as no longer pending becomes `APPROVAL_NOT_FOUND` carrying the
+ * control plane's `details.reason` (`'expired'` vs `'never_issued'`), and a
+ * refusal the control service attributes to access becomes `FORBIDDEN`
+ * (AC-232's vocabulary). Neither is an `ok:false` success any more — a
+ * reference that names no live request is an error, not a reading.
  *
  * Consumers: `registerMcpApprovalTools` (the registered handler) and this
  * module's criterion, which drives it through the real mount.
@@ -413,12 +431,13 @@ export async function buildApprovalAnswer(
   }
 
   if (result.code === 'APPROVAL_EXPIRED_OR_NOT_FOUND') {
-    return {
-      ok: false,
-      requestId: input.requestId,
-      code: 'APPROVAL_EXPIRED_OR_NOT_FOUND',
-      message: result.message,
-    };
+    // AC-287: a reference that points at no live request is an ERROR, not an
+    // `ok:false` success. The control plane's `reason` rides as
+    // `details.reason`, so the caller can tell a request that timed out
+    // (`expired`) from one this process never minted (`never_issued`).
+    throw new McpToolError(MCP_ERROR_CODES.APPROVAL_NOT_FOUND, result.message, false, {
+      reason: result.reason,
+    });
   }
 
   throw new McpToolError(MCP_ERROR_CODES.FORBIDDEN, result.message);
@@ -496,11 +515,9 @@ export function registerMcpApprovalTools(seam: McpApprovalSeam, deps: McpApprova
     requiredScope: APPROVE_SCOPE,
     inputSchema: APPROVAL_ANSWER_INPUT_SCHEMA,
     outputSchema: {
-      ok: z.boolean(),
-      requestId: z.string().optional(),
-      decision: z.string().optional(),
-      code: z.string().optional(),
-      message: z.string().optional(),
+      ok: z.literal(true),
+      requestId: z.string(),
+      decision: z.string(),
     },
     handler: (args, ctx) => buildApprovalAnswer(readApprovalAnswerInput(args), ctx, deps),
   });

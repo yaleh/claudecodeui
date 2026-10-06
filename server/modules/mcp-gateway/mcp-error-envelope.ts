@@ -72,15 +72,19 @@ export type McpErrorDescriptor = {
  * `PROJECT_NOT_FOUND` is its project-side sibling; `TARGET_AMBIGUOUS` is
  * "several targets matched, so the gateway refuses to pick".
  *
- * `APPROVAL_NOT_FOUND` / `QUEUED_MESSAGE_NOT_FOUND` / `RUN_NOT_FOUND` are part of
- * this vocabulary but are not MINTED by AC-284: the tools that will emit them
- * (`approval_answer` / `session_cancel_queued` / `run_get`) still answer a miss
- * as a normal payload, and converting those is AC-287's scope. They are declared
- * here so AC-287 mints them through this one module rather than inventing a
- * second vocabulary. `APPROVAL_EXPIRED_OR_NOT_FOUND` is the one code
- * `approval_answer` currently reports INSIDE its normal payload rather than as an
- * envelope; it lives here so the value-position literal that mints it points at
- * the vocabulary (AC-285 (e)) rather than at a second string.
+ * `APPROVAL_NOT_FOUND` / `QUEUED_MESSAGE_NOT_FOUND` / `RUN_NOT_FOUND` were
+ * declared by AC-284 but not MINTED by it: the tools that emit them
+ * (`approval_answer` / `session_cancel_queued` / `run_get`) once answered a miss
+ * as a normal payload. AC-287 converts all three to envelopes thrown through this
+ * module, so a miss on those tools is now `isError` with the cause in `details`
+ * (`{ reason: 'expired' | 'never_issued' }` for the two by-id reads) and the
+ * successful payloads shrink to the cases that describe something that exists.
+ * `APPROVAL_EXPIRED_OR_NOT_FOUND` is the one code `approval_answer` used to
+ * report INSIDE its normal payload rather than as an envelope; AC-287 retired it
+ * from the wire (the expired/unknown approval is `APPROVAL_NOT_FOUND` with
+ * `details.reason`). It stays in this vocabulary because AC-285's criterion pins
+ * the vocabulary key set in both directions and it is that record's entry — a
+ * value a caller might still hold, not a code any tool mints.
  *
  * The record is `as const satisfies Record<string, McpErrorDescriptor>`: every
  * value is checked against the descriptor type, and {@link McpErrorCode} below is
@@ -163,6 +167,8 @@ export const MCP_ERROR_CODES = {
     message: 'The handler failed in a way the gateway could not attribute to a known code.',
     retryable: false,
   },
+  // Retained for AC-285's both-direction vocabulary pin. No tool mints it since
+  // AC-287 moved the expired/unknown approval onto `APPROVAL_NOT_FOUND`.
   APPROVAL_EXPIRED_OR_NOT_FOUND: {
     code: 'APPROVAL_EXPIRED_OR_NOT_FOUND',
     message: 'The approval request has expired or no longer exists.',

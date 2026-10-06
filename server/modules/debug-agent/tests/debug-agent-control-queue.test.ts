@@ -19,8 +19,12 @@
  *       (AC-238's "cancelled"), the message really leaves the driver queue, no
  *       second round appears when the scenario advances, and the host's pid is
  *       unchanged;
- *   (d) a withdrawal AFTER the command was dequeued answers `unknown`, not
- *       `withdrawn` — the queue state, not a promise about the future.
+ *   (d) a withdrawal AFTER the command was dequeued answers `already-started`,
+ *       not `withdrawn` — the queue state, not a promise about the future.
+ *       (AC-287 moved this reading from the ambiguous `unknown`: the driver now
+ *       remembers what it dequeued, so "this process started it" is told apart
+ *       from "this process never held it". The assertion's intent — "not
+ *       withdrawn" — is unchanged and now names the fact precisely.)
  *
  * Vocabulary note. AC-238's prose names the successful withdrawal `cancelled`.
  * The shared union `HostQueuedInputCancelResult` (`server/shared/types.ts`) has
@@ -380,7 +384,7 @@ async function readWithdrawn(): Promise<WithdrawnReading> {
   };
 }
 
-/** (d) a withdrawal after the command was dequeued answers unknown. */
+/** (d) a withdrawal after the command was dequeued answers already-started. */
 async function readAlreadyStarted(): Promise<AlreadyStartedReading> {
   const harness = await armHarness('already-started', 2);
   const busy = await sendTwice(harness);
@@ -555,7 +559,7 @@ function registerCriteria(): void {
     assert.equal(reading.pidAfter, reading.pidBefore, 'the withdrawal must not replace the held process');
   });
 
-  test('(d) a withdrawal after the command was dequeued answers unknown', () => {
+  test('(d) a withdrawal after the command was dequeued answers already-started', () => {
     const { reading } = runChild<AlreadyStartedReading>('already-started');
     say(
       `(d) uuid=${reading.second.queuedMessageUuid} queueAfterDequeue=${JSON.stringify(reading.queueAfterDequeue)} ` +
@@ -564,7 +568,10 @@ function registerCriteria(): void {
 
     assertNonEmptyString(reading.second.queuedMessageUuid, 'queuedMessageUuid');
     assert.equal(reading.queueHeld, false, 'the dequeued message is already out of the driver queue');
-    assert.equal(reading.verdict, 'unknown', 'a message already started cannot be withdrawn');
+    // AC-287: the driver remembers what it dequeued, so a started message is
+    // `already-started` — a named fact — rather than the ambiguous `unknown` it
+    // used to share with "never held at all" (`server/shared/types.ts`).
+    assert.equal(reading.verdict, 'already-started', 'a message already started cannot be withdrawn');
     assert.notEqual(reading.verdict, 'withdrawn');
   });
 

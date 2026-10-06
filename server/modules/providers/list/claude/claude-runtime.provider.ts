@@ -62,6 +62,7 @@ import {
 } from '@/shared/utils.js';
 import type {
   AnyRecord,
+  MissingApprovalReason,
   NormalizedMessage,
   ProviderModelsDefinition,
   ProviderRuntimeContext,
@@ -112,6 +113,52 @@ type ToolApprovalResolver = ((decision: AnyRecord | null) => void) & {
 
 const activeSessions = new Map<string, ActiveClaudeSession>();
 const pendingToolApprovals = new Map<string, ToolApprovalResolver>();
+
+/** How many settled approval request ids this process remembers. */
+const MAX_REMEMBERED_APPROVALS = 512;
+
+/**
+ * The bounded ledger of approval request ids this process has HELD.
+ *
+ * `pendingToolApprovals` is emptied by `cleanup()` the instant a request
+ * settles, so the live map alone cannot tell an id that was here and timed out
+ * from one that was never minted — both simply read as absent. AC-287 requires
+ * the MCP `approval_answer` surface to report those two apart, so the id is
+ * recorded here when the wait is armed and kept after the pending entry is
+ * gone. Bounded (oldest first out) so a long-lived process cannot grow the set
+ * without limit; an evicted id degrades to the conservative `never_issued`
+ * rather than a false `expired`.
+ *
+ * Consumed by {@link classifyMissingApproval}, which
+ * `claudeRuntime.permissions.classifyMissingApproval` exposes to
+ * `provider-runtime.service.ts` and, through it, to the MCP approval adapter.
+ */
+const heldApprovalLedger = new Set<string>();
+
+/** Records `requestId` as held, evicting the oldest id past the cap. */
+function rememberHeldApproval(requestId: string): void {
+  heldApprovalLedger.delete(requestId);
+  heldApprovalLedger.add(requestId);
+  if (heldApprovalLedger.size > MAX_REMEMBERED_APPROVALS) {
+    const oldest = heldApprovalLedger.values().next().value;
+    if (oldest !== undefined) {
+      heldApprovalLedger.delete(oldest);
+    }
+  }
+}
+
+/**
+ * Classifies a `requestId` that is NOT in the pending registry.
+ *
+ * `expired` means this process held the request and no longer does (it timed
+ * out or was already decided); `never_issued` means nothing here ever minted
+ * it. Consumers: `provider-runtime.service.ts` forwards it, and
+ * `chat-control.service.ts` / `mcp-approvals.ts` turn it into the
+ * `APPROVAL_NOT_FOUND` envelope's `details.reason`.
+ */
+function classifyMissingApproval(requestId: string): MissingApprovalReason {
+  return heldApprovalLedger.has(requestId) ? 'expired' : 'never_issued';
+}
 
 /**
  * The SDK query factory every run creates its process through.
@@ -230,6 +277,10 @@ function waitForToolApproval(
   options: ToolApprovalOptions = {},
 ): Promise<AnyRecord | null> {
   const { timeoutMs = TOOL_APPROVAL_TIMEOUT_MS, signal, onCancel, metadata } = options;
+
+  // Recorded at ARM time, not at settle time: the ledger must still name this id
+  // after `cleanup()` deletes the pending entry, which is the whole point.
+  rememberHeldApproval(requestId);
 
   return new Promise(resolve => {
     let settled = false;
@@ -2093,6 +2144,7 @@ export const claudeRuntime = {
   permissions: {
     resolve: resolveToolApproval,
     listPending: getPendingApprovalsForSession,
+    classifyMissingApproval,
   },
 };
 

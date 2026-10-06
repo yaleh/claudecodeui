@@ -180,6 +180,11 @@ export { extractCumulativeTokenBudget, extractTokenBudget } from './list/claude/
 // actually handed over — the half neither the normalizer's tests nor the broadcaster's
 // tests can see.
 export { forwardNormalizedFrames } from './list/claude/claude-runtime.provider.js';
+// requestClientToolDecision: the claude runtime's own approval-request path.
+// Consumed by the AC-287 criterion, which arms the real approval ledger through
+// it (so `classifyMissingApproval` reads a genuinely held-then-abandoned id as
+// `'expired'`) instead of stubbing the distinction it is meant to prove.
+export { requestClientToolDecision } from './list/claude/claude-runtime.provider.js';
 export { createProviderTokenUsageService, summarizeClaudeTokenUsage } from './services/provider-token-usage.service.js';
 // ClaudeSessionsProvider: driven by the stream-event unwrap test, which needs the
 // normalizer's own class to prove a partial SDK frame reaches the wire as a

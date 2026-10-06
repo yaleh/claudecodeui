@@ -38,6 +38,7 @@ import type {
   AuthenticatedWebSocketRequest,
   ChatRunSource,
   HostQueuedInputCancelResult,
+  MissingApprovalReason,
   LLMProvider,
   ProviderPermissionDecision,
   ProviderRuntimeWriter,
@@ -200,6 +201,18 @@ export type ProviderRuntimeGateway = {
   ): Promise<ControlBackgroundTaskOutcome>;
   resolveToolApproval(requestId: string, payload: ProviderPermissionDecision): void;
   getPendingApprovalsForSession(sessionId: string): unknown[];
+  /**
+   * Why an approval `requestId` is absent from the pending registry: it was
+   * held and is gone (`expired`), or nothing here ever minted it
+   * (`never_issued`).
+   *
+   * Optional, and read through the control service's own `??` default
+   * (`'expired'`) when absent, because a gateway that cannot classify must not
+   * have `never_issued` invented for it: the conservative reading is the one
+   * that never claims a request was never issued. `provider-runtime.service.ts`
+   * forwards it from the first provider whose permission facet answers.
+   */
+  classifyMissingApproval?(requestId: string): MissingApprovalReason | null;
 };
 
 /**

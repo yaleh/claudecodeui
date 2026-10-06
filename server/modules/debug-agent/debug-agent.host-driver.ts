@@ -87,6 +87,14 @@ export type DebugAgentCommandQueueReading = {
   withdrawRequested: string[];
   /** Commands this process has acknowledged as dropped, oldest first. */
   withdrawn: string[];
+  /**
+   * Commands this process has taken off the queue to start, oldest first.
+   *
+   * The dequeued ones. Kept so a withdrawal naming one of them can answer
+   * `already-started` rather than the ambiguous `unknown` (AC-287); without it
+   * a started command and a never-seen one would be the same absence.
+   */
+  started: string[];
   /** `control_response` frames this process wrote in answer to a withdrawal. */
   controlResponses: string[];
 };
@@ -221,9 +229,12 @@ export type DebugAgentHostDriver = IProviderHostDriver & {
    * Withdraws a queued message from the process.
    *
    * The verdict is this process's own queue state: a uuid it still holds is
-   * removed and answered `withdrawn`, and one it no longer holds — already taken
-   * by `readOldestQueuedCommand`, i.e. already started — is answered `unknown`.
-   * The request is recorded either way. The one thing it must never do is
+   * removed and answered `withdrawn`; one it no longer holds but has itself
+   * dequeued (`readOldestQueuedCommand`, i.e. already started) is answered
+   * `already-started`; anything else — a uuid it never held — is `unknown`.
+   * Those last two are deliberately not folded together (AC-287, and the shared
+   * union's own doc): "we know it is too late" and "we never saw it" are
+   * different facts. The request is recorded either way. The one thing it must never do is
    * produce a `control_response`, because there is none to produce: the CLI
    * answers this frame with no response at any timing
    * (`docs/proposals/claude-resident-sessions-experiments.md` §9.2), and a
@@ -388,6 +399,18 @@ export function createDebugAgentHostDriver(
   const withdrawRequestedByAppSession = new Map<string, string[]>();
   /** Commands this process has acknowledged as dropped, oldest first, per session. */
   const withdrawnByAppSession = new Map<string, string[]>();
+  /**
+   * Commands this process has taken off the queue to start, oldest first, per session.
+   *
+   * `readOldestQueuedCommand` shifts an entry out of `queueByAppSession` the
+   * moment the scenario's `dequeue` step says the process started it; without
+   * this ledger that uuid would simply vanish, leaving a later `cancelQueuedInput`
+   * unable to tell "this process already started it" from "this process never
+   * held it". AC-287 requires those two apart — the former is `already-started`,
+   * the latter `unknown` — so the dequeued id is recorded here as it leaves the
+   * queue.
+   */
+  const startedByAppSession = new Map<string, string[]>();
   /**
    * `control_response` frames this process wrote in answer to a withdrawal.
    *
@@ -603,12 +626,12 @@ export function createDebugAgentHostDriver(
    *
    * The verdict is the driver's own queue state, not a promise about the future:
    * a uuid the queue still holds is dropped here and answered `withdrawn` (the
-   * value the shared union uses for a message that left the process's hands),
-   * while a uuid the queue no longer holds — already taken by
-   * `readOldestQueuedCommand` and therefore already started — is answered
-   * `unknown`. The request is recorded in `withdrawRequested` either way, so the
-   * criterion can read back that the click reached the host even when the queue
-   * had already moved on.
+   * value the shared union uses for a message that left the process's hands); a
+   * uuid the queue no longer holds but `readOldestQueuedCommand` dequeued — and
+   * therefore already started — is answered `already-started`; a uuid this
+   * process never held is `unknown`. The request is recorded in
+   * `withdrawRequested` either way, so the criterion can read back that the
+   * click reached the host even when the queue had already moved on.
    *
    * Removing the message here, rather than leaving it for the scenario's
    * `cancel-ack` step, is what makes "a withdrawn message never becomes a round"
@@ -627,7 +650,12 @@ export function createDebugAgentHostDriver(
     const queue = listFor(queueByAppSession, appSessionId);
     const at = queue.indexOf(messageUuid);
     if (at < 0) {
-      return 'unknown';
+      // Not queued: either this process already started it (it is in the started
+      // ledger) or it never held it at all. Those are different facts (AC-287),
+      // so they get different answers.
+      return listFor(startedByAppSession, appSessionId).includes(messageUuid)
+        ? 'already-started'
+        : 'unknown';
     }
 
     queue.splice(at, 1);
@@ -650,7 +678,13 @@ export function createDebugAgentHostDriver(
     // Read AND removed: the caller is the step that says the process started this
     // command, and a queue that kept it would hand the same command to the next
     // `dequeue` — a second `started` row for a command that started once.
-    return listFor(queueByAppSession, input.appSessionId).shift() ?? null;
+    const uuid = listFor(queueByAppSession, input.appSessionId).shift() ?? null;
+    if (uuid !== null) {
+      // The dequeued id is remembered, not discarded: a withdrawal naming it is
+      // `already-started`, not the ambiguous `unknown` (AC-287).
+      listFor(startedByAppSession, input.appSessionId).push(uuid);
+    }
+    return uuid;
   }
 
   function acknowledgeCancel(input: { appSessionId: string }): string | null {
@@ -701,6 +735,7 @@ export function createDebugAgentHostDriver(
       queued: [...listFor(queueByAppSession, appSessionId)],
       withdrawRequested: [...listFor(withdrawRequestedByAppSession, appSessionId)],
       withdrawn: [...listFor(withdrawnByAppSession, appSessionId)],
+      started: [...listFor(startedByAppSession, appSessionId)],
       controlResponses: [...listFor(cancelResponsesByAppSession, appSessionId)],
     };
   }
