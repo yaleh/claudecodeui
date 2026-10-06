@@ -2,7 +2,7 @@
 id: gap-ops-doc-restart-claim-contradicts-graceful-shutdown
 title: 运维文档称「服务重启不再杀掉它托管的会话」，与代码和实测相反：优雅重启（SIGTERM）会停掉所有会话 scope，只有 SIGKILL
   才留下；订正该条并补一节「重启共享服务之前」
-status: todo
+status: ready
 labels:
   - gap
 parent: null
