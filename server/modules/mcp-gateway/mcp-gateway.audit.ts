@@ -191,6 +191,16 @@ export type McpToolRegistration = {
    * from `requiredScopes` alone (AC6).
    */
   annotations?: ToolAnnotations;
+  /**
+   * Structured tool metadata forwarded verbatim to `registerTool` as `_meta`,
+   * and therefore carried on `tools/list` (AC-285). The transport's one seam uses
+   * it to publish each tool's declared error-code set
+   * (`{ 'cloudcli/errorCodes': [...] }`) so a real client reads the declaration
+   * off the wire rather than out of a test-local list. Metadata only — like
+   * `annotations`, it carries NO authorization weight, and absent keeps the
+   * AC-244 shape exactly.
+   */
+  meta?: Record<string, unknown>;
   /** Every scope the caller's token must carry; a missing one denies the call. */
   requiredScopes: readonly string[];
   handler: (args: unknown, ctx: { principal: McpPrincipal }) => unknown;
@@ -274,10 +284,11 @@ function invalidArgumentResult(tool: string, error: z.ZodError): CallToolResult 
  * the wire carries `{ isError: true, structuredContent: { code, message,
  * retryable, details? } }` in every case. The success branch is untouched.
  *
- * A registration may also declare `annotations` (AC1–AC7); they are forwarded to
- * `registerTool` verbatim and appear on `tools/list`, but they are metadata only
- * — the `denied`/`ok`/`error` decision below is made from `requiredScopes`
- * alone, so a declaration can never widen or narrow what a token may call.
+ * A registration may also declare `annotations` (AC1–AC7) and `meta` (AC-285);
+ * both are forwarded to `registerTool` verbatim and appear on `tools/list`, but
+ * they are metadata only — the `denied`/`ok`/`error` decision below is made from
+ * `requiredScopes` alone, so a declaration can never widen or narrow what a
+ * token may call.
  *
  * An optional second argument threads AC-303's write-notification seam. It is
  * called ONLY from the `ok` branch, AFTER the audit row is written, and is wrapped
@@ -308,6 +319,10 @@ export function withMcpAudit(
         // Metadata only: forwarded to the SDK so it appears verbatim on
         // `tools/list`. It changes nothing about the scope check below.
         ...(registration.annotations === undefined ? {} : { annotations: registration.annotations }),
+        // AC-285: the tool's declared error-code set, forwarded as `_meta` so a
+        // real client reads the declaration off `tools/list`. Metadata only; it
+        // changes nothing about the scope check below.
+        ...(registration.meta === undefined ? {} : { _meta: registration.meta }),
       },
       async (args: Record<string, unknown>): Promise<CallToolResult> => {
         const startedAt = Date.now();

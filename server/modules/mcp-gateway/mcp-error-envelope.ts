@@ -43,12 +43,32 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 // --------------------------- the code vocabulary ---------------------------
 
 /**
- * The canonical codes the gateway decides for itself.
+ * One canonical gateway error code: the code itself, one English sentence
+ * stating what it means, and whether repeating the same call could plausibly
+ * succeed.
+ *
+ * `code` repeats the entry's key so a call site can hand the WHOLE descriptor to
+ * {@link mcpErrorResult} / {@link McpToolError} — `mcpErrorResult(MCP_ERROR_CODES.SESSION_NOT_FOUND, …)` —
+ * without ever restating the name as a bare string. The criterion pins
+ * `descriptor.code === key`, so the copy can never drift from the key it lives
+ * under.
+ */
+export type McpErrorDescriptor = {
+  /** The code itself — the same string as this entry's key in {@link MCP_ERROR_CODES}. */
+  readonly code: string;
+  /** One English sentence a human can read: never empty, never CJK. */
+  readonly message: string;
+  /** Whether repeating the same call against the same state could plausibly succeed. */
+  readonly retryable: boolean;
+};
+
+/**
+ * The canonical codes the gateway decides for itself — the ONE vocabulary (AC-285).
  *
  * `SESSION_NOT_FOUND` is the ONE code for "the session does not exist", on every
- * tool that can say it — the split this task removes had two different codes
- * naming that one category depending on where in the gateway the miss was
- * noticed. `PROJECT_NOT_FOUND` is its project-side sibling; `TARGET_AMBIGUOUS` is
+ * tool that can say it — the split AC-284 removed had two different codes naming
+ * that one category depending on where in the gateway the miss was noticed.
+ * `PROJECT_NOT_FOUND` is its project-side sibling; `TARGET_AMBIGUOUS` is
  * "several targets matched, so the gateway refuses to pick".
  *
  * `APPROVAL_NOT_FOUND` / `QUEUED_MESSAGE_NOT_FOUND` / `RUN_NOT_FOUND` are part of
@@ -56,43 +76,104 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
  * (`approval_answer` / `session_cancel_queued` / `run_get`) still answer a miss
  * as a normal payload, and converting those is AC-287's scope. They are declared
  * here so AC-287 mints them through this one module rather than inventing a
- * second vocabulary.
+ * second vocabulary. `APPROVAL_EXPIRED_OR_NOT_FOUND` is the one code
+ * `approval_answer` currently reports INSIDE its normal payload rather than as an
+ * envelope; it lives here so the value-position literal that mints it points at
+ * the vocabulary (AC-285 (e)) rather than at a second string.
+ *
+ * The record is `as const satisfies Record<string, McpErrorDescriptor>`: every
+ * value is checked against the descriptor type, and {@link McpErrorCode} below is
+ * derived from the SAME object, so the type and the record can never hold two
+ * different key sets.
  */
 export const MCP_ERROR_CODES = {
-  /** The named session does not exist (same code on every tool that can say it). */
-  SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
-  /** The named project does not exist. */
-  PROJECT_NOT_FOUND: 'PROJECT_NOT_FOUND',
-  /** Several targets matched and the gateway refuses to pick one for the caller. */
-  TARGET_AMBIGUOUS: 'TARGET_AMBIGUOUS',
-  /** An argument is missing or of the wrong type. */
-  INVALID_ARGUMENT: 'INVALID_ARGUMENT',
-  /** The caller named a tool the gateway does not register. */
-  UNKNOWN_TOOL: 'UNKNOWN_TOOL',
-  /** The caller's token lacks a scope the tool requires. */
-  INSUFFICIENT_SCOPE: 'INSUFFICIENT_SCOPE',
-  /** The session already has a run in progress. */
-  SESSION_BUSY: 'SESSION_BUSY',
-  /** The named approval request no longer exists (minted by AC-287). */
-  APPROVAL_NOT_FOUND: 'APPROVAL_NOT_FOUND',
-  /** The named queued message no longer exists (minted by AC-287). */
-  QUEUED_MESSAGE_NOT_FOUND: 'QUEUED_MESSAGE_NOT_FOUND',
-  /** The named run no longer exists (minted by AC-287). */
-  RUN_NOT_FOUND: 'RUN_NOT_FOUND',
-  /** The tool is registered but its behaviour is owned by a later task. */
-  MCP_TOOL_NOT_IMPLEMENTED: 'MCP_TOOL_NOT_IMPLEMENTED',
-  /** The named background task / cron does not exist. */
-  TASK_NOT_FOUND: 'TASK_NOT_FOUND',
-  /** The provider does not support the requested permission mode. */
-  UNSUPPORTED_PERMISSION_MODE: 'UNSUPPORTED_PERMISSION_MODE',
-  /** The caller is not allowed to act on the target. */
-  FORBIDDEN: 'FORBIDDEN',
-  /** A handler threw something the envelope could not attribute to a known code. */
-  INTERNAL_ERROR: 'INTERNAL_ERROR',
-} as const;
+  SESSION_NOT_FOUND: {
+    code: 'SESSION_NOT_FOUND',
+    message: 'No session matches the id or title the caller named.',
+    retryable: false,
+  },
+  PROJECT_NOT_FOUND: {
+    code: 'PROJECT_NOT_FOUND',
+    message: 'No project matches the id or title the caller named.',
+    retryable: false,
+  },
+  TARGET_AMBIGUOUS: {
+    code: 'TARGET_AMBIGUOUS',
+    message: 'Several targets matched the name; the gateway will not pick one for the caller.',
+    retryable: false,
+  },
+  INVALID_ARGUMENT: {
+    code: 'INVALID_ARGUMENT',
+    message: 'An argument is missing or has the wrong type.',
+    retryable: false,
+  },
+  UNKNOWN_TOOL: {
+    code: 'UNKNOWN_TOOL',
+    message: 'The caller named a tool the gateway does not register.',
+    retryable: false,
+  },
+  INSUFFICIENT_SCOPE: {
+    code: 'INSUFFICIENT_SCOPE',
+    message: "The caller's token lacks a scope the tool requires.",
+    retryable: false,
+  },
+  SESSION_BUSY: {
+    code: 'SESSION_BUSY',
+    message: 'The session already has a run in progress.',
+    retryable: true,
+  },
+  APPROVAL_NOT_FOUND: {
+    code: 'APPROVAL_NOT_FOUND',
+    message: 'No pending approval has the id the caller named.',
+    retryable: false,
+  },
+  QUEUED_MESSAGE_NOT_FOUND: {
+    code: 'QUEUED_MESSAGE_NOT_FOUND',
+    message: 'No queued message has the id the caller named.',
+    retryable: false,
+  },
+  RUN_NOT_FOUND: {
+    code: 'RUN_NOT_FOUND',
+    message: 'No run has the id the caller named.',
+    retryable: false,
+  },
+  MCP_TOOL_NOT_IMPLEMENTED: {
+    code: 'MCP_TOOL_NOT_IMPLEMENTED',
+    message: 'The tool is registered but its behaviour is owned by a later task.',
+    retryable: false,
+  },
+  TASK_NOT_FOUND: {
+    code: 'TASK_NOT_FOUND',
+    message: 'No background task or schedule in this session has the id the caller named.',
+    retryable: false,
+  },
+  UNSUPPORTED_PERMISSION_MODE: {
+    code: 'UNSUPPORTED_PERMISSION_MODE',
+    message: 'The provider does not support the requested permission mode.',
+    retryable: false,
+  },
+  FORBIDDEN: {
+    code: 'FORBIDDEN',
+    message: 'The caller is not allowed to act on this target.',
+    retryable: false,
+  },
+  INTERNAL_ERROR: {
+    code: 'INTERNAL_ERROR',
+    message: 'The handler failed in a way the gateway could not attribute to a known code.',
+    retryable: false,
+  },
+  APPROVAL_EXPIRED_OR_NOT_FOUND: {
+    code: 'APPROVAL_EXPIRED_OR_NOT_FOUND',
+    message: 'The approval request has expired or no longer exists.',
+    retryable: false,
+  },
+} as const satisfies Record<string, McpErrorDescriptor>;
 
-/** One canonical gateway error code. */
-export type McpErrorCode = (typeof MCP_ERROR_CODES)[keyof typeof MCP_ERROR_CODES];
+/**
+ * One canonical gateway error code, derived from {@link MCP_ERROR_CODES} — the
+ * key set and the type are one statement, never two copies that can drift.
+ */
+export type McpErrorCode = keyof typeof MCP_ERROR_CODES;
 
 /** Every well-formed code: an upper-snake identifier, never a sentence. */
 const CODE_PATTERN = /^[A-Z][A-Z0-9_]*$/;
@@ -118,26 +199,41 @@ export type McpErrorEnvelope = {
 /**
  * Builds the one failure result every gateway error path returns.
  *
+ * `code` may be either a bare string (a code a service forwarded — see the
+ * module header: a well-formed service code passes through unchanged) or a
+ * {@link McpErrorDescriptor} read straight out of {@link MCP_ERROR_CODES}. When
+ * it is a descriptor, the code, the fallback sentence and the default
+ * `retryable` all come FROM the vocabulary, so a call site names the code once
+ * and never restates its meaning. An explicit `message` / `retryable` argument
+ * always wins over the descriptor's, so existing call sites keep their exact
+ * wording.
+ *
  * `content[0].text` mirrors `message` so a text-only client still reads words,
  * but the machine-readable fields live in `structuredContent` — never as a JSON
- * string stuffed into the text. An empty `message` is replaced by the code, so
- * the "non-empty message" invariant holds no matter what a caller passes.
+ * string stuffed into the text. An empty `message` falls back to the
+ * descriptor's sentence, then to the code, so the "non-empty message" invariant
+ * holds no matter what a caller passes.
  *
  * Consumers: {@link toMcpErrorResult}, `mcp-gateway.audit.ts` (the denied /
- * invalid-argument branches) and this module's criterion, which reads the shape
- * back off the wire.
+ * invalid-argument branches), every tool module's refusal path, and this
+ * module's criterion, which reads the shape back off the wire.
  */
 export function mcpErrorResult(
-  code: string,
-  message: string,
-  retryable = false,
+  code: string | McpErrorDescriptor,
+  message?: string,
+  retryable?: boolean,
   details?: McpErrorDetails,
 ): CallToolResult {
-  const text = typeof message === 'string' && message.trim().length > 0 ? message : `${code}.`;
+  const resolvedCode = typeof code === 'string' ? code : code.code;
+  const resolvedRetryable = retryable ?? (typeof code === 'string' ? false : code.retryable);
+  const fallbackMessage = typeof code === 'string' ? '' : code.message;
+  const candidate =
+    typeof message === 'string' && message.trim().length > 0 ? message : fallbackMessage;
+  const text = candidate.trim().length > 0 ? candidate : `${resolvedCode}.`;
   const envelope: McpErrorEnvelope = {
-    code,
+    code: resolvedCode,
     message: text,
-    retryable,
+    retryable: resolvedRetryable,
     ...(details === undefined ? {} : { details }),
   };
   return {
@@ -151,6 +247,11 @@ export function mcpErrorResult(
  * A tool failure a handler throws to reach {@link mcpErrorResult} directly,
  * instead of building a JSON string and relying on the wrapper to parse it back.
  *
+ * `code` may be a bare string (a forwarded service code) or a
+ * {@link McpErrorDescriptor} from {@link MCP_ERROR_CODES}; a descriptor
+ * contributes its own code and its `retryable`, while an explicit `retryable`
+ * argument wins, exactly as in {@link mcpErrorResult}.
+ *
  * Consumers: every tool module's refusal path (`mcp-session-send.ts`,
  * `mcp-session-lifecycle.ts`, `mcp-resolve-target.ts`, …).
  */
@@ -159,11 +260,16 @@ export class McpToolError extends Error {
   readonly retryable: boolean;
   readonly details: McpErrorDetails | undefined;
 
-  constructor(code: string, message: string, retryable = false, details?: McpErrorDetails) {
+  constructor(
+    code: string | McpErrorDescriptor,
+    message: string,
+    retryable?: boolean,
+    details?: McpErrorDetails,
+  ) {
     super(message);
     this.name = 'McpToolError';
-    this.code = code;
-    this.retryable = retryable;
+    this.code = typeof code === 'string' ? code : code.code;
+    this.retryable = retryable ?? (typeof code === 'string' ? false : code.retryable);
     this.details = details;
   }
 }

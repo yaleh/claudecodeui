@@ -36,6 +36,7 @@ import type { McpRunGetDeps } from './mcp-run-get.js';
 import type { SelfTargetDeps } from './mcp-self-target.js';
 import type { McpSessionRunGetSeam } from './mcp-session-send.js';
 import { readMcpToolAnnotations } from './mcp-tool-annotations.js';
+import { readMcpToolErrorCodes } from './mcp-tool-error-codes.js';
 import type { McpWriteNotification } from './mcp-write-notification.js';
 
 /**
@@ -160,6 +161,11 @@ function createMcpServer(
         // (AC1–AC7). Annotations are metadata only and are attached OUTSIDE the
         // target gate and the scope check, so they cannot alter either.
         annotations: readMcpToolAnnotations(name),
+        // AC-285: the tool's declared error-code set comes from the one
+        // `MCP_TOOL_ERROR_CODES` table and rides `tools/list` as `_meta`. Like
+        // the annotations, it is metadata only — declared OUTSIDE the target gate
+        // and the scope check — so it cannot widen or narrow what a caller may do.
+        meta: { 'cloudcli/errorCodes': readMcpToolErrorCodes(name) },
         requiredScopes: [requiredScope],
         handler: (args) => guarded(args as Record<string, unknown>),
       },

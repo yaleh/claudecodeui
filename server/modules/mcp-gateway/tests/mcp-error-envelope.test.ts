@@ -97,7 +97,10 @@ const CODE_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 const CJK_PATTERN = /[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]/;
 /** Every key the envelope may carry; `details` is the only optional one. */
 const ENVELOPE_KEYS = new Set(['code', 'message', 'retryable', 'details']);
-const KNOWN_CODES = new Set<string>(Object.values(MCP_ERROR_CODES) as string[]);
+// AC-285 reshaped the vocabulary into descriptors (`{ code, message, retryable }`),
+// so the code set is the record's KEYS — the descriptor's `code` field mirrors its
+// key, and AC-285's criterion pins that equality.
+const KNOWN_CODES = new Set<string>(Object.keys(MCP_ERROR_CODES));
 
 /** A released turn: no live tool, so the self-target guard never refuses. */
 const IDLE_TURN: TurnState = { phase: 'idle', toolName: null, toolDurationMs: null };

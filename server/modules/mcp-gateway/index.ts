@@ -68,7 +68,12 @@ export {
   McpToolError,
   toMcpErrorResult,
 } from './mcp-error-envelope.js';
-export type { McpErrorCode, McpErrorDetails, McpErrorEnvelope } from './mcp-error-envelope.js';
+export type {
+  McpErrorCode,
+  McpErrorDescriptor,
+  McpErrorDetails,
+  McpErrorEnvelope,
+} from './mcp-error-envelope.js';
 
 export { createMcpLoopbackGuard, isLoopbackRemoteAddress, readMcpOauthEnabled } from './mcp-gateway.loopback.js';
 
@@ -423,6 +428,17 @@ export type {
 // criterion, which mounts the gateway and compares `tools/list` against the table.
 export { MCP_TOOL_ANNOTATIONS, readMcpToolAnnotations } from './mcp-tool-annotations.js';
 export type { McpGatewayToolName } from './mcp-tool-annotations.js';
+
+// The per-tool error-code declaration (AC-285). `MCP_TOOL_ERROR_CODES` maps every
+// gateway tool name to the subset of `MCP_ERROR_CODES` that tool can leave on the
+// wire — the tool-side half of the single-vocabulary requirement, total over
+// `McpGatewayToolName` so a tool cannot ship without a row.
+// `readMcpToolErrorCodes` is the reader the transport's one `audited` seam calls
+// per registration (and throws on a name the table does not own); the transport
+// attaches the row to `tools/list` as `_meta['cloudcli/errorCodes']`. Consumers:
+// `mcp-gateway.transport.ts` and this module's `tests/mcp-error-vocabulary.test.ts`,
+// which reads the declaration back off a real `tools/list`.
+export { MCP_TOOL_ERROR_CODES, readMcpToolErrorCodes } from './mcp-tool-error-codes.js';
 
 // The audit READBACK (AC-304): the read side of the AC-244 log. `createMcpAuditReader`
 // projects one user's recent `mcp_audit_log` rows into the settings page's shape —
