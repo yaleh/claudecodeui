@@ -1,7 +1,7 @@
 ---
 id: AC-285
 title: 错误 code 词表只有一个来源，每个工具声明自己可能返回的 code，观察到的 code 必须属于声明
-status: draft
+status: active
 kind: criterion
 goal: GOAL-024
 criterion: for f in
@@ -17,4 +17,15 @@ expect: 读数：(a) 网关导出一份 `MCP_ERROR_CODES` 常量作为唯一词�
   ⇒ (e) 必须红。（红先行）当前必红：判据文件不存在，存在性闸以退出码 1 输出缺失的文件名。
 origin: 本会话（2026-10-06）对 ChatGPT 与 Gemini 接入真实经验的 MCP 接口契约审计，及人 yale
   同日指令：把审计清单落成 quay goal。
+activatedAt: 2026-10-06T12:17:04.246Z
+statusLog:
+  - at: 2026-10-06T12:17:04.246Z
+    from: draft
+    to: active
+    actor: goal-driver
+    reason: "triage: activate"
+fidelity:
+  verdict: faithful
+  reason: "fidelity judge: faithful"
+  at: 2026-10-06T12:17:04.245Z
 ---
