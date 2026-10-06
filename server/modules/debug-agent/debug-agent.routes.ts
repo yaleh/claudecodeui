@@ -6,7 +6,11 @@ import type { IProvider } from '@/shared/interfaces.js';
 import type { AnyRecord, ProviderRuntimeWriter } from '@/shared/types.js';
 import { AppError, asyncHandler, createApiSuccessResponse, readObjectRecord } from '@/shared/utils.js';
 
-import { evaluateScenarioExpectations, type DebugAgentRunReading } from './debug-agent.engine.js';
+import {
+  evaluateScenarioExpectations,
+  releaseDebugAgentRun,
+  type DebugAgentRunReading,
+} from './debug-agent.engine.js';
 import { debugAgentControlPlaneRouter, readDebugAgentGate } from './debug-agent.gate.js';
 import type { DebugAgentHostDriver } from './debug-agent.host-driver.js';
 import {
@@ -21,7 +25,10 @@ import type { DebugAgentLifecycleMode } from './debug-agent.scenario.js';
  * operations ADR-003 decision 1 names — arm a scenario, advance the clock, read
  * the engine's self-check result — plus the one read the busy-send criterion
  * needs of a process rather than of an artifact: what that process is holding in
- * its queue (`GET /queue`).
+ * its queue (`GET /queue`). `POST /release` is the fourth action, and it is not a
+ * fourth *operation* in decision 1's sense: it states nothing new about the run,
+ * it only lets a caller that is watching the run's frames say when the scenario's
+ * `await-release` barrier may open.
  *
  * Why HTTP, and nothing else (decision 6). None of the three needs server push,
  * so a WebSocket would buy a handshake, an auth path and reconnect semantics for
@@ -133,6 +140,7 @@ const runRecords = new Map<string, DebugAgentRunRecord>();
 /** The actions, as paths under {@link DEBUG_AGENT_CONTROL_PLANE_PATH}. */
 const SCENARIOS_PATH = '/scenarios';
 const CLOCK_PATH = '/clock';
+const RELEASE_PATH = '/release';
 const SELF_CHECK_PATH = '/self-check';
 const QUEUE_PATH = '/queue';
 
@@ -216,7 +224,7 @@ function readRunReading(value: unknown, sessionId: string): DebugAgentRunReading
 }
 
 /**
- * Registers the three endpoints onto the gate's control-plane router and returns
+ * Registers the endpoints onto the gate's control-plane router and returns
  * that same router, so the caller can attach exactly what it just registered.
  *
  * Consumed by `server/index.ts`, inside the branch that the gate opened — a
@@ -300,6 +308,42 @@ export function registerDebugAgentControlPlaneRoutes(seams: DebugAgentControlPla
         // step in it. A completed run stays in the registry, so a turn that
         // already ended is still the answer to "what opened the last one".
         runSource: seams.readRunSource?.(armed.sessionId) ?? null,
+      }));
+    }),
+  );
+
+  // Release the armed scenario's walk: the one step whose timing is the caller's
+  // rather than the clock's. A scenario that arms `await-release` blocks there
+  // until this lands, which is how a criterion states "the events behind this
+  // point fire once my own reading window has closed" instead of trusting a fixed
+  // offset to outrun its own clicks on whatever host it happens to run on.
+  //
+  // An unarmed session is refused the way `/clock` refuses it — a release with no
+  // run behind it is a request about something that does not exist — and the
+  // count is the whole of the answer. It is deliberately NOT an error to release a
+  // walk that has already passed its barrier or already ended: the caller is a
+  // browser that cannot know which side of the barrier it is on, and `woken: 0`
+  // says exactly that.
+  router.post(
+    RELEASE_PATH,
+    asyncHandler(async (req, res) => {
+      const sessionId = readBodyString(readObjectRecord(req.body), 'sessionId');
+      const armed = readArmedDebugAgentScenario(sessionId);
+
+      if (!armed) {
+        return refuse(
+          `No debug agent scenario is armed for session "${sessionId}", so there is no run to release.`,
+          'DEBUG_AGENT_SCENARIO_NOT_ARMED',
+          404,
+        );
+      }
+
+      res.json(createApiSuccessResponse({
+        sessionId: armed.sessionId,
+        released: true,
+        // The walk is addressed by the same id `/clock` drives it under, which is
+        // the engine's own key — see `runDebugAgentScenario`'s `appSessionId`.
+        woken: releaseDebugAgentRun(armed.sessionId),
       }));
     }),
   );
