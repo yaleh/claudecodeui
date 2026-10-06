@@ -1,6 +1,27 @@
 import path from 'node:path';
 
 /**
+ * Why a quay invocation failed, at the granularity the panel reports it. Each
+ * member maps to its own remedy, so the frontend can tell "the CLI is not
+ * installed for this project" apart from "the process timed out" instead of
+ * showing one generic "quay did not answer":
+ *
+ * - `entrypoint-missing` — no executable at `<projectRoot>/.quay/plugin/bin/quay`
+ *   and no bare `quay` on `PATH`; the remedy is running `/quay:init` in the project.
+ * - `entrypoint-not-executable` — the project entrypoint exists but lacks the
+ *   execute permission bit, so it cannot be spawned.
+ * - `timeout` — the child exceeded the per-command wall-clock bound and was killed.
+ * - `nonzero-exit` — the child ran and exited non-zero (or wrote to stderr).
+ * - `spawn-error` — any other failure to start the child (an unexpected errno).
+ */
+export type QuayCommandFailureKind =
+  | 'entrypoint-missing'
+  | 'entrypoint-not-executable'
+  | 'timeout'
+  | 'nonzero-exit'
+  | 'spawn-error';
+
+/**
  * Outcome of one quay CLI invocation, normalized so callers never have to read
  * child-process internals. `error` is set only when the command was refused
  * locally (not on the whitelist) or the process could not be started at all.
@@ -11,6 +32,13 @@ export type QuayCommandResult = {
   stdout: string;
   stderr: string;
   error?: string;
+  /**
+   * Classification of a failure, set whenever `ok` is false other than for a
+   * local whitelist refusal (which never spawns a child). Consumers branch on
+   * this field rather than string-matching `error`, so the four failure
+   * situations the panel distinguishes stay distinguishable end to end.
+   */
+  failureKind?: QuayCommandFailureKind;
 };
 
 /**
@@ -18,6 +46,11 @@ export type QuayCommandResult = {
  * (never a shell string) and a wall-clock bound, so the only way a caller can
  * influence what runs is through arguments that `runQuayCommand` has already
  * matched against the read-only whitelist.
+ *
+ * `cwd` is always the target project's root (the service passes the project's
+ * `projectPath`). It is both the child's working directory and the base under
+ * which the adapter resolves the project-scoped quay entrypoint, so a project
+ * pinned to a particular quay version is driven by that project's own CLI.
  */
 export type QuayCommandRunner = (
   cwd: string,
@@ -693,7 +726,11 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
       }
 
       const reason = result.error ?? (result.stderr.trim() || `exit code ${result.code}`);
-      warnings.push(`${args.join(' ')}: ${result.ok ? 'returned non-JSON output' : reason}`);
+      // Tag the warning with the failure category so the panel can show *which*
+      // failure this was (missing CLI vs. timeout vs. non-zero exit), rather than
+      // the one generic "quay did not answer" the four situations used to collapse to.
+      const detail = result.failureKind ? `[${result.failureKind}] ${reason}` : reason;
+      warnings.push(`${args.join(' ')}: ${result.ok ? 'returned non-JSON output' : detail}`);
       return null;
     };
 

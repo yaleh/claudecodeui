@@ -40,7 +40,11 @@ const quayFileReader: QuayFileReader = {
 export const quayService = createQuayService({
   fileExists: (filePath) => fs.existsSync(filePath),
   resolveProjectPathById: (projectId) => projectsDb.getProjectPathById(projectId),
-  runCommand: createQuayProcessRunner(),
+  // Binary resolution is project-scoped inside the adapter: the service passes each
+  // project's `projectPath` as the runner's `cwd`, and the adapter resolves
+  // `<cwd>/.quay/plugin/bin/quay` from it. The explicit `warn` binding routes the
+  // migration-period bare-PATH fallback into the server log instead of leaving it silent.
+  runCommand: createQuayProcessRunner({ warn: (message) => console.warn(message) }),
   readFile: quayFileReader,
   now: () => Date.now(),
   snapshotTtlMs: SNAPSHOT_TTL_MS,
