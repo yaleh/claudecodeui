@@ -18,8 +18,8 @@ import {
 } from '@/modules/projects/index.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 
-import type { McpToolRegistrar } from './mcp-gateway.audit.js';
-import { withMcpAudit } from './mcp-gateway.audit.js';
+import type { McpToolInputSchema, McpToolRegistrar } from './mcp-gateway.audit.js';
+import { installMcpCallDispatcher, withMcpAudit } from './mcp-gateway.audit.js';
 import { createMcpAuthMiddleware, readMcpPrincipal } from './mcp-gateway.auth.js';
 import type { McpOauthSeam, McpPrincipal } from './mcp-gateway.auth.js';
 import { MCP_GATEWAY_PATH, readMcpGatewayGate } from './mcp-gateway.gate.js';
@@ -125,6 +125,9 @@ function createMcpServer(
   const server = new McpServer(SERVER_INFO, { capabilities: { tools: {} } });
   if (registerTools) {
     registerTools(server, principal);
+    // AC-288: the injected seam registers through `withMcpAudit` too, so the
+    // dispatcher is installed here as well — after every tool, never before.
+    installMcpCallDispatcher(server);
     return server;
   }
   if (!readTools && !writeTools && !residentTools) {
@@ -146,7 +149,10 @@ function createMcpServer(
     name: string,
     description: string | undefined,
     requiredScope: string,
-    inputSchema: ZodRawShape,
+    // AC-288: a raw shape OR a built schema carrying a constraint a raw shape
+    // cannot express (a `.min()` / `.max()`, or an object-level `.superRefine`).
+    // Either way it is both advertised and enforced by `withMcpAudit`.
+    inputSchema: McpToolInputSchema,
     outputSchema: ZodRawShape | undefined,
     handle: (args: Record<string, unknown>) => unknown | Promise<unknown>,
   ): void => {
@@ -233,6 +239,12 @@ function createMcpServer(
       );
     registerMcpResidentTools(register, residentTools);
   }
+
+  // AC-288: replace the SDK's `tools/call` handler with the audited dispatcher,
+  // now that every read / write / resident tool is registered. Installed last so
+  // the registry is complete; the SDK handler would otherwise answer a bad
+  // argument (or an unknown name) with its own text-only sentence.
+  installMcpCallDispatcher(server);
 
   return server;
 }

@@ -1,7 +1,7 @@
 ---
 id: gap-voice-client-asr-fallback-and-first-load
 title: 客户端识别的回退与首次加载：设备放弃后回退必须交给服务端能处理的识别器、设备放弃的原因要让用户看见，选中识别器时预加载模型并显示下载进度
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -47,13 +47,13 @@ extra:
 
 ## AC
 
-- [ ] S0：单测证明设备放弃后上传的请求带有回退识别器 ID 且不是 `sensevoice-wasm`，并且拿到回退识别器返回的文本；没有可用回退目标时断言**没有任何 `/api/voice/transcribe` 请求**发出；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts` 退出码 0。
-- [ ] S0：服务端单测覆盖：请求指定已注册的服务端识别器 → 使用它；指定 `sensevoice-wasm`（`local-client`）→ 被拒绝；指定未注册 ID → 被拒绝；不指定 → 行为与现在一致；测试加在已有文件里，命令 `npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-sensevoice-health.routes.test.ts` 退出码 0，且 `git diff --name-status develop...HEAD -- 'server/**/*.test.ts'` 没有 `A` 行。
-- [ ] S1：单测用一个「`ensureReady` 永不返回」的假引擎证明：引擎处于 `starting` 时一段语音在**不到 1 s**（用假计时器断言，不等 30 s）内走回退识别器并拿到文本，且回退原因包含「下载 / 加载」字样与进度；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts` 退出码 0。
-- [ ] S2：单测证明回退发生时界面可见提示包含放弃原因文本（不只是错误码）；`npx vitest run src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx src/modules/chat/tests/voiceClientAsrRouting.test.ts` 退出码 0。
-- [ ] S3：单测证明 worker 在 `init` 期间发出 `progress` 消息、主线程订阅者收到的 `receivedBytes` 单调不减；选中 `sensevoice-wasm` 时调用了一次 `init`，选中其他识别器时没有；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx` 退出码 0。
-- [ ] S4：`grep -c "KB/s\|首次下载" docs/operations/voice-client-asr-deployment.md` 至少为 1，且文档明确写出下载期间片段走回退识别器。
-- [ ] 全部新增与改动的 `src/` 代码满足 `frontend-module-standards`、`server/` 代码满足 `backend-module-standards`；`npm run typecheck`、`npm run lint`、`npm run build` 均退出码 0。
+- [x] S0：单测证明设备放弃后上传的请求带有回退识别器 ID 且不是 `sensevoice-wasm`，并且拿到回退识别器返回的文本；没有可用回退目标时断言**没有任何 `/api/voice/transcribe` 请求**发出；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts` 退出码 0。
+- [x] S0：服务端单测覆盖：请求指定已注册的服务端识别器 → 使用它；指定 `sensevoice-wasm`（`local-client`）→ 被拒绝；指定未注册 ID → 被拒绝；不指定 → 行为与现在一致；测试加在已有文件里，命令 `npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-sensevoice-health.routes.test.ts` 退出码 0，且 `git diff --name-status develop...HEAD -- 'server/**/*.test.ts'` 没有 `A` 行。
+- [x] S1：单测用一个「`ensureReady` 永不返回」的假引擎证明：引擎处于 `starting` 时一段语音在**不到 1 s**（用假计时器断言，不等 30 s）内走回退识别器并拿到文本，且回退原因包含「下载 / 加载」字样与进度；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts` 退出码 0。
+- [x] S2：单测证明回退发生时界面可见提示包含放弃原因文本（不只是错误码）；`npx vitest run src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx src/modules/chat/tests/voiceClientAsrRouting.test.ts` 退出码 0。
+- [x] S3：单测证明 worker 在 `init` 期间发出 `progress` 消息、主线程订阅者收到的 `receivedBytes` 单调不减；选中 `sensevoice-wasm` 时调用了一次 `init`，选中其他识别器时没有；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx` 退出码 0。
+- [x] S4：`grep -c "KB/s\|首次下载" docs/operations/voice-client-asr-deployment.md` 至少为 1，且文档明确写出下载期间片段走回退识别器。
+- [x] 全部新增与改动的 `src/` 代码满足 `frontend-module-standards`、`server/` 代码满足 `backend-module-standards`；`npm run typecheck`、`npm run lint`、`npm run build` 均退出码 0。
 - [ ] S5 真实使用：在 `https://cloudcli.lrfz.com` 的真实页面上，选中 `sensevoice-wasm` 后设置面板显示下载进度；下载期间说话，该片段由回退识别器识别出文本、不再出现「服务端没有 sensevoice-wasm 引擎」的 503；下载完成后说话由设备路径识别出文本；读数由人 yale 在真实页面取得并写进 `docs/operations/voice-client-asr-deployment.md` 的「已验证」一节，执行者不得代写（待外部）
 
 ## DoD
@@ -65,26 +65,45 @@ extra:
 - src/modules/chat/hooks/useVoiceInput.ts
 - src/modules/chat/audio/voiceClientAsrWorker.ts
 - src/modules/chat/hooks/useVoiceAvailable.ts
+- src/modules/chat/index.ts
 - src/modules/settings/tabs/VoiceSettingsTab.tsx
 - src/shared/voiceConfig.ts
 - src/shared/api.ts
 - src/shared/types.ts
-- server/modules/voice/voice.routes.ts
+- src/modules/i18n/locales/en/settings.json
+- src/modules/i18n/locales/zh-CN/settings.json
 - server/modules/voice/voice.service.ts
 - server/modules/voice/tests/voice-sensevoice-health.routes.test.ts
 - src/modules/chat/tests/voiceClientAsrRouting.test.ts
 - src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx
-- src/modules/i18n/locales/en/chat.json
-- src/modules/i18n/locales/zh-CN/chat.json
-- src/modules/i18n/locales/zh-TW/chat.json
-- src/modules/i18n/locales/ja/chat.json
-- src/modules/i18n/locales/ko/chat.json
-- src/modules/i18n/locales/de/chat.json
-- src/modules/i18n/locales/es/chat.json
-- src/modules/i18n/locales/fr/chat.json
-- src/modules/i18n/locales/id/chat.json
-- src/modules/i18n/locales/it/chat.json
-- src/modules/i18n/locales/ru/chat.json
-- src/modules/i18n/locales/tr/chat.json
 - docs/operations/voice-client-asr-deployment.md
 - tasks/gap-voice-client-asr-fallback-and-first-load.md
+
+## Notes
+
+**S5 是外部读数，执行者无法取得，故本任务停在 `needs-human`。** 前七条 AC 已逐条验证通过，S5 保持未勾选（不代写、不伪造）。yale 在真实页面量到读数、填进 `docs/operations/voice-client-asr-deployment.md` 的「8. 已验证」一节后，把最后一条勾上即可 `promote`/`complete`。
+
+### 逐条验证（命令与读数）
+
+| AC | 命令 | 读数 |
+| --- | --- | --- |
+| S0 客户端 | `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts` | `Tests 15 passed (15)`，退出码 0 |
+| S0 服务端 | `npx tsx --tsconfig server/tsconfig.json --test server/modules/voice/tests/voice-sensevoice-health.routes.test.ts` | `pass 16 / fail 0`，退出码 0；`git diff --name-status develop...HEAD -- 'server/**/*.test.ts'` 无输出（无 `A` 行，测试加在已有文件里） |
+| S1 | 同上第一条 | 假计时器只推进 `VOICE_CLIENT_READINESS_GRACE_MS`（250 ms），断言 `Date.now() - startedAt < 1_000`、`reason === 'engine-unavailable'`、原因含 `12.0 MB`/`239.2 MB`/`100 KB/s`，且从未发出 `{kind:'run'}` |
+| S2 | `npx vitest run src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx src/modules/chat/tests/voiceClientAsrRouting.test.ts` | `Tests 22 passed (22)`，退出码 0；`voice-client-asr-fallback` 文本含放弃原因整句（`loading its model` + `12.0 MB of 239.2 MB downloaded`） |
+| S3 | `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx` | `Tests 22 passed (22)`，退出码 0；环回 worker 用例断言 `init` 只发一次、`receivedBytes` 单调不减、`totalBytes` 恒为 239 233 841；设置面板用例断言选中 `sensevoice-wasm` 时预载恰好一次且重渲染后仍是一次、选中其他识别器时零次且面板不出现 |
+| S4 | `grep -c "KB/s\|首次下载" docs/operations/voice-client-asr-deployment.md` | `6`（≥1）；第 6 节写明「**下载期间片段走回退识别器。**」 |
+| 规范 | `npm run typecheck` / `npm run lint` / `npm run build` | 三者退出码均为 0（lint 仅存量 warning，无 error） |
+
+### 落地要点
+
+1. **回退的目标由 `src/shared/api.ts` 决定，不在 hook 里。** `transcribeVoice` 的第 4 个参数从 `providerOverride?: string` 换成判别联合 `VoiceUploadAddress`（`{kind:'stored'}` / `{kind:'client-fallback', giveUpMessage}`）；`client-fallback` 时由 `resolveVoiceFallbackProvider()` 在已发布的行里挑一个非 `local-client` 的识别器，挑不到就返回 503 `ENGINE_UNAVAILABLE` **且不发任何上传**。把这条判断放在拥有「已发布识别器行」的模块里，才使 S0 的两半都能用一个 fetch stub 直接断言。
+2. **服务端只拒绝「请求里带来的」`local-client` 覆盖**（`voice.service.ts` 的 `clientLocalProviderFailure`，400）。用户**存下来的**选择仍是老行为——覆盖为空时该分支不进入，行为与改动前逐字一致（对应 AC 的「不指定 → 行为与现在一致」控制项）。
+3. **未就绪即回退**：`routeClientAsrSegment` 在引擎 `available && state !== 'ready'` 时只等 `VOICE_CLIENT_READINESS_GRACE_MS`（250 ms）就回退，原因由 `stillLoadingReason()` 生成（含已下载/总量、速度、剩余时间），不再吃 30 s 的单段超时。
+4. **进度只在 `init` 分支发出**（`startVoiceClientAsrWorker`），`engine.ensureReady(cb)` 的每次分片回调转成 `{kind:'progress'}`；`useVoiceClientAsrStatus` 订阅后经 `@/modules/chat` 的 barrel 暴露给设置面板；面板在**选中该识别器时**调一次 `preload()`。
+5. **只动 en / zh-CN 两个 `settings.json`**：仓里其余 10 个 locale 从来就没有 `voiceSettings` 段（`providerBuild`/`providerUnavailable` 同样只在 en、zh-CN 里），新增键跟随同一约定，故原 Touches 里那 12 个 `chat.json` 并未改动，已从 Touches 移除。
+
+### 未做 / 边界
+
+- 不改下载、哈希校验、缓存写入与同源交付；不做多线程 / COOP-COEP；不做服务端自动拉模型、也不在任务内优化出口带宽（部署层问题）。
+- 未新增任何 `server/**/*.test.ts` 文件（`quay-test-script.test.ts` 钉死数量）。

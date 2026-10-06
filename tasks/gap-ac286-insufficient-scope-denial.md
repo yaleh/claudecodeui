@@ -30,7 +30,7 @@ goal_ac: AC-286
 
 **要交付（判据文件 `tests/mcp-insufficient-scope.test.ts` 是唯一验收界面）**：
 
-1. **通用检查改走信封并点名缺的 scope**：`withMcpAudit` 的 `!permitted` 分支返回 `{ isError: true, structuredContent: { code: 'INSUFFICIENT_SCOPE', message, retryable, details: { requiredScopes } } }`，其中 `requiredScopes` = 调用方**实际缺的**那些（`registration.requiredScopes.filter((s) => !principal.scopes.includes(s))`），`message` 逐字点名其中每一个 scope 并说明需要重新授权（英文，如 `Missing required scope "cloudcli:session:control". Re-authorize with that scope to call session_background.`）。`principal === null` 分支同走信封，但它是未鉴权而非权限不足，沿用 AC-284 定的 code，不改成本 AC 的 `INSUFFICIENT_SCOPE`（不要把它并进来）。
+1. **通用检查改走信封并点名缺的 scope**：`withMcpAudit` 的 `!permitted` 分支返回 `{ isError: true, structuredContent: { code: 'INSUFFICIENT_SCOPE', message, retryable, details: { requiredScopes } } }`，其中 `requiredScopes` = 调用方**实际缺的**那些（`registration.requiredScopes.filter((s) => !principal.scopes.includes(s))`），`message` 逐字点名其中每一个 scope 并说明需要重新授权（英文，如 `Missing required scope \"cloudcli:session:control\". Re-authorize with that scope to call session_background.`）。`principal === null` 分支同走信封，但它是未鉴权而非权限不足，沿用 AC-284 定的 code，不改成本 AC 的 `INSUFFICIENT_SCOPE`（不要把它并进来）。
 2. **处理函数内的检查与通用检查逐字段同形同 code**：`session_background` 停止分支不再抛 `SCOPE_DENIED`；改抛/返回同一个信封产出，`code` 同为 `INSUFFICIENT_SCOPE`、`details` 键集同为 `{ requiredScopes }`、`retryable` 同值。缺的 scope 由 `requiredScopes` 表达，`session`/`taskId` 不得折进 `details`（否则两处形状不同）——它们是该工具**其它**拒绝（`SESSION_NOT_FOUND`/`TASK_NOT_FOUND`）的上下文，不是权限不足的。源码内不再存在第二个权限不足 code。
 3. **被拒绝仍写 `denied` 审计且带上缺的 scope**：给审计行加一个承载字段（建议 `denied_scopes TEXT`，存缺的 scope 的 JSON 数组，非权限不足时为 NULL）：`schema.ts` 的 `MCP_AUDIT_LOG_TABLE_SCHEMA_SQL` 同步加列，`migrations.ts` 用既有的 `addColumnIfMissing`（`:46-53`）模式为既有库补列，`mcp-audit-log.db.ts` 的 `AUDIT_COLUMNS` / `McpAuditLogRow` / `InsertMcpAuditLogInput` / insert 绑定同步，`recordMcpToolCall` 的 `McpToolCallReading` 加可选 `deniedScopes`。并且：**处理函数内的拒绝必须记成 `denied`（不是 `error`）**——为此在信封模块导出一个可判别的拒绝错误类型（如 `McpScopeDeniedError`，携带 `code` 与 `requiredScopes`），`withMcpAudit` 的 catch 识别它后写 `outcome: 'denied'` 并把 `requiredScopes` 落进 `denied_scopes`；其它异常仍记 `error`（`boom` 正控不得被误伤）。
 4. **判据**：真实 express + `mountMcpGateway`（经 `createMcpGatewayModule` 装配，参照 `tests/mcp-gateway-wiring.test.ts` 的真 HTTP + SDK client + 临时 `DATABASE_PATH`/`HOME` 模式），用真实签发（`server.issue([...])`，同 `mcp-audit.test.ts`）的令牌驱动，读四组读数 (a)(b)(c)(d)。
@@ -51,7 +51,7 @@ goal_ac: AC-286
 6. **写判据 `tests/mcp-insufficient-scope.test.ts`**（红先行）：
    - (a) 从真实 `tools/list` 取工具名全集；用只读令牌逐工具调用。只读静态 scope 的工具集合取自模块导出的真值（`MCP_STAGE3_READ_TOOLS` 名字 + `approvals_list` + `session_background`），断言 `tools/list` 全集 == 只读集 ∪ 需更高权限集（集合相等 ⇒ 新加工具而不声明 scope 即红，且探针集不是手写名单）；对需更高权限的每一个工具断言 `isError === true`、`structuredContent.code === 'INSUFFICIENT_SCOPE'`、`retryable` 为 boolean、`details.requiredScopes` 非空且每个元素 ∈ `ACCESS_TOKEN_SCOPES`、∉ 只读令牌的 scope、且 ⊇ 该工具声明的 scope；`message` 逐字含 `requiredScopes` 中每一个 scope 且匹配 `/re-?authoriz|重新授权/i`；并断言没有任何响应是 `content[0].text === 'Insufficient scope for this tool.'`。写下逐工具读数。
    - (a-反空转) 断言只读集里每个工具的调用**不**返回 `INSUFFICIENT_SCOPE`（否则「一律拒绝」也会让 (a) 通过）。
-   - (b) 用只读令牌对 `session_background` 停止分支发起调用，取回其失败信封；与 (a) 里通用检查的失败信封做 `code`、`Object.keys(structuredContent).sort()`、`Object.keys(details).sort()`、`retryable` 的逐字段相等断言；`grep -rn "SCOPE_DENIED" server/modules/mcp-gateway/*.ts`（不含 tests）无输出。
+   - (b) 用只读令牌对 `session_background` 停止分支发起调用，取回其失败信封；与 (a) 里通用检查的失败信封做 `code`、`Object.keys(structuredContent).sort()`、`Object.keys(details).sort()`、`retryable` 的逐字段相等断言；`grep -rn \"SCOPE_DENIED\" server/modules/mcp-gateway/*.ts`（不含 tests）无输出。
    - (c) 通用检查拒绝与处理函数内拒绝各写且只写一行审计：`outcome === 'denied'`（处理函数内的不得是 `error`），`denied_scopes` 为 JSON 数组且含所缺 scope；对照正控 `boom` 仍记 `error`。写下两行逐列读数。
    - (d) 持足够权限：`session_background` 停止分支持 `cloudcli:session:control` 真实成功（`stopped: true`，control service 被调 1 次）；且全 scope 令牌下至少一个工具真实成功（`isError === false`），其余工具不返回 `INSUFFICIENT_SCOPE`。
 7. **红先行**：先提交判据文件（此时文件不存在 ⇒ 存在性闸以退出码 1 输出缺失文件名）；再实现，记录实现后退出码 0。
@@ -61,16 +61,16 @@ goal_ac: AC-286
 
 ## AC
 
-- [ ] AC1 判据文件 `server/modules/mcp-gateway/tests/mcp-insufficient-scope.test.ts` 存在且 `npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-insufficient-scope.test.ts` 退出码 0。任务记录含「实现前该文件不存在、存在性闸以退出码 1 输出缺失文件名」与「实现后退出码 0」两段逐字输出（红先行证据）。
-- [ ] AC2 (a) 通用检查：真实 HTTP + MCP SDK 客户端，持只读令牌（仅 `cloudcli:read`）调用每一个需更高权限的工具；每个返回 `isError === true`、`structuredContent.code === 'INSUFFICIENT_SCOPE'`、`retryable` 为 boolean、`details.requiredScopes` 为非空数组且元素 ∈ `ACCESS_TOKEN_SCOPES`、∉ 只读令牌 scope、⊇ 该工具声明 scope；`message` 逐字点名其中每个 scope 并匹配 `/re-?authoriz|重新授权/i`。探针集由 `tools/list` ∪ 模块导出的 scope 真值驱动（`tools/list` 全集 == 只读集 ∪ 需更高权限集），不是手写名单。断言不存在 `content[0].text === 'Insufficient scope for this tool.'`。写下逐工具覆盖清单与 requiredScopes 读数；并断言只读集内每个工具不被 `INSUFFICIENT_SCOPE` 拒绝（反「一律拒绝」空转）。
-- [ ] AC3 (b) 两处检查逐字段同形同 code：`session_background` 停止分支的失败信封与通用检查的失败信封，`code` 相同（均 `INSUFFICIENT_SCOPE`）、`Object.keys(structuredContent)` 相同、`details` 键集相同（均恰为 `requiredScopes`）、`retryable` 相同；`grep -rn "SCOPE_DENIED" server/modules/mcp-gateway/*.ts`（不含 tests）无输出。写下两段信封的逐字 JSON。
-- [ ] AC4 (c) 被拒绝仍写 `denied` 审计且带上缺的 scope：通用检查拒绝与处理函数内拒绝各写且只写一行 `mcp_audit_log`，两行 `outcome === 'denied'`（处理函数内的不得记 `error`），两行 `denied_scopes` 为 JSON 数组且含所缺 scope；正控：抛裸异常的 `boom` 路径仍记 `error`。写下两行逐列读数。
-- [ ] AC5 (d) 正控（防「一律拒绝」）：持 `cloudcli:session:control` 时 `session_background` 停止分支真实成功（`isError === false`、`stopped === true`、control service 恰好被调 1 次）；全 scope 令牌下至少一个工具真实成功（`isError === false`），其余工具不返回 `INSUFFICIENT_SCOPE`。写下两次调用的读数。
-- [ ] AC6 取假形态三条必须先红后恢复，逐条记录 mutation diff、逐字失败行、恢复命令：(i) 通用检查回到纯文本 `'Insufficient scope for this tool.'` ⇒ AC2 红；(ii) 处理函数内仍用 `SCOPE_DENIED`（或形状带 `session`/`taskId`）⇒ AC3 红；(iii) 拒绝不再写 `denied` 审计（或 `denied_scopes` 不再带 scope）⇒ AC4 红。每条记录恢复命令与恢复后重跑绿。
-- [ ] AC7 既有判据移植、强度不降：至少覆盖 `server/modules/mcp-gateway/tests/mcp-tool-annotations.test.ts:275`（旧 `/Insufficient scope/` 文本匹配）、`mcp-session-background.test.ts:548`（旧 `payload?.code === 'SCOPE_DENIED'`）、`mcp-audit.test.ts:313-322`（denied 行，需加 `denied_scopes` 断言）、`mcp-cancel-queued.test.ts:653-658`、`mcp-approvals.test.ts:617-622`、`mcp-session-host-control.test.ts:666-682`、`mcp-oauth-challenge.test.ts:497-500`、`mcp-session-send.test.ts:645-652`；每条记旧断言→新断言，新断言强度不低于旧（等同或更严），diff 中无删除 `assert`、无放宽为 truthy/skip、无跳过用例。`bash scripts/test.sh --for-task gap-ac286-insufficient-scope-denial` 退出码 0。
-- [ ] AC8 计数 pin 同步：`server/shared/tests/quay-test-script.test.ts` 两处 `known/unknown` pin 按实现时实际计数加一（先取 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` 的实际 N，再写 `known=3 unknown=N-3` 与 `known=1 unknown=N-1`），`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0。写下 N 的读数与改后的两个 pin 字符串。
-- [ ] AC9 仓库门：`npm run typecheck` 退出码 0；`npm run lint` 无 `: error `（只看 error 级）；`npm run build` 退出码 0。写明三条命令退出码与 lint error 计数。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件标 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 `task_write` 加进 Touches 再写。列出实际改动文件清单。
+- [x] AC1 判据文件 `server/modules/mcp-gateway/tests/mcp-insufficient-scope.test.ts` 存在且 `npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-insufficient-scope.test.ts` 退出码 0。任务记录含「实现前该文件不存在、存在性闸以退出码 1 输出缺失文件名」与「实现后退出码 0」两段逐字输出（红先行证据）。
+- [x] AC2 (a) 通用检查：真实 HTTP + MCP SDK 客户端，持只读令牌（仅 `cloudcli:read`）调用每一个需更高权限的工具；每个返回 `isError === true`、`structuredContent.code === 'INSUFFICIENT_SCOPE'`、`retryable` 为 boolean、`details.requiredScopes` 为非空数组且元素 ∈ `ACCESS_TOKEN_SCOPES`、∉ 只读令牌 scope、⊇ 该工具声明 scope；`message` 逐字点名其中每个 scope 并匹配 `/re-?authoriz|重新授权/i`。探针集由 `tools/list` ∪ 模块导出的 scope 真值驱动（`tools/list` 全集 == 只读集 ∪ 需更高权限集），不是手写名单。断言不存在 `content[0].text === 'Insufficient scope for this tool.'`。写下逐工具覆盖清单与 requiredScopes 读数；并断言只读集内每个工具不被 `INSUFFICIENT_SCOPE` 拒绝（反「一律拒绝」空转）。
+- [x] AC3 (b) 两处检查逐字段同形同 code：`session_background` 停止分支的失败信封与通用检查的失败信封，`code` 相同（均 `INSUFFICIENT_SCOPE`）、`Object.keys(structuredContent)` 相同、`details` 键集相同（均恰为 `requiredScopes`）、`retryable` 相同；`grep -rn \"SCOPE_DENIED\" server/modules/mcp-gateway/*.ts`（不含 tests）无输出。写下两段信封的逐字 JSON。
+- [x] AC4 (c) 被拒绝仍写 `denied` 审计且带上缺的 scope：通用检查拒绝与处理函数内拒绝各写且只写一行 `mcp_audit_log`，两行 `outcome === 'denied'`（处理函数内的不得记 `error`），两行 `denied_scopes` 为 JSON 数组且含所缺 scope；正控：抛裸异常的 `boom` 路径仍记 `error`。写下两行逐列读数。
+- [x] AC5 (d) 正控（防「一律拒绝」）：持 `cloudcli:session:control` 时 `session_background` 停止分支真实成功（`isError === false`、`stopped === true`、control service 恰好被调 1 次）；全 scope 令牌下至少一个工具真实成功（`isError === false`），其余工具不返回 `INSUFFICIENT_SCOPE`。写下两次调用的读数。
+- [x] AC6 取假形态三条必须先红后恢复，逐条记录 mutation diff、逐字失败行、恢复命令：(i) 通用检查回到纯文本 `'Insufficient scope for this tool.'` ⇒ AC2 红；(ii) 处理函数内仍用 `SCOPE_DENIED`（或形状带 `session`/`taskId`）⇒ AC3 红；(iii) 拒绝不再写 `denied` 审计（或 `denied_scopes` 不再带 scope）⇒ AC4 红。每条记录恢复命令与恢复后重跑绿。
+- [x] AC7 既有判据移植、强度不降：至少覆盖 `server/modules/mcp-gateway/tests/mcp-tool-annotations.test.ts:275`（旧 `/Insufficient scope/` 文本匹配）、`mcp-session-background.test.ts:548`（旧 `payload?.code === 'SCOPE_DENIED'`）、`mcp-audit.test.ts:313-322`（denied 行，需加 `denied_scopes` 断言）、`mcp-cancel-queued.test.ts:653-658`、`mcp-approvals.test.ts:617-622`、`mcp-session-host-control.test.ts:666-682`、`mcp-oauth-challenge.test.ts:497-500`、`mcp-session-send.test.ts:645-652`；每条记旧断言→新断言，新断言强度不低于旧（等同或更严），diff 中无删除 `assert`、无放宽为 truthy/skip、无跳过用例。`bash scripts/test.sh --for-task gap-ac286-insufficient-scope-denial` 退出码 0。
+- [x] AC8 计数 pin 同步：`server/shared/tests/quay-test-script.test.ts` 两处 `known/unknown` pin 按实现时实际计数加一（先取 `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` 的实际 N，再写 `known=3 unknown=N-3` 与 `known=1 unknown=N-1`），`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` 退出码 0。写下 N 的读数与改后的两个 pin 字符串。
+- [x] AC9 仓库门：`npm run typecheck` 退出码 0；`npm run lint` 无 `: error `（只看 error 级）；`npm run build` 退出码 0。写明三条命令退出码与 lint error 计数。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件标 ASCII `(new)`）；若被迫写 Touches 之外的文件，先用 `task_write` 加进 Touches 再写。列出实际改动文件清单。
 
 ## DoD
 
@@ -102,5 +102,8 @@ goal_ac: AC-286
 - server/modules/mcp-gateway/tests/mcp-session-host-control.test.ts
 - server/modules/mcp-gateway/tests/mcp-oauth-challenge.test.ts
 - server/modules/mcp-gateway/tests/mcp-session-send.test.ts
+- server/modules/mcp-gateway/tests/mcp-invalid-argument.test.ts
+- server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts
+- server/modules/mcp-gateway/tests/mcp-error-vocabulary.test.ts
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-ac286-insufficient-scope-denial.md (self-touch)

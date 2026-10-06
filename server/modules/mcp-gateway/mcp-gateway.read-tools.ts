@@ -33,6 +33,7 @@ import { z } from 'zod';
 
 import type { HostMode, HostState, LLMProvider, NormalizedMessage, ProcessHost } from '@/shared/types.js';
 
+import type { McpToolInputSchema } from './mcp-gateway.audit.js';
 import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
 import { isOverviewWired, registerMcpOverviewTools } from './mcp-overview-tools.js';
 import type { McpActivityReader, McpOverviewDeps, McpOverviewRegistration, McpQuayRunner } from './mcp-overview-tools.js';
@@ -498,7 +499,10 @@ function isResident(reading: McpSessionReading): boolean {
 
 /** The registered body of one tool: everything except the table-owned scope. */
 type McpReadToolBody = {
-  inputSchema: z.ZodRawShape;
+  // AC-288: a raw shape, or a built schema carrying a constraint a raw shape
+  // cannot express (`session_read`'s bounded `limit` and its `aroundId` /
+  // `cursor` exclusivity). The wrapper advertises and enforces whichever it gets.
+  inputSchema: McpToolInputSchema;
   outputSchema: z.ZodRawShape;
   handle: (args: Record<string, unknown>, deps: McpReadToolDeps) => unknown | Promise<unknown>;
 };
@@ -560,6 +564,41 @@ function notImplemented(name: McpStage3ReadToolName, owner: string): never {
     { tool: name, owner },
   );
 }
+
+/** The largest page `session_read` will take. A caller asking for more is refused. */
+const MCP_SESSION_READ_MAX_LIMIT = 200;
+
+/**
+ * `session_read`'s declared input (AC-288): the shape of its arguments PLUS two
+ * constraints a raw shape cannot state — `limit` is bounded to
+ * `[1, MCP_SESSION_READ_MAX_LIMIT]`, and `aroundId` and `cursor` are mutually
+ * exclusive (`aroundId` selects a window; `cursor` pages a whole transcript, so
+ * naming both is a contradiction, not a refinement).
+ *
+ * One schema, two duties: it is handed to the SDK so `tools/list` advertises the
+ * bounds and the exclusivity note, and it is parsed by the audited wrapper so a
+ * violating call becomes one `INVALID_ARGUMENT` envelope with a per-field
+ * `problem` rather than a silently clamped page.
+ */
+const sessionReadInputSchema = z
+  .object({
+    session: z.string(),
+    mode: z.enum(['latest', 'outline', 'around']).optional(),
+    limit: z.number().int().min(1).max(MCP_SESSION_READ_MAX_LIMIT).optional(),
+    aroundId: z.string().optional(),
+    before: z.number().optional(),
+    after: z.number().optional(),
+    cursor: z.string().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.aroundId !== undefined && value.cursor !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['aroundId'],
+        message: 'aroundId and cursor cannot be combined; name only one.',
+      });
+    }
+  });
 
 const TOOL_BODIES = {
   overview: {
@@ -680,15 +719,7 @@ const TOOL_BODIES = {
     },
   },
   session_read: {
-    inputSchema: {
-      session: z.string(),
-      mode: z.enum(['latest', 'outline', 'around']).optional(),
-      limit: z.number().optional(),
-      aroundId: z.string().optional(),
-      before: z.number().optional(),
-      after: z.number().optional(),
-      cursor: z.string().optional(),
-    },
+    inputSchema: sessionReadInputSchema,
     outputSchema: {
       session: z.string(),
       mode: z.string(),
@@ -761,7 +792,8 @@ export type McpReadToolRegistration = {
   name: string;
   description: string;
   requiredScope: string;
-  inputSchema: z.ZodRawShape;
+  /** AC-288: a raw shape, or a built schema carrying a constraint a raw shape cannot express. */
+  inputSchema: McpToolInputSchema;
   outputSchema: z.ZodRawShape;
   handler: (args: Record<string, unknown>) => unknown | Promise<unknown>;
 };

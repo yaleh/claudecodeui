@@ -43,17 +43,18 @@
  * mount — `createMcpServer` rebuilds the registry per request from the same deps —
  * so the name set the reader sees is the name set the prober calls.
  *
- * The three classes this task CANNOT envelope (they are probed and their current
- * shape pinned, not silently skipped):
- *   - 未知工具: the SDK's `McpServer` rejects an unregistered tool name with a
- *     JSON-RPC `-32602` BEFORE any gateway code runs, and the SDK client renders
- *     it as plain text with no `structuredContent`. There is no server-side seam
- *     to envelop it. `MCP_ERROR_CODES.UNKNOWN_TOOL` is declared for the vocabulary
- *     inventory; whether it is ever emitted is AC-285's dead-code question.
+ * The classes this task CANNOT envelope (they are probed and their current shape
+ * pinned, not silently skipped):
  *   - 审批或排队消息不存在 / 运行不存在: converting these from "looks like success"
  *     to errors is AC-287's, explicitly outside this task's scope. Here they are
  *     pinned to "still not a plain-text failure", so a regression into the old
  *     shape reds without this task overstepping into AC-287's conversion.
+ *
+ * 未知工具 USED to be the third: the SDK's `McpServer` rejected an unregistered
+ * name with a JSON-RPC `-32602` before any gateway code ran. AC-288 installs the
+ * gateway's own `tools/call` dispatcher, so that name now reaches
+ * `unknownToolResult` and answers the same envelope family as every other class —
+ * which is why it moved into the envelope arm above.
  */
 
 import assert from 'node:assert/strict';
@@ -462,13 +463,19 @@ const CLASS_PROBES: Record<ProbeClass, ClassProbe> = {
   },
   参数缺失: { kind: 'envelope', mount: 'probe', tool: 'session_get', args: {}, expect: 'INVALID_ARGUMENT' },
   参数类型错: { kind: 'envelope', mount: 'probe', tool: 'overview', args: { project: 5 }, expect: 'INVALID_ARGUMENT' },
+  // AC-288 moved this class out of the exemption bucket: the gateway now installs
+  // its own `tools/call` dispatcher, so an unregistered name reaches
+  // `unknownToolResult` and answers the SAME envelope family as every other
+  // failure. The reading is asserted through the cold probe client, exactly like
+  // the other classes — the SDK client would otherwise try to validate a
+  // `structuredContent` against the (absent) cached output schema for a name
+  // `tools/list` never mentioned.
   未知工具: {
-    kind: 'exempt',
+    kind: 'envelope',
+    mount: 'probe',
     tool: 'no_such_tool',
     args: {},
-    reason:
-      'the SDK McpServer rejects an unregistered tool name with JSON-RPC -32602 before any gateway code runs, and the SDK client renders it as plain text with no structuredContent; there is no server-side seam',
-    reading: 'client-synthesized',
+    expect: 'UNKNOWN_TOOL',
   },
   权限不足: { kind: 'envelope', mount: 'denied', tool: 'session_get', args: {}, expect: 'INSUFFICIENT_SCOPE' },
   会话忙: {
@@ -777,20 +784,10 @@ test('each class probe reads the shape its class promises', async () => {
       continue;
     }
 
-    // The three exemptions. Each pins the CURRENT shape so a silent change reds,
-    // while naming the owner of the conversion AC-284 does not perform.
-    if (probe.tool === 'no_such_tool') {
-      const reading = await call(probeClient, probe.tool, probe.args);
-      assert.equal(reading.isError, true, `${probeClass}: an unknown tool is still an error result`);
-      assert.equal(
-        reading.structuredContent,
-        undefined,
-        `${probeClass}: the SDK synthesizes this failure, so there is no server envelope — if one appears, move this class into the envelope arm`,
-      );
-      say(`class ${probeClass} -> client-synthesized ${JSON.stringify(reading.text ?? '')}`);
-      continue;
-    }
-
+    // The exemptions AC-284 kept. Each pins the CURRENT shape so a silent change
+    // reds, while naming the owner of the conversion AC-284 does not perform.
+    // (未知工具 was one of these until AC-288 gave the gateway its own dispatcher
+    // and moved it into the envelope arm above.)
     const reading = await call(probeClient, probe.tool, probe.args);
     if (probe.reading === 'not-an-error') {
       assert.equal(

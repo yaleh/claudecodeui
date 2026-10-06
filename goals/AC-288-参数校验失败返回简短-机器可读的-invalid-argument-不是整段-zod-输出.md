@@ -1,7 +1,7 @@
 ---
 id: AC-288
 title: 参数校验失败返回简短、机器可读的 INVALID_ARGUMENT，不是整段 zod 输出
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-024
 criterion: for f in
@@ -26,6 +26,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-06T16:18:05.907Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
