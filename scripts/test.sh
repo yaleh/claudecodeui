@@ -16,6 +16,13 @@
 #      QUAY_SUITE_KEEP_LOGS_DIR=<dir> where the kept logs go (default .quay/suite-logs/<run-id>).
 #      QUAY_SUITE_LOG_MAX_BYTES=<n>  per-file cap for a kept log (default 262144 = 256 KiB).
 #      QUAY_SUITE_LOG_TOTAL_BYTES=<n> whole-run cap for everything kept (default 67108864 = 64 MiB).
+#      QUAY_SUITE_DURATION_BASELINE=<path> duration baseline for the full run's server dispatch
+#                                  (default scripts/suite-duration-baseline.tsv). Missing, empty,
+#                                  unreadable, or unparseable => plain alphabetical order (fail-open).
+#      QUAY_TEST_STOP_AFTER=order     print the effective server dispatch order (one path per line)
+#                                  to stdout and exit 0 — collection + ordering only, no stage runs.
+#      QUAY_TEST_STOP_AFTER=stages    run only the two static stages, then report normally and skip
+#                                  the server and client phases (the structural C1 check's seam).
 #   Flags: --keep-logs <dir> = name the directory AND keep even when green (the explicit switch);
 #          --run-id <id>     = use <id> as the run directory's name instead of the generated one.
 #
@@ -98,7 +105,11 @@ fi
 # WITHOUT one must run its own delivered checker (scripts/*.sh) — for that task --for-task would
 # resolve to 0 files and exit 0 on the thin path, i.e. a green that cannot go red. `done` /
 # `superseded` history is out of scope. Exit 1 (not 2): a red here is a verdict, not a usage error.
-if ! bash "$ROOT_DIR/scripts/suite-scope-check.sh"; then
+#
+# The guard's stdout (its scan/PASS/FAIL lines) is forwarded to stderr: this script's stdout is a
+# contract surface — `__PERFILE__` / `__PERFILE_KIND__` rows and the dry-run line, plus (under
+# QUAY_TEST_STOP_AFTER=order) the dispatch order, which AC4 diffs byte-for-byte against `find`.
+if ! bash "$ROOT_DIR/scripts/suite-scope-check.sh" 1>&2; then
   echo "test.sh: aborting before any stage — the active tasks' self-test scope is not compliant (verdict above)" >&2
   exit 1
 fi
@@ -684,17 +695,168 @@ run_stage() {
   progress
 }
 
-SERVER_FILES=(); CLIENT_FILES=()
+# run_stage_bg <label> <cmd...>: like run_stage, but starts the command in the BACKGROUND and
+# writes the same evidence run_stage does — $TMP/stage-<label>.out (child output) plus a
+# $TMP/stage-<label>.res carrier holding `<rc> <duration_ms> <end_ms>`, the exact shape the server
+# lane writes to srv-N.res. The PARENT records it later (see run_static_stages_parallel), because
+# record() mutates the parent's counters and FAILED_LINES: a subshell's updates to those would be
+# discarded, so the stage would vanish from the report while still costing wall clock.
+run_stage_bg() {
+  local label="$1"; shift
+  local out="$TMP/stage-$label.out" res="$TMP/stage-$label.res" s e rc
+  (
+    s=$(now_ms); "$@" >"$out" 2>&1; rc=$?; e=$(now_ms)
+    echo "$rc $((e - s)) $e" >"$res"
+    progress
+  ) &
+}
+
+# run_static_stages_parallel (C1): typecheck and lint do not depend on each other — `tsc --noEmit`
+# writes no files and oxlint only reads — and both are ordered before the server phase, so a serial
+# pair pays their sum (measured 14.9s + 9.0s in round 636) for nothing. They now OVERLAP, and the
+# parent records them anyway in a FIXED order, typecheck then lint, so a lint that finishes first
+# can never reorder the `__PERFILE__` rows. Both stages always run and either being red still makes
+# the run red (record() sets FAIL; the tail's `# fail N` and exit test are unchanged).
+run_static_stages_parallel() {
+  run_stage_bg typecheck npm run typecheck
+  run_stage_bg lint npm run lint
+  wait
+  local label out res rc dur end
+  for label in typecheck lint; do
+    out="$TMP/stage-$label.out"; res="$TMP/stage-$label.res"
+    if [ -s "$res" ]; then
+      read -r rc dur end <"$res"
+      if [ "$rc" = "0" ]; then record "$label" "$dur" true "$end"
+      else record "$label" "$dur" false "$end" "$(first_error "$out")" "$(classify_failure_kind stage "$rc" "$out")"; fi
+    else
+      # A stage that produced no carrier died without reporting. That is this script's own
+      # bookkeeping failing, not a test defect, but there is no framework tally to read for a
+      # stage lane either way — record it as a failure with the assert kind so it is never
+      # silently dropped (an unclassified/absent row would be worse than a loud red).
+      record "$label" 1 false "$(now_ms)" "no result file was written for this stage — its process died without reporting" assert
+    fi
+  done
+  progress
+}
+
+# ── longest-first server dispatch (gap-suite-server-dispatch-longest-first-and-parallel-static-stages) ──
+#
+# WHY. The server phase runs one process per file under a concurrency ceiling, so its wall clock is
+# the SPAN of the launch schedule, not the sum of durations: an alphabetically collected list starts
+# the slowest file LATE, and the phase then ends on that file's own tail. Round 636 (2026-10-05T23:24Z,
+# green, 232 server files) had perFile span 180.7s while its theoretical floor was
+# max(128.9s longest file, 1347.4s/16 = 84.2s) = 128.9s; voice-error-classification.false-forms.test.ts
+# (128.9s) only started 52s in N=16 (its mean concurrency was 7.4). Ordering by a committed per-file
+# duration baseline starts the long files first and pulls the span toward that floor.
+#
+# FAIL-OPEN IS THE CONTRACT, not a nicety. The baseline is an optimisation; the suite must not depend
+# on it. Missing, empty, unreadable, or carrying even ONE unparseable line => the collected list is
+# left byte-for-byte today's alphabetical order and the exit code is unchanged. A bad baseline can
+# therefore never lose or duplicate a file, nor turn a green suite red.
+#
+# The baseline is a DATA file (scripts/suite-duration-baseline.tsv), deliberately not a script: a new
+# scripts/*.mjs would be swept by scripts/tsconfig.json (allowJs+checkJs+strict) and red the whole
+# suite via `npm run typecheck`.
+#
+# Only the full-collection path calls this. Positional / --for-task files are the caller's choice and
+# keep the caller's order — never reordered.
+dispatch_server_files() {
+  local baseline="${QUAY_SUITE_DURATION_BASELINE:-$ROOT_DIR/scripts/suite-duration-baseline.tsv}"
+  local tab=$'\t' reason="" line dur path okpath i j f cd cp
+  DISPATCH_ORDER="alphabetical"; DISPATCH_SOURCE=""; DISPATCH_KNOWN=0; DISPATCH_UNKNOWN=0
+
+  if [ ! -e "$baseline" ]; then reason="baseline not found: $baseline"
+  elif [ ! -f "$baseline" ]; then reason="baseline is not a regular file: $baseline"
+  elif [ ! -r "$baseline" ]; then reason="baseline is not readable: $baseline"
+  elif [ ! -s "$baseline" ]; then reason="baseline is empty: $baseline"
+  fi
+
+  local -a bdur=() bpath=()
+  if [ -z "$reason" ]; then
+    # Pass 1: EVERY content line must parse, else the whole thing fails open. Splitting on the
+    # first TAB proves "one TAB, digits before it, a server test path after it" without a regex.
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in ''|'#'*) continue ;; esac
+      dur="${line%%"$tab"*}"; path="${line#*"$tab"}"
+      okpath=0
+      case "$path" in server/*.test.ts|server/*.test.js) okpath=1 ;; esac
+      if [ "$path" = "$line" ] || [ "${path#*"$tab"}" != "$path" ] \
+         || [ -z "$dur" ] || [ "${dur//[0-9]/}" != "" ] || [ "$okpath" != "1" ]; then
+        reason="baseline line is unparseable: $line"; break
+      fi
+      bdur+=("$dur"); bpath+=("$path")
+    done < "$baseline"
+  fi
+
+  if [ -n "$reason" ]; then
+    printf 'test.sh: server dispatch order=alphabetical reason=%s\n' "$reason" >&2
+    return 0
+  fi
+
+  # known = baseline entries still present in the collected list ("still exists"), longest first.
+  # A baseline path that is not in the list (deleted, or excluded from the find) is ignored.
+  local -a kd=() kp=() rest=()
+  for ((i = 0; i < ${#bpath[@]}; i++)); do
+    for f in "${SERVER_FILES[@]+"${SERVER_FILES[@]}"}"; do
+      if [ "$f" = "${bpath[$i]}" ]; then kd+=("${bdur[$i]}"); kp+=("$f"); break; fi
+    done
+  done
+  # Insertion sort, duration descending. Stable on ties, so equal-duration files keep the baseline's
+  # own (duration desc, path asc) order — deterministic without a second comparison key here.
+  for ((i = 1; i < ${#kp[@]}; i++)); do
+    cd="${kd[$i]}"; cp="${kp[$i]}"; j=$((i - 1))
+    while [ "$j" -ge 0 ] && [ "${kd[$j]}" -lt "$cd" ]; do
+      kd[$((j + 1))]="${kd[$j]}"; kp[$((j + 1))]="${kp[$j]}"; j=$((j - 1))
+    done
+    kd[$((j + 1))]="$cd"; kp[$((j + 1))]="$cp"
+  done
+  # unknown = collected files the baseline does not mention, in their existing (alphabetical) order.
+  for f in "${SERVER_FILES[@]+"${SERVER_FILES[@]}"}"; do
+    local inbase=0
+    for path in "${bpath[@]+"${bpath[@]}"}"; do
+      if [ "$path" = "$f" ]; then inbase=1; break; fi
+    done
+    [ "$inbase" = "1" ] || rest+=("$f")
+  done
+
+  SERVER_FILES=()
+  if [ ${#kp[@]} -gt 0 ]; then SERVER_FILES+=("${kp[@]}"); fi
+  if [ ${#rest[@]} -gt 0 ]; then SERVER_FILES+=("${rest[@]}"); fi
+  DISPATCH_ORDER="longest-first"; DISPATCH_SOURCE="$baseline"
+  DISPATCH_KNOWN=${#kp[@]}; DISPATCH_UNKNOWN=${#rest[@]}
+  printf 'test.sh: server dispatch order=longest-first source=%s known=%s unknown=%s\n' \
+    "$DISPATCH_SOURCE" "$DISPATCH_KNOWN" "$DISPATCH_UNKNOWN" >&2
+}
+
+SERVER_FILES=(); CLIENT_FILES=(); DISPATCH_FILES=()
 if [ ${#FILES[@]} -gt 0 ]; then
   for f in "${FILES[@]}"; do
     f="${f#./}"
+    DISPATCH_FILES+=("$f")
     case "$f" in server/*) SERVER_FILES+=("$f") ;; *) CLIENT_FILES+=("$f") ;; esac
   done
 else
   while IFS= read -r f; do SERVER_FILES+=("$f"); done < <(find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | sort)
+  # Full-collection path only: reorder server files longest-first from the duration baseline
+  # (fail-open => the list above is left untouched). Positional / --for-task files keep the
+  # caller's order, so this is deliberately not called for them.
+  dispatch_server_files
+  DISPATCH_FILES=("${SERVER_FILES[@]}")
   CLIENT_FILES=("__all__")
-  run_stage typecheck npm run typecheck
-  run_stage lint npm run lint
+fi
+
+# Test seam (QUAY_TEST_STOP_AFTER=order): print the effective dispatch order, one path per line,
+# and nothing else on stdout — so the file SET can be diffed byte-for-byte against `find … | sort`
+# (AC4) and the first lines checked for longest-first (AC2). Reached on both paths.
+if [ "${QUAY_TEST_STOP_AFTER:-}" = "order" ]; then
+  for f in "${DISPATCH_FILES[@]+"${DISPATCH_FILES[@]}"}"; do printf '%s\n' "$f"; done
+  exit 0
+fi
+
+# Static stages run only when the WHOLE tree is the target (the scoped path is the task's own
+# subset and skips them, as before). They are independent, so they run concurrently — C1.
+if [ ${#FILES[@]} -eq 0 ]; then
+  run_static_stages_parallel
 fi
 
 # How many units this invocation means to report, pinned while the plan is still known. The
@@ -705,8 +867,14 @@ fi
 PLANNED=$((${#SERVER_FILES[@]} + ${#CLIENT_FILES[@]}))
 [ ${#FILES[@]} -eq 0 ] && PLANNED=$((PLANNED + 2))
 
+# Test seam (QUAY_TEST_STOP_AFTER=stages): the two static stages have been recorded above; skip
+# the server and client phases and fall through to the normal report. This is the structural
+# parallel check's seam (AC5/AC6) — it never changes a verdict, only how much runs.
+RUN_HEAVY=1
+[ "${QUAY_TEST_STOP_AFTER:-}" = "stages" ] && RUN_HEAVY=0
+
 # server: one node:test process per file, up to $CONCURRENCY at a time
-if [ ${#SERVER_FILES[@]} -gt 0 ]; then
+if [ "$RUN_HEAVY" = "1" ] && [ ${#SERVER_FILES[@]} -gt 0 ]; then
   i=0
   for f in "${SERVER_FILES[@]}"; do
     (
@@ -755,7 +923,7 @@ if [ ${#SERVER_FILES[@]} -gt 0 ]; then
 fi
 
 # client: single vitest run, JSON report parsed per file
-if [ ${#CLIENT_FILES[@]} -gt 0 ]; then
+if [ "$RUN_HEAVY" = "1" ] && [ ${#CLIENT_FILES[@]} -gt 0 ]; then
   # This phase is ONE process whose whole span is a single silence: `--reporter=json`
   # writes the per-file report at the end, so neither stdout nor the report grows while
   # it runs. The heartbeat goes in here, at the phase's own start, so the silence the
