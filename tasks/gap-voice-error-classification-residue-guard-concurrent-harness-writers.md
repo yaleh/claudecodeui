@@ -64,10 +64,10 @@ AssertionError: the run left files behind:
 
 ## AC
 
-- [ ] AC1 负对照（并发写者下确定性绿）：先做修复前基线 —— 后台循环每 10ms `touch` 一个 `.playwright-mcp/console-*.log`，连跑判据命令 ≥5 次，**≥5/5 红**且红在 `the run left files behind`（读数记入完成记录）；修复实现后同一根杠杆，连跑 **20 次退出 0**、每次 stdout 含 `git-clean-after=true` 与 `6 passed` ⇒ 20/20。再对 `tasks/`（或 `goals/`）下的一个文件起同样的循环，同样要求 20/20 绿（证明覆盖的是「被跟踪的驱动库」这一类，不只 gitignore 面）。跑完 `kill` 循环、不留探针、`git status --porcelain` 与本任务启动时逐字相同。
-- [ ] AC2 正对照（守卫的牙仍在）：跑前确认 `git check-ignore -v src/shared/tests/.ac152-residue-probe.tmp` **退出 1**（该路径不被 gitignore ⇒ 在任何「按类排除」的修法下都必须仍算残留）。随后 (a) `touch src/shared/tests/.ac152-residue-probe.tmp` 并起后台循环，(b) 另跑一次只在收尾前 `> src/shared/tests/.ac152-residue-probe.tmp`（新建/改写）—— 两种形态**都必须红**且 stderr 指名该探针。跑完删除探针，`git status --porcelain` 与本任务启动时逐字相同。此条证明修的是取景，不是把守卫拔掉。
-- [ ] AC3 实质读数不变（一次干净运行，退出 0）：stdout 逐条含 `rows=21`、`agreed=21`、`openai-family=4`、`classifier-defs=1 table-defs=1 adapter-local-tables=0 client-local-tables=0 client-imports-shared=true`、`mutation=client-second-table` 行的 `mutant-red=true`、`mutation=direct-status-only` 行的 `mutant-red=true`、`subprocess-imports=0`、`ports=0`；且 `6 passed`。
-- [ ] AC4 排除面与「本次运行的写」这一语义一致（源码读数）：`grep -nE "mtimeMs" src/shared/tests/voiceErrorClassification.test.ts` 在残留条目/比较处**零命中**（比较已改为内容维度），或该处逐字改为对 `size`/哈希的比较；`grep -n "playwright-mcp\|\.quay\|tasks\|goals" src/shared/tests/voiceErrorClassification.test.ts` 的命中落在排除面的**代码**里（不是只在注释里）；紧邻注释写明每类排除的写者是谁、以及它与 `.gitignore` / `git status --porcelain` 的关系。
+- [x] AC1 负对照（并发写者下确定性绿）：先做修复前基线 —— 后台循环每 10ms `touch` 一个 `.playwright-mcp/console-*.log`，连跑判据命令 ≥5 次，**≥5/5 红**且红在 `the run left files behind`（读数记入完成记录）；修复实现后同一根杠杆，连跑 **20 次退出 0**、每次 stdout 含 `git-clean-after=true` 与 `6 passed` ⇒ 20/20。再对 `tasks/`（或 `goals/`）下的一个文件起同样的循环，同样要求 20/20 绿（证明覆盖的是「被跟踪的驱动库」这一类，不只 gitignore 面）。跑完 `kill` 循环、不留探针、`git status --porcelain` 与本任务启动时逐字相同。
+- [x] AC2 正对照（守卫的牙仍在）：跑前确认 `git check-ignore -v src/shared/tests/.ac152-residue-probe.tmp` **退出 1**（该路径不被 gitignore ⇒ 在任何「按类排除」的修法下都必须仍算残留）。随后 (a) `touch src/shared/tests/.ac152-residue-probe.tmp` 并起后台循环，(b) 另跑一次只在收尾前 `> src/shared/tests/.ac152-residue-probe.tmp`（新建/改写）—— 两种形态**都必须红**且 stderr 指名该探针。跑完删除探针，`git status --porcelain` 与本任务启动时逐字相同。此条证明修的是取景，不是把守卫拔掉。
+- [x] AC3 实质读数不变（一次干净运行，退出 0）：stdout 逐条含 `rows=21`、`agreed=21`、`openai-family=4`、`classifier-defs=1 table-defs=1 adapter-local-tables=0 client-local-tables=0 client-imports-shared=true`、`mutation=client-second-table` 行的 `mutant-red=true`、`mutation=direct-status-only` 行的 `mutant-red=true`、`subprocess-imports=0`、`ports=0`；且 `6 passed`。
+- [x] AC4 排除面与「本次运行的写」这一语义一致（源码读数）：`grep -nE "mtimeMs" src/shared/tests/voiceErrorClassification.test.ts` 在残留条目/比较处**零命中**（比较已改为内容维度），或该处逐字改为对 `size`/哈希的比较；`grep -n "playwright-mcp\|\.quay\|tasks\|goals" src/shared/tests/voiceErrorClassification.test.ts` 的命中落在排除面的**代码**里（不是只在注释里）；紧邻注释写明每类排除的写者是谁、以及它与 `.gitignore` / `git status --porcelain` 的关系。
 
 ## DoD
 
@@ -77,3 +77,15 @@ AssertionError: the run left files behind:
 
 - src/shared/tests/voiceErrorClassification.test.ts
 - tasks/gap-voice-error-classification-residue-guard-concurrent-harness-writers.md
+
+## Notes
+
+实现（commit `92664f8e`，merge develop `34a4f7f2`）：`treeSnapshot()` 的排除面改为按一条纪律分组——「该路径属于在判据运行时写 worktree 的另一个进程」，每类注明写者；条目键由 `${path}:${mtimeMs}:${size}` 改为 `${path}:${size}`（内容维度），并加一条从 `.gitignore` 整目录规则派生的尾巴防枚举过期。出货代码零改动。
+
+实测读数（worktree `/data/home/yale/work/claudecodeui-worktrees/gap-voice-error-classification-residue-guard-concurrent-harness-writers`）：
+
+- AC1 修复前基线：`.playwright-mcp/console-baseline.log` 上每 10ms `touch` 的循环下连跑 5 次 ⇒ **5/5 红**，每次 stderr 指名 `playwright-mcp/console-baseline.log`。
+- AC1 修复后：同一 `.playwright-mcp` touch 循环 **20/20 绿**（每次 rc=0、含 `git-clean-after=true` 与 `6 passed`）；`tasks/gap-ac-001-criterion-repoint-to-migrated-test.md` 上的 touch 循环同样 **20/20 绿**。循环 kill、探针删除、`git status --porcelain` 与启动时一致（仅实现文件本身，已提交）。
+- AC2：`git check-ignore -v src/shared/tests/.ac152-residue-probe.tmp` 退出 **1**。(a) `touch` 探针 + 后台内容写循环 ⇒ **红**，`the run left files behind: /src/shared/tests/.ac152-residue-probe.tmp:116`；(b) 收尾前 `> 探针`（stdout 触发，模块加载后、AC1 取快照前新建）⇒ **红**，`…probe.tmp:0`。补充臂：对既有探针的**纯 touch** 循环 ⇒ **绿**（`git-clean-after=true`），即「纯 mtime 变更不算残留」这条硬要求成立；两种正对照红形态均由**内容**（新建路径 / size 变化）触发，守卫的牙仍在。
+- AC3 一次干净运行：`rows=21`、`agreed=21`、`openai-family=4`、`classifier-defs=1 table-defs=1 adapter-local-tables=0 client-local-tables=0 client-imports-shared=true`、`subprocess-imports=0`、`ports=0`、`6 passed`，两条 `mutation=` 行均 `mutant-red=true`。
+- AC4：`grep -nE "mtimeMs"` **0 命中**；`grep -n "playwright-mcp\|\.quay\|tasks\|goals"` 命中在排除面代码 `:434`/`:436`（不止注释）；相邻注释写明每类写者及与 `.gitignore` / `git status --porcelain` 的关系。
