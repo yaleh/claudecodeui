@@ -171,14 +171,54 @@ function createCsrfTokenStore(options: {
   };
 }
 
-/** Sets the three hardening headers on any response, redirect or page alike. */
-function applySecurityHeaders(res: express.Response): void {
+/**
+ * A CSP source expression for the origin a registered `redirect_uri` points at,
+ * or `null` when it cannot be written safely.
+ *
+ * The consent form POSTs to this server and is answered with a 302 to the
+ * client's callback. Browsers apply `form-action` to that redirect too: with
+ * only `'self'` the navigation to the callback is refused silently, the page
+ * stays on `/oauth/authorize`, and the client never receives its code. So the
+ * callback's origin must be listed. A custom scheme has no origin (`"null"`) and
+ * is listed as a bare scheme source. The strict pattern is what keeps a
+ * registered URI from smuggling a `;` or a space into the header value.
+ *
+ * Exported for this module's consent-page criterion, which pins the header and
+ * the unsafe-value refusal directly; no other module consumes it.
+ */
+export function cspSourceForRedirectUri(redirectUri: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(redirectUri);
+  } catch {
+    return null;
+  }
+  const source = url.origin === 'null' ? url.protocol : url.origin;
+  return /^[a-z][a-z0-9+.-]*:(\/\/(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(:\d{1,5})?)?$/i.test(source) ? source : null;
+}
+
+/**
+ * Sets the three hardening headers on any response, redirect or page alike.
+ * `redirectSource` is the validated callback's CSP source, added to `form-action`
+ * on the page that carries the consent form (see {@link cspSourceForRedirectUri}).
+ */
+function applySecurityHeaders(res: express.Response, redirectSource?: string): void {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'none'; form-action 'self'; frame-ancestors 'none'"
+    `default-src 'none'; form-action 'self'${redirectSource ? ` ${redirectSource}` : ''}; frame-ancestors 'none'`
   );
   res.setHeader('Cache-Control', 'no-store');
+}
+
+/** The redirect URIs stored for a client; an unparseable column counts as none. */
+function registeredRedirectUris(client: OAuthClientRow): string[] {
+  try {
+    const parsed: unknown = JSON.parse(client.redirect_uris);
+    return Array.isArray(parsed) ? parsed.filter((uri): uri is string => typeof uri === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Renders a minimal HTML error page (no form, no secrets) with the security headers. */
@@ -286,6 +326,13 @@ export function createOAuthConsentRouter(options: CreateOAuthConsentRouterOption
       sendErrorPage(res, 400, 'Invalid redirect_uri');
       return;
     }
+    // RFC 6749 §3.1.2.4: an unregistered redirect_uri is shown as an error and the
+    // user is never sent there. Exact match, as at the token endpoint.
+    const redirectSource = cspSourceForRedirectUri(redirectUri);
+    if (!registeredRedirectUris(client).includes(redirectUri) || redirectSource === null) {
+      sendErrorPage(res, 400, 'redirect_uri is not registered for this client');
+      return;
+    }
 
     // `cloudcli:read` is always granted, so it is always shown — even when the
     // request did not ask for it — pinned checked and disabled.
@@ -294,7 +341,7 @@ export function createOAuthConsentRouter(options: CreateOAuthConsentRouterOption
       ? requestedScopes
       : [READ_SCOPE, ...requestedScopes];
 
-    applySecurityHeaders(res);
+    applySecurityHeaders(res, redirectSource);
     res.status(200).type('html').send(
       renderConsentPage({
         clientName: client.client_name ?? '',
@@ -330,6 +377,18 @@ export function createOAuthConsentRouter(options: CreateOAuthConsentRouterOption
       redirectTarget = new URL(redirectUri);
     } catch {
       sendErrorPage(res, 400, 'Invalid redirect_uri');
+      return;
+    }
+
+    // No redirect — not even the `access_denied` one — may target a URI the client
+    // did not register: the deny branch below would otherwise be an open redirector.
+    const postClient = options.clients.findById(clientId);
+    if (
+      !postClient
+      || postClient.disabled_at !== null
+      || !registeredRedirectUris(postClient).includes(redirectUri)
+    ) {
+      sendErrorPage(res, 400, 'redirect_uri is not registered for this client');
       return;
     }
 
