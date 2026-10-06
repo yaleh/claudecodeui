@@ -50,12 +50,12 @@ extra:
 
 ## AC
 
-- [ ] S0：新增的纯前端模块单测通过，且对探针留下的 token 回归读数（片段 1 前 6 个 token 与 `t`）逐项相同；命令 `npx vitest run src/shared/tests/voiceClientFrontend.test.ts` 退出码 0。
-- [ ] S1：缓存模块单测通过并至少覆盖五种情形：命中缓存时 `fetch` 调用次数为 0；下载被截断或哈希不符时 `cache.put` 调用次数为 0；缓存条目哈希不符时丢弃并重新下载；`caches` 不可用或 `put` 抛配额错误时识别仍可用且产生一条用户可见的降级提示；下载进度回调的已下载字节单调不减。命令 `npx vitest run src/modules/chat/utils/tests/voiceModelCache.test.ts` 退出码 0。
-- [ ] S2：适配器按 `shared/asr/asrRegistry.ts` 登记 `locality: 'local-client'`，并通过现有适配器不变式测试 `npx vitest run src/shared/asr/tests/asrContractInvariants.test.ts`（退出码 0）；该测试不得为它新增豁免；未就绪时返回稳定错误码而不是抛异常。
-- [ ] S2：适配器源文件不 import 任何 Node 内置模块，`npm run typecheck` 在根配置与 `server/tsconfig.json` 两套配置下都通过。
-- [ ] S3：路由单测证明两条回退触发都生效（引擎不可用；单条片段实时因子超阈值但其余片段正常），且回退时发出一条可观察事件；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts` 退出码 0。
-- [ ] 全部新增 `src/` 代码满足 `frontend-module-standards`（`@/` 导入、type 而非 interface、barrel、单文件测试），`npx oxlint` 对新增与改动的文件退出码 0。
+- [x] S0：新增的纯前端模块单测通过，且对探针留下的 token 回归读数（片段 1 前 6 个 token 与 `t`）逐项相同；命令 `npx vitest run src/shared/tests/voiceClientFrontend.test.ts` 退出码 0。
+- [x] S1：缓存模块单测通过并至少覆盖五种情形：命中缓存时 `fetch` 调用次数为 0；下载被截断或哈希不符时 `cache.put` 调用次数为 0；缓存条目哈希不符时丢弃并重新下载；`caches` 不可用或 `put` 抛配额错误时识别仍可用且产生一条用户可见的降级提示；下载进度回调的已下载字节单调不减。命令 `npx vitest run src/modules/chat/utils/tests/voiceModelCache.test.ts` 退出码 0。
+- [x] S2：适配器按 `shared/asr/asrRegistry.ts` 登记 `locality: 'local-client'`，并通过现有适配器不变式测试 `npx vitest run src/shared/asr/tests/asrContractInvariants.test.ts`（退出码 0）；该测试不得为它新增豁免；未就绪时返回稳定错误码而不是抛异常。
+- [x] S2：适配器源文件不 import 任何 Node 内置模块，`npm run typecheck` 在根配置与 `server/tsconfig.json` 两套配置下都通过。
+- [x] S3：路由单测证明两条回退触发都生效（引擎不可用；单条片段实时因子超阈值但其余片段正常），且回退时发出一条可观察事件；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts` 退出码 0。
+- [x] 全部新增 `src/` 代码满足 `frontend-module-standards`（`@/` 导入、type 而非 interface、barrel、单文件测试），`npx oxlint` 对新增与改动的文件退出码 0。
 - [ ] 真机：在手机上首次下载时进度条可见，关闭并重新打开页面后 `fetch` 模型的请求数为 0，且识别结果的高置信 token 与服务端一致率不低于 95%，读数只能由人 yale 在真机上取得并写进 `docs/experiments/2026-10-06-voice-client-asr-probe.md` 的 §10，执行者不得代写（待外部）
 
 ## DoD
