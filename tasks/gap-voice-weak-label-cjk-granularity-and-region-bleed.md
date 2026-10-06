@@ -1,7 +1,7 @@
 ---
 id: gap-voice-weak-label-cjk-granularity-and-region-bleed
 title: 弱标注对齐粒度：汉字按字切词、段区间不吞掉段外文字、对发送前的任意编辑保持稳健（一句汉字不再整句算一个 replace）
-status: todo
+status: ready
 labels:
   - gap
   - defect
