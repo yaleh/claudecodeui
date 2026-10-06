@@ -1,7 +1,7 @@
 ---
 id: AC-286
 title: 权限不足的返回说清楚缺哪个 scope 以及怎么补，通用检查与处理函数内的检查形状完全一致
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-024
 criterion: for f in
@@ -27,6 +27,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-06T17:04:59.092Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"
