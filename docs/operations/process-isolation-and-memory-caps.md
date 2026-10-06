@@ -211,6 +211,24 @@ check never touches :3001): `QUAY_SERVER_UNIT`, `QUAY_SERVER_CMD`, `QUAY_SERVER_
 Run it from a tmux pane, **not** from a session the server hosts: sessions are the server's child
 processes, so `stop`/`restart` stops the caller's own cgroup.
 
+### Before restarting the shared server
+
+A graceful stop or restart ends **every** session this server hosts (see `### Resident scopes` below
+for why), and nothing comes back afterwards except what a client re-`--resume`s. Three checks before
+you restart:
+
+- **Count what you are about to stop.** `systemctl --user list-units 'claudecodeui-session-*'` lists
+  every live session scope; that count is how many sessions the restart will end. A number you cannot
+  explain is a reason to look before stopping, not after.
+- **Batch the deploy.** Fold the changes of one deployment into a single restart instead of
+  restarting once per small fix — on 2026-10-06 a single session restarted the server four times, and
+  each restart ended every session on the host.
+- **Never restart from a session the server hosts.** `stop`/`restart` stops the caller's own scope
+  too, so the request would kill the very command that issued it. Use
+  `scripts/restart-server-detached.sh` (also recommended in the `serve-scoped.sh` section above): it
+  runs as its own transient unit, writes a VERDICT to `~/.ccui-restart/restart-unit.log`, and checks
+  that the new server's PATH carries no plugin bin dirs.
+
 ### Resident scopes: `claude-session-scope.service.ts`
 
 A resident session is not one process. It is the provider CLI plus the MCP servers it starts (pdf,
@@ -278,10 +296,16 @@ what confines the kill — and also means nothing collects it when the server go
 - `server/index.ts` sweeps *orphaned* scopes at start-up: a scope whose encoded owner PID is gone.
   The shutdown path cannot run when the server is `SIGKILL`ed or reaped, so this is what reaps
   those sessions — on the **next** start, not immediately.
-- **A server restart no longer kills the sessions it hosts.** Before the scopes, `stop`/`restart`
-  tore down the cgroup and every session in it died with the server. Now a `SIGKILL`ed server's
-  sessions keep running until the sweep runs. Treat an unexpected restart as "my sessions may still
-  be alive" and check `systemctl --user list-units 'claudecodeui-session-*'`.
+- **A graceful stop or restart ends every session this server hosts.** `server/index.ts` installs
+  `SIGTERM` and `SIGINT` handlers, and both call `shutdownRuntimeServices`, which stops every
+  `claudecodeui-session-*` scope whose encoded owner PID is this server's. So `systemctl --user
+  restart`, `serve-scoped.sh restart`, and `scripts/restart-server-detached.sh` all take **every**
+  hosted session with them, at roughly one scope per second — measured on 2026-10-06, when five
+  restarts between 08:30 and 10:21 each stopped 2–8 scopes (the largest, eight scopes, took about five
+  seconds). The one case that leaves a session running is a server with no chance to run its
+  handler: it is collected by the next start's orphan sweep, not the shutdown path — so a `SIGKILL`ed
+  server's sessions still die shortly after the kill. "My sessions are still alive" is therefore
+  never a safe assumption to act on.
 - A scope that died on its own (cap kill, abort, crash) stays listed as `failed` until it is
   explicitly reset — `systemctl stop` alone does not clear it. Both stop and sweep therefore
   `reset-failed` as well, or a server that loses sessions to its cap would pile up dead units
