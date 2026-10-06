@@ -10,12 +10,14 @@
  *
  * WHAT IS STORED. One record per successful transcription: a JSON document naming the provider and
  * the recognised text (with the recogniser's per-token facts when it produced them) plus the
- * segment audio that produced them. A record is exactly `{ recordId, ts, providerId, buildId?,
- * segments }`, where each segment is `{ index, audioFile, text, tokens? }`. Three keys are RESERVED
- * for later tasks and deliberately never written here — `finalText`, `labels` and `flagStats`, which
- * the correction-feedback track fills. Nothing this module writes is a credential: the audio and
- * the text are the user's own, and the settings document — keys, tokens, request headers — is never
- * a field of a record.
+ * segment audio that produced them. A record is `{ recordId, ts, providerId, buildId?, segments,
+ * finalText?, labels? }`, where each segment is `{ index, audioFile, text, tokens? }`. The first
+ * write produces the leading keys and no more; `finalText`/`labels` arrive later, from `label`, when
+ * the user sends an edited transcript — see `VoiceDataRecord` for why they are absent rather than
+ * empty on a listen that was never corrected. `flagStats` is still RESERVED for the confidence-flag
+ * shadow and written by no path here. Nothing this module writes is a credential: the audio and the
+ * text are the user's own, and the settings document — keys, tokens, request headers — is never a
+ * field of a record.
  *
  * NOTHING HERE LEAVES THE PROCESS. The only imports are node builtins (`fs`, `path`, `os`,
  * `crypto`); a record is built from what the caller already holds. That is the "stays on this
@@ -44,7 +46,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
-import type { VoiceSettings } from '@/shared/types.js';
+import type { VoiceDataEditLabel, VoiceSettings } from '@/shared/types.js';
 
 import type { AsrToken } from '../../../shared/asr/asrRegistry.js';
 
@@ -107,9 +109,13 @@ export type VoiceDataSegment = {
 /**
  * One transcription, as it is stored.
  *
- * The three trailing keys are RESERVED and never written by this task: the correction-feedback
- * track fills `finalText`/`labels` and the confidence-flag shadow fills `flagStats`. They are named
- * here so a reader of a written record — and the later writer — has one shape to agree on.
+ * THE FIRST THREE KEYS ARE WRITTEN AT TRANSCRIPTION TIME and the two after them are not: `finalText`
+ * and `labels` are the correction loop's, filled by `label` when the user sends an edited transcript,
+ * and they are the reason a record is worth keeping at all — they are the `听到 → 想说` pair the
+ * recogniser's mistake and the user's repair together produced. They stay absent until that send,
+ * which is what makes "this transcription was never corrected" readable off the record rather than
+ * inferred from an empty string. `flagStats` is still reserved for the confidence-flag shadow and is
+ * written by neither path here.
  */
 export type VoiceDataRecord = {
   recordId: string;
@@ -118,10 +124,10 @@ export type VoiceDataRecord = {
   providerId: string;
   buildId?: string;
   segments: VoiceDataSegment[];
-  /** Reserved for the correction loop; not written by this task. */
+  /** The text the user actually sent, when it differs from what was recognised. Filled by `label`. */
   finalText?: string;
-  /** Reserved for the correction loop; not written by this task. */
-  labels?: unknown;
+  /** The `heard → final` pairs `labelsFor` derived at send time. Filled by `label`. */
+  labels?: VoiceDataEditLabel[];
   /** Reserved for the confidence-flag shadow stats; not written by this task. */
   flagStats?: unknown;
 };
@@ -148,6 +154,23 @@ export type VoiceDataRecordInput = {
 /** Where a stored record landed: the id the caller returns and the audio file beside it. */
 export type VoiceDataRecordResult = { recordId: string; audioFile: string };
 
+/**
+ * What the correction loop hands the store: the text the user sent and the pairs derived from the
+ * edit that produced it, addressed to the record one transcription already wrote.
+ *
+ * `finalText` and `labels` are stored VERBATIM rather than interpreted. Whether a pair is a
+ * correction or a rewrite is `labelsFor`'s judgement, made on the client where the segment text and
+ * the box are both in hand; the store's job is to keep what it is given beside the audio it belongs
+ * to. A store that re-derived the labels could disagree with the client that showed the user what
+ * was kept.
+ */
+export type VoiceDataLabelInput = {
+  /** The id a previous `record` returned. An id no record carries is refused, not created. */
+  recordId: string;
+  finalText: string;
+  labels: VoiceDataEditLabel[];
+};
+
 /** The answer to a clear: how many record documents were removed. */
 export type VoiceDataClearResult = { deleted: number };
 
@@ -161,6 +184,16 @@ export type VoiceDataClearResult = { deleted: number };
  */
 export type VoiceDataStore = {
   record(input: VoiceDataRecordInput): VoiceDataRecordResult | null;
+  /**
+   * Writes the sent text and its labels onto an EXISTING record, answering whether it found one.
+   *
+   * A `false` is the "no such recording" answer rather than an error, and it is the store's to give
+   * because the store is the only thing that knows: the record may have been evicted by the capacity
+   * ceiling, or cleared by the user, between the transcription and the send. Creating a record here
+   * instead would be the wrong repair — audio-less records would accumulate for edits the user made
+   * to a listen whose audio is already gone.
+   */
+  label(input: VoiceDataLabelInput): boolean;
   clear(): VoiceDataClearResult;
   directory(): string;
 };
@@ -395,6 +428,55 @@ function recordToStore(directory: string, input: VoiceDataRecordInput): VoiceDat
 }
 
 /**
+ * Writes the sent text and its labels onto an existing record; `false` when there is no such record.
+ *
+ * A READ-MODIFY-WRITE OF THE ONE DOCUMENT, and deliberately nothing more: the audio beside it is
+ * untouched (it is what the labels are ABOUT), the record's `ts` is not refreshed (it is the
+ * eviction order's key, and a correction does not make the recording new — an edit to an old listen
+ * must not push it in front of recordings the user made since), and the record's other keys are
+ * carried through by the spread rather than rebuilt, so a key a later task adds survives a label
+ * write without this function having to know about it.
+ *
+ * THE PATH IS BUILT FROM THE ID rather than searched for, which is why a wrong id is a `false` and
+ * not a match against some other record's file: `pathSafeStem` reduces the id to one safe file-name
+ * component, so an id carrying `/` or `..` addresses a file that cannot exist rather than one
+ * outside the directory. The record's own `recordId` is compared as well, which is what makes a stem
+ * collision — two ids that sanitise to one name — a miss instead of a write to the wrong record.
+ *
+ * The mode is re-applied after the write for the same reason the original write applies it: a
+ * rewrite is a create of a new inode under this process's umask, and the 0600 promise has to hold
+ * for the document the labels land in.
+ */
+function labelRecord(directory: string, input: VoiceDataLabelInput): boolean {
+  const recordPath = path.join(directory, `${pathSafeStem(input.recordId)}${RECORD_EXTENSION}`);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(recordPath, 'utf8'));
+  } catch {
+    // Absent, unreadable or not JSON: in every case there is no record here to label, which is the
+    // `false` the caller turns into a 404. An eviction and a bad id are the same answer to a client.
+    return false;
+  }
+  if (parsed === null || typeof parsed !== 'object') {
+    return false;
+  }
+  const record = parsed as VoiceDataRecord;
+  if (record.recordId !== input.recordId) {
+    return false;
+  }
+
+  const labelled: VoiceDataRecord = {
+    ...record,
+    finalText: input.finalText,
+    labels: input.labels,
+  };
+  writeFileSync(recordPath, JSON.stringify(labelled), { mode: VOICE_DATA_FILE_MODE });
+  chmodSync(recordPath, VOICE_DATA_FILE_MODE);
+  return true;
+}
+
+/**
  * Removes every file this store owns, and answers how many RECORDS were among them.
  *
  * A missing directory answers `0` rather than failing: "there is nothing here to clear" is the
@@ -439,6 +521,7 @@ export type VoiceDataStoreOptions = {
 export function createVoiceDataStore(options: VoiceDataStoreOptions): VoiceDataStore {
   return {
     record: (input) => recordToStore(options.directory, input),
+    label: (input) => labelRecord(options.directory, input),
     clear: () => clearStore(options.directory),
     directory: () => options.directory,
   };

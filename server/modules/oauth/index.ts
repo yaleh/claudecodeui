@@ -123,3 +123,7 @@ export { createOAuthSettingsRouter } from '@/modules/oauth/oauth-settings.routes
 // verification seam) and this module's end-to-end oauth-flow criterion.
 export { mountOAuthServer } from '@/modules/oauth/oauth-server.mount.js';
 export type { MountOAuthServerDeps, OAuthServerMountReading } from '@/modules/oauth/oauth-server.mount.js';
+
+// createOAuthRequestLogger: used by the server entrypoint, which mounts it ahead of the
+// OAuth and MCP routers so every request to them leaves one secret-free log line.
+export { createOAuthRequestLogger } from '@/modules/oauth/oauth-request-log.service.js';

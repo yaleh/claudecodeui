@@ -77,6 +77,17 @@ const VOICE_CAPTURE_FAILED_LINE = 'voice.capture failed';
  */
 const VOICE_DATA_FAILED_LINE = 'voice.data failed';
 
+/**
+ * The ONE message a label write-back owes a client whose recording is no longer there.
+ *
+ * A single literal for the two ways the record can be missing — an id the store holds nothing for,
+ * and a deployment with no store at all — because they are one sentence from the caller's side: the
+ * listen this correction belongs to cannot be found. Keeping them one string is what stops a client
+ * having to branch on a difference it cannot act on, and it names no id and no path (the same rule
+ * `VOICE_DATA_FAILED_LINE` follows).
+ */
+const LABEL_MISSING_RECORD = 'No such recording.';
+
 type VoiceServiceDependencies = {
   defaults: {
     baseUrl: string;
@@ -1448,6 +1459,29 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
     // never recorded gets. The count is whatever the store removed; this path never invents one.
     clearVoiceData() {
       return dependencies.voiceData?.clear() ?? { deleted: 0 };
+    },
+
+    // THE OTHER HALF OF THE SAME PORT, and the one that makes a record worth keeping: the text the
+    // user sent and the pairs their edit produced, written back onto the listen they came from.
+    //
+    // A MISS IS A REFUSAL, NOT A THROW. The store answers `false` for an id it holds no record for,
+    // and that becomes the `404` the client is owed — the record may have been evicted by the
+    // capacity ceiling or removed by the user since the transcription, and neither is a failure of
+    // this request. A store that THROWS is the bug path the transcribe route already guards, and it
+    // is answered the same way here: a `500` rather than a rejected handler.
+    labelVoiceData(input) {
+      const store = dependencies.voiceData;
+      if (store === undefined) {
+        return { ok: false, status: 404, error: LABEL_MISSING_RECORD };
+      }
+
+      try {
+        return store.label(input)
+          ? { ok: true, value: { recordId: input.recordId } }
+          : { ok: false, status: 404, error: LABEL_MISSING_RECORD };
+      } catch {
+        return { ok: false, status: 500, error: 'Writing the correction labels failed.' };
+      }
     },
 
     async synthesizeSpeech(input) {

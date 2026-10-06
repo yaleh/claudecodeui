@@ -8,6 +8,7 @@ import type { ActivitySnapshotFrame } from '@/shared/types';
 import { IS_PLATFORM } from '@/shared/utils';
 import type { VoiceConfig } from '@/shared/voiceConfig';
 import { readVoiceConfig, voiceConfigHeaders, whenVoiceConfigReady } from '@/shared/voiceConfig';
+import type { VoiceEditLabel } from '@/shared/voiceEditLabels';
 // The direct path's request construction lives in the repository-root shared tree, the same
 // module the server and the CLI compile — see shared/asr/transcriptionWire.ts.
 import {
@@ -701,6 +702,17 @@ export const api = {
     // DELETE rather than a settings write, because what it removes is not a setting — it is every
     // record the store holds — and the response's `deleted` count is how many there were.
     clearData: () => del('/api/voice/data'),
+    // THE CORRECTION GOES BACK. A transcription answers with a `recordId`; when the user then edits
+    // the box and sends, this writes the text they sent and the `heard → final` pairs their edit
+    // produced onto that same record. Its own `PATCH` of the resource `clearData` removes, because
+    // the audio half of the record is not being replaced — only the two keys the correction owns.
+    //
+    // A `404` is a NORMAL answer here (the ceiling may have evicted the record, or the user may have
+    // cleared it, since the listen), so the caller is expected to let it go rather than surface it:
+    // the correction was not kept, and the message the user asked to send was sent regardless. See
+    // `writeSentLabels` in `useVoiceInput`.
+    writeLabels: (recordId: string, body: { finalText: string; labels: VoiceEditLabel[] }) =>
+      patch(`/api/voice/data/${encodeURIComponent(recordId)}`, body),
     tts: (text: string, options: ApiRequestOptions = {}) => post('/api/voice/tts', { text }, options),
     // The user's own backend settings, stored per user so they follow the
     // account rather than the browser profile they were typed in.

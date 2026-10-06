@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import express from 'express';
 
 import type {
+  VoiceDataEditLabel,
   VoiceLexiconService,
   VoiceRequestOverrides,
   VoiceService,
@@ -161,11 +162,63 @@ const UPLOAD_TOO_LARGE = 'LIMIT_FILE_SIZE';
  */
 const MALFORMED_UPLOAD_CODE = 'UNSUPPORTED_MIME';
 
+/**
+ * The message this route owes when the service cannot write the labels at all.
+ *
+ * ONLY THE FALLBACK USES IT — the shipping service answers its own miss, in the same words, from
+ * `LABEL_MISSING_RECORD`. The two are one string because they are one sentence to a client ("the
+ * recording this correction belongs to is not here"), and they are two constants because a route
+ * that imported the service's private literal would be reading past the service's own interface to
+ * say something it is entitled to say itself.
+ */
+const MISSING_RECORD_MESSAGE = 'No such recording.';
+
 function readUploadFailure(error: unknown): { status: number; code: string } {
   const code = (error as { code?: unknown } | null)?.code;
   return code === UPLOAD_TOO_LARGE
     ? { status: 413, code: 'OVERSIZE' }
     : { status: 400, code: MALFORMED_UPLOAD_CODE };
+}
+
+/**
+ * The body of a label write-back, parsed into the service's input — or `null` for a body that is not
+ * one.
+ *
+ * EVERY FIELD IS CHECKED, INCLUDING THE ONES INSIDE THE ARRAY, because this is the one request in
+ * the module whose body lands on disk verbatim: `labels` is persisted as given, so a shape that got
+ * through here would be a shape a later reader has to defend against. The check is structural only —
+ * `op` is a string, not a member of a union — since which ops exist is the producing module's
+ * vocabulary and a route that restated it would be a second authority on it.
+ *
+ * An empty array is a legal body: it is what a send with no corrections produces, and writing it
+ * back is how the record comes to say "this listen was sent, and nothing about it changed".
+ */
+function readLabelWrite(body: unknown): { finalText: string; labels: VoiceDataEditLabel[] } | null {
+  if (body === null || typeof body !== 'object') {
+    return null;
+  }
+  const { finalText, labels } = body as { finalText?: unknown; labels?: unknown };
+  if (typeof finalText !== 'string' || !Array.isArray(labels)) {
+    return null;
+  }
+
+  const parsed: VoiceDataEditLabel[] = [];
+  for (const entry of labels) {
+    if (entry === null || typeof entry !== 'object') {
+      return null;
+    }
+    const { segmentIndex, heard, final, op } = entry as Record<string, unknown>;
+    if (
+      typeof segmentIndex !== 'number'
+      || typeof heard !== 'string'
+      || typeof final !== 'string'
+      || typeof op !== 'string'
+    ) {
+      return null;
+    }
+    parsed.push({ segmentIndex, heard, final, op });
+  }
+  return { finalText, labels: parsed };
 }
 
 /**
@@ -337,6 +390,41 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
   // store yet answers `0` at `200`, which is the "nothing to clear is a clear that succeeded" case.
   router.delete('/data', (_request, response) => {
     response.json(dependencies.voiceService.clearVoiceData?.() ?? { deleted: 0 });
+  });
+
+  // THE CORRECTION COMES BACK HERE. A transcription answers with a `recordId`; the user then edits
+  // the box and sends, and this is where the text they actually sent and the `听到 → 想说` pairs
+  // their edit produced are written onto that same record. A `PATCH` because it amends the resource
+  // the `DELETE` above removes, and because the audio half of the record is not being replaced.
+  //
+  // A `404` IS A NORMAL ANSWER, not a failure to route: the record may have been evicted by the
+  // capacity ceiling or cleared by the user between the listen and the send. The service owns that
+  // decision — the route only parses, calls and responds — and a deployment with no store wired
+  // reads the same way, because it has no records to amend either.
+  //
+  // THE ROUTE'S FALLBACK IS THE SAME `404`, for the case the service does not implement the optional
+  // member at all: a double in a leaf test, or a deployment whose service predates it. It is written
+  // as a result rather than a second response so both paths go through `sendFailure`.
+  router.patch('/data/:recordId', (request, response) => {
+    const parsed = readLabelWrite(request.body);
+    if (parsed === null) {
+      // NO `code` BESIDE IT, unlike the upload refusals: the vocabulary is the recogniser seam's and
+      // every member of it is about an audio attempt, so none of them means "this JSON body is not a
+      // label write". Borrowing the upload refusals' word here would give a client a remedy for the
+      // wrong problem. `/tts` answers its own malformed body the same way, for the same reason.
+      response.status(400).json({ error: 'finalText and labels required' });
+      return;
+    }
+
+    const result = dependencies.voiceService.labelVoiceData?.({
+      recordId: request.params.recordId,
+      ...parsed,
+    }) ?? { ok: false as const, status: 404, error: MISSING_RECORD_MESSAGE };
+    if (sendFailure(response, result)) {
+      return;
+    }
+
+    response.json(result.value);
   });
 
   router.post('/tts', asyncHandler(async (request, response) => {

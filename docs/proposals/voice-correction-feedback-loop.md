@@ -175,22 +175,122 @@ L1 排在 L2 前面：用户确认过的比启发式可信。L1 与 L2 冲突（
 
 目标：把「发现错词 → 改对 → 以后不再错」压到**一次点按**。
 
-1. **被动标记**：L2a 静默修复过的 token 浅色下划线（点开可「还原」，还原就是一条反馈：这次自动修复错了）；**L2c 标出的音近窗口虚线下划线并带候选**（`key` ↔ `quay`，当前词与候选并列），点选即替换；标识符形但没有任何候选命中的 token 也虚线下划线（「可能听错」）。其余文字不加标记。试点里陷阱句平均每句 0.86 个下划线，偏高，要靠用户词典里的反例（用户把 `quay` 改回 `key`）压下去。
-2. **点词弹层**（移动端为底部抽屉）：
-   - 候选 3–5 个（来源标签 + 编辑距离最近优先），点一个即替换；
-   - 自由编辑框（预填当前词）；
-   - **▶ 听这一段**：回放该词所在段的原音，复用现有 `VoiceClipButton` 的轨道（用户常常想不起当时说的是哪个词）；整段回放按钮之后是**「整理」按钮**（书面化改写，D3，§5.9）；
-   - 「记住」开关：默认对标识符形的改动打开；范围选「本项目 / 所有项目」，默认本项目。
-3. **同串回改**：提交一条纠正时，同一份草稿里规范化后相同的 `heard` 全部改掉，顶部一条可撤销的提示（「已改 3 处 cloud cli → CloudCLI　撤销」）。
-4. **发送后学习（零额外操作）**：用户不点弹层、直接在 textarea 手改也算数。发送时把「语音来源区间」的文本与提交时对应区间做 token 级对齐，产生纠正候选；**只自动入库满足下列全部条件的**：
-   - 只涉及 1–3 个相邻 token；
-   - 改后是标识符形，或出现在 5.2 的任一词源里；
-   - 改动幅度是「纠错」而不是「重写」（长度比、公共字符比有界）。
+> 交互形态参考了一份外部的 `VoicePromptEditor` 示例（Lexical 实现的识别后编辑器，2026-10-06 评审）。**借用它的交互约定与 span 数据模型，不借用它的实现**，边界见本节末「借用与重写」，参考代码见 §10。
 
-   不满足的进「待确认」，在设置页的词典管理里一键采纳或忽略；不弹窗打断发送。入库后以不抢焦点的提示告知（「学到 2 条　撤销」）。
-5. **词典管理页**（设置 → 语音）：按项目 / 全局分组；列出 `heard → meant`、命中次数、最近使用；可删、可改范围、可导入项目索引里最常用的名字。
+#### 5.3.1 标记：三档，不只靠颜色
 
-不做：要求用户在发送前必须过一遍纠正面板；强制弹窗；自动把整句交给模型重写。
+标记作用在输入框里的**语音来源文字**上；其余文字不加标记。三档在形状上可区分（不依赖颜色），并带可读的无障碍名称：
+
+| 档 | 含义 | 样式 | 点开后 |
+|---|---|---|---|
+| `fixed` | L2a / L1 静默修复过的 token | 淡实线下划线 | 「还原」——还原就是一条反馈：这次自动修复错了 |
+| `suggest` | L2c 音近 / 低置信窗口，**有候选** | 虚线下划线 | 候选并列（当前词也在其中），点选即替换 |
+| `unknown` | 标识符形、含拉丁字母 / 数字，但**没有任何候选命中**（「可能听错」） | 点线下划线 | 只有自由编辑 + 保留 + 听原音 |
+
+- **数量上限**：按「有害概率」（置信度、候选来源强度、是否标识符形）排序，输入框内默认最多标 3 处，其余折进底栏的「还有 N 处」。试点里陷阱句平均每句 0.86 个下划线，偏高，要靠用户词典里的反例（用户把 `quay` 改回 `key`）压下去；上限只是兜底。
+- **标记的理由由机械生成**，不让模型写：`词典：quay` / `会话里刚出现 SendMessage` / `低置信` / `项目分支名`，直接取自候选的来源标签（§5.2）。**不向用户显示原始置信度数值**（没有校准，§5.7 第 5 点），也不用它决定下划线强弱；下划线档位与「是否替换」是两个独立开关。
+- **置信度高 ≠ 没有歧义**：同音词和项目名即使识别置信度高也可能需要确认，所以 `suggest` 的判据是「候选与音近」，不是「置信度低」。
+
+#### 5.3.2 词级浮层（点词弹出，锚定在词旁）
+
+不是常驻面板，不增加输入框高度；Esc / 点外部 / 换词关闭；非模态（不抢走输入框焦点之外的东西）。内容自上而下：
+
+1. **当前词 + 理由**（一行）。
+2. **候选 3–5 个**：来源标签 + 编辑距离 / 声学得分最近优先，排序「词典 > 会话 > 项目」；第一项标「建议」。**当前（原始）词始终作为一个候选出现**，选它 = 「保留原词」。
+3. **自由编辑框**（预填当前词）+「替换」。
+4. **▶ 听这一段**：词级回放（§5.3.5），复用 `VoiceClipButton` 的轨道与播放器，**不新建播放器**。
+5. **「保留原词」是一等操作，不是「关闭」**：它产生一条显式事件（`op: 'keep'`），是同音陷阱的**反例**，写入词典条目的 `reverts`（§5.4）。
+
+浮层里**不放**「记住」「范围」「整理」：
+
+- 「记住（本项目 ▾）」放在选完之后的提示里（§5.3.3）。
+- **「整理」是整份草稿的操作，不属于单个词**，放在底栏（§5.3.4）。（旧稿把它列在点词弹层里，已更正。）
+
+#### 5.3.3 选定之后：同串回改与「记住」
+
+- 提交一条纠正时，同一份草稿里规范化后相同的 `heard` 全部改掉；**与编辑器历史合并成一步**，所以一次「撤销」回到纠正前。
+- 一条不抢焦点的提示（输入框下方，几秒后淡出）：「已改 3 处 `cloud cli → CloudCLI`　撤销　·　记住（本项目 ▾）」。「记住」默认对标识符形的改动打开；范围默认本项目，可升到全局。
+- 弹层不再为这些加控件，保持紧凑。
+
+#### 5.3.4 底栏（语音来源文字存在时）
+
+```
+[▶ 整段回放] [整理]                 2 处待检查 · 点词修改      [发送 ↵]
+```
+
+- `▶ 整段回放` 即现有 `VoiceClipButton`；**`整理` 紧跟其后**（D3）。
+- 「N 处待检查」是进入审阅的主入口：点击跳到下一处未处理的标记，等价于 Alt+Enter；**没有未处理标记时显示「没有待检查的词」且禁用**。有未确认标记时，`整理` 仍可点，tooltip 提示「还有 N 处可能听错」（不阻止，见 §5.9）。
+- 移动端：回放 / 整理收成图标，文字缩写；这一行不换行（沿用现有 composer 底栏的几何约束）。
+
+#### 5.3.5 词级回放
+
+- 来源：SenseVoice 的 token 时间 `t`（§5.9）聚合成 span 的 `startMs / endMs`；回放区间 = `[startMs − 200, endMs + 300]`，到点自动停；换词、关闭浮层、卸载都停止。
+- **没有时间戳时回退为整段回放，并在界面上标明「整段」**；没有音频时按钮禁用并写明「原音不可用」，**绝不合成或伪造原音**。
+- **时间线必须一致**：`VoiceClipButton` 有「原始 / 裁剪后」两轨，`startMs / endMs` 必须以所播放那一轨的时间线为准；不一致时回退整段，而不是播错位置。
+- 客户端路径（§5.10）同样提供 token 时间，帧粒度约 60 ms，满足上述 padding。
+
+#### 5.3.6 移动端：候选条，而不是浮层
+
+键盘弹出后，锚定在词旁的浮层会被挤出可视区，所以移动端改为：
+
+- 点词 → 该词高亮，**键盘上方出现一条横向候选条**（候选 chip、「保留」、「▶」、「✎ 编辑」），样式类似系统键盘的联想条，单手可点；
+- 词本身很小，**主入口是底栏的「N 处待检查」**（下一处），每个交互目标 ≥ 44 px；
+- 「✎ 编辑」才展开自由输入框，并把候选条换成确认行。
+
+#### 5.3.7 键盘与无障碍
+
+| 操作 | 键 |
+|---|---|
+| 跳到下一处 / 上一处未处理标记 | Alt+Enter / Alt+Shift+Enter |
+| 在浮层里选候选 | 数字键 1–5，或上下键 + Enter |
+| 关闭浮层、焦点回输入框 | Esc |
+| 保留原词 | 浮层内 K |
+
+- 浮层用**非模态** `role="dialog"`，带 `aria-label`（含当前词）；替换后用 `aria-live="polite"` 播报「已替换为 quay」。
+- 标记在无障碍树里要有名称（「可能听错：key，有 3 个候选」），不能只靠下划线样式。
+
+#### 5.3.8 两类学习信号（信任级别不同）
+
+| 通道 | 事件 | 信任 | 入库 |
+|---|---|---|---|
+| **显式操作**（浮层 / 候选条） | `candidate`、`custom`、`keep`、`revert-auto` | **强**：用户亲手确认 | 确认一次即可进词典（§5.4）；`keep` / `revert-auto` 记为反例 |
+| **直接打字**（textarea 手改） | 不产生显式事件，只有文本变化 | **弱**：发送时由 token 对齐推断 | 必须满足下面 §5.3.9 的全部条件，否则进「待确认」 |
+
+- 显式事件是 **append-only 的操作日志**，不是最终状态：撤销**不删除**已发生的事件（避免「撤销」把负样本也抹掉），但撤销会追加一条 `undo` 事件指向它。
+- 在一个**标记范围内**直接打字，视为用户已处理该标记（标记转为已确认、元数据脱离，不声称保留精确溯源）；**不对用户新打的字重新扫描歧义**。
+
+#### 5.3.9 发送后学习（零额外操作）
+
+用户不点浮层、直接在 textarea 手改也算数。发送时把「语音来源区间」的文本与提交时对应区间做 token 级对齐，产生纠正候选；**只自动入库满足下列全部条件的**：
+
+- 只涉及 1–3 个相邻 token；
+- 改后是标识符形，或出现在 §5.2 的任一词源里；
+- 改动幅度是「纠错」而不是「重写」（长度比、公共字符比有界）。
+
+不满足的进「待确认」，在设置页的词典管理里一键采纳或忽略；不弹窗打断发送。入库后以不抢焦点的提示告知（「学到 2 条　撤销」）。
+
+#### 5.3.10 发送：不拦截（待决 11）
+
+**不做模态拦截，也不做「仍按原文发送」确认**（沿用「不强制纠正」）。底栏的「N 处待检查」本身就是提示。示例里「有高风险词时拦截发送」的做法与本方案冲突，**默认不采纳**；是否在「高风险且候选来自词典 / 会话」时加一次性的软确认，见 §9 待决 11，需要用户定。
+
+#### 5.3.11 词典管理页（设置 → 语音）
+
+按项目 / 全局分组；列出 `heard → meant`、命中次数、反例次数、最近使用；可删、可改范围、可导入项目索引里最常用的名字。
+
+#### 5.3.12 借用与重写
+
+| 借用（可照搬） | 重写（按本仓库实现） |
+|---|---|
+| **span 数据模型**：UTF-16 偏移、end 不含、已排序且不重叠、可选 `confidence / startMs / endMs / candidates / reason`，加 `kind`（§5.3.1） | **渲染层**：不用 Lexical。composer 是原生 `<textarea>`，用「透明 textarea + 底层镜像层画下划线」（§10.3）；不替换为富文本编辑器（IME、`@` 提及、斜杠命令、粘贴 / 附件、移动端键盘都会受影响） |
+| **浮层定位算法**（优先放下方，放不下放上方，夹在容器内） | 组件拆分与模块落位（按 `frontend-module-standards`），文案走 i18n，不写死中文 |
+| **词级回放区间**（前 200 ms、后 300 ms、到点停） | 回放并入现有 `VoiceClipButton`，不新建播放器 |
+| **交互约定**：Esc、Alt+Enter、点外部关闭、保留原词、候选里含原词 | 词典、同串回改、「记住」、整理按钮、置信度来源：示例里**没有** |
+| **事件分类**（显式操作 append-only，打字只触发变化通知） | 事件进 `voiceDebug` 同一出口，并增加 `segmentId`、`candidateRank`、`candidateSource` |
+| **样例场景**（`key`/`quay`、`cloud cli`、`sand message`）作测试夹具 | 示例的发送拦截（§5.3.10）不采纳 |
+
+> 示例压缩包里没有 LICENSE，来源与许可证待确认；在确认前，**只借用设计与数据模型，参考代码（§10）是按本文重新写的，不含示例源码**。
+
+不做：要求用户在发送前必须过一遍纠正面板；强制弹窗；自动把整句交给模型重写；用富文本编辑器替换 `<textarea>`。
 
 ### 5.4 词典（存储与作用域）
 
@@ -402,8 +502,8 @@ Qwen3-ASR 1.7B、阈值 0.7（S = 只差空格 / 连字符 / 大小写，n = 26�
 |---|---|---|
 | **0 采集 + 冷启动 + 引擎** | **接入本地 SenseVoice 适配器**（打补丁的 sherpa-onnx；**先服务端路径**，输出 `{text, tokens[{tok, p, t}]}`；ASR 能力声明里新增「词级置信度 / 时间 / 运行位置 / 构建标识」）；**客户端（浏览器 / 手机）路径先做可行性探针（§5.10），探针通过后再接入同一个适配器接口**；**默认开启、只存本机（D1）**：记录每一次语音输入的 `{音频引用（原始 + 切段）, 识别文本与 token 置信度, 自动修复后, 最终发送文本}`——音频要带，因为声学别名和真实复核都需要它；**数据留在本机（客户端本地存储，或自托管服务端的用户目录），不进任何云端请求；设置里「清空语音数据」一键清除音频与文本记录**；复用现有 capture 旁路但不依赖服务端环境变量；不含 key。**事后纠正做弱标注**：发送时用户的手改（token 对齐）就是「听到什么 → 想说什么」的标签，不需要额外操作。**同时**：从历史会话导入「用户发过的标识符」做 U 词源冷启动；影子统计「本来会画几条下划线」「θ 不同时的标记数 / 100 字符」 | 累计 ≥ 100 条带标识符的段、其中 ≥ 30 条有事后纠正的标签；能算出「自动修复被还原率」「手改比例」「真实的错词形态清单」「置信度对真实错误的 AUROC」「声学别名在真实发音上的增益」 |
 | **1 U 词源 + 形态 / 口语规则** | **U（用户发过的词，自动入库）为主**，会话词其次，项目索引（task / goal / ADR 名、分支、脚本）作补充；**L2a 形态修复与口语模板（静默，可容忍类）**；`identifierRepair` 的护栏与阈值**不变** | 在阶段 0 数据 + 既有 `tc-verify` 语料上：标识符存活率 ≥ 现网，**误报为 0**（沿用 FINDINGS 的四重护栏判据）；候选集变大后的误报要单独测，因为候选越多假阳性越多 |
-| **2 纠正入口 + 词典 + 声学别名 + L2c 下划线** | 5.3 的 1–3 与 5.4；同串回改；词典管理页；**L2c：低置信（只标含拉丁字母 / 数字的段）+ 音近窗口 → 带候选的下划线（不静默替换）；候选 = 音近 ∪ CTC 打分（每窗口至多 200 个，近期优先），别名读法同时参与**；L1 精确替换保留但不依赖它 | 重复纠正率（词典启用后）< 阶段 0 基线的一半；自动修复被还原率 ≤ 目标；手机单手可完成一次纠正（e2e） |
-| **3 发送后学习** | 5.3 的 4：手改自动沉淀、待确认列表 | 自动入库的条目中被用户后续还原 / 删除的比例 ≤ 目标；没有「把重写学成纠错」的反例（由人工抽查 + 负对照判据） |
+| **2 纠正入口 + 词典 + 声学别名 + L2c 下划线** | §5.3.1–5.3.8 与 §5.4；同串回改；词典管理页；**L2c：低置信（只标含拉丁字母 / 数字的段）+ 音近窗口 → 带候选的下划线（不静默替换）；候选 = 音近 ∪ CTC 打分（每窗口至多 200 个，近期优先），别名读法同时参与**；L1 精确替换保留但不依赖它 | 重复纠正率（词典启用后）< 阶段 0 基线的一半；自动修复被还原率 ≤ 目标；手机单手可完成一次纠正（e2e） |
+| **3 发送后学习** | §5.3.9：手改自动沉淀、待确认列表 | 自动入库的条目中被用户后续还原 / 删除的比例 ≤ 目标；没有「把重写学成纠错」的反例（由人工抽查 + 负对照判据） |
 | **4 可选增强** | **改写拆出的显式触发**（按钮 / 语音命令，基于确认后的文本）；L3 小模型 + 词表护栏；口述纠正命令（「把 X 改成 Y」）；Omni 作为按需的云端「再听一遍」；真正的 g2p；中文转写体音近（`fan-in` →「翻译」这类汉字谐音，CTC 候选已部分覆盖） | 各自单独预注册；L3 沿用 S1-D 的 6 条规则并要求解析率 ≥ 95%；音近的阈值与权重要在阶段 0 的**真实**错词上重测（试点权重是先验设定，不是拟合值） |
 
 ---
@@ -412,7 +512,7 @@ Qwen3-ASR 1.7B、阈值 0.7（S = 只差空格 / 连字符 / 大小写，n = 26�
 
 - 不给 ASR 适配器加提示词 / 上下文通道（已测有副作用，且多数适配器不支持）。
 - 不做云端用户画像、不跨用户共享词典。
-- 不在发送前强制纠正；不默认弹窗。
+- 不在发送前强制纠正；不默认弹窗；不用富文本编辑器替换 composer 的 `<textarea>`（§5.3.12）。
 - 不引入自由改写式的整句润色（S1 的 C 臂已证会伤人）。
 - 不在本文规定表结构与路由命名；实现任务按后端 / 前端模块标准另行立项。
 
@@ -445,3 +545,191 @@ Qwen3-ASR 1.7B、阈值 0.7（S = 只差空格 / 连字符 / 大小写，n = 26�
 8. **新的待决**：客户端本地识别不可行 / 太慢时，是否允许自动回退到自托管服务端（音频发往用户自己的服务端，不出本机网络）？回退是静默还是提示？
 9. **新的待决**：改写用的文本模型：用户在设置里选云端模型（输入框文字会发出去），还是默认走本地小模型（质量未知）？
 10. **新的待决**：「清空语音数据」是否也清空由音频产生的声学别名（读法 token 序列）？建议只清音频与文本记录，别名属于词典、由词典管理页单独管理。
+11. **新的待决**：发送是否加一次性软确认？默认**不拦截**（§5.3.10）；备选是仅在「有未处理的 `suggest` 标记，且候选来自词典 / 会话」时，第一次点发送把按钮变成「仍发送」，不弹层、不抢焦点，并把「软确认后仍原样发送」的比例计入度量。需要用户定。
+12. **新的待决**：示例源码的来源与许可证（压缩包内无 LICENSE）；确认前只借用设计与数据模型（§5.3.12）。
+
+---
+
+## 10. 参考代码（不入库，供实现任务参考）
+
+按本文重新写的最小骨架，**不是示例源码的拷贝**；只演示纯逻辑与接线方式，落位、命名、i18n、样式按 `frontend-module-standards` 另行立项。纯函数部分应各自带单元测试（见 §10.7）。
+
+### 10.1 数据模型
+
+```ts
+export type SpanKind = 'fixed' | 'suggest' | 'unknown';
+
+export type VoiceCandidate = {
+  text: string;
+  source: 'dictionary' | 'session' | 'project' | 'asr-original';
+};
+
+export type VoiceSpan = {
+  id: string;
+  start: number;          // UTF-16 偏移，含
+  end: number;            // 不含；spans 已排序且互不重叠
+  kind: SpanKind;
+  reason: string;         // 由来源标签机械生成，不是模型文本
+  candidates: VoiceCandidate[]; // 当前（原始）词始终在其中
+  startMs?: number;       // 以所播放的那一轨的时间线为准
+  endMs?: number;
+  confidence?: number;    // 仅内部排序用，不展示
+};
+
+export type CorrectionEvent = {
+  spanId: string;
+  segmentId: string;
+  op: 'candidate' | 'custom' | 'keep' | 'revert-auto' | 'undo';
+  before: string;
+  after: string;
+  candidateRank?: number;
+  candidateSource?: VoiceCandidate['source'];
+  undoes?: number;        // op === 'undo' 时指向被撤销事件的序号
+};
+
+export function validateSpans(text: string, spans: VoiceSpan[]): void {
+  let offset = 0;
+  for (const s of spans) {
+    if (s.start < offset || s.end <= s.start || s.end > text.length) {
+      throw new Error(`invalid or overlapping span: ${s.id}`);
+    }
+    offset = s.end;
+  }
+}
+```
+
+### 10.2 手改后重映射 span（取代 Lexical 节点跟踪）
+
+用公共前缀 / 后缀找出改动区间：改动之前的 span 不变，之后的按长度差平移，**与改动区间相交的 span 视为已处理并脱离**（§5.3.8）。
+
+```ts
+export function remapSpans(oldText: string, newText: string, spans: VoiceSpan[]) {
+  const max = Math.min(oldText.length, newText.length);
+  let p = 0;
+  while (p < max && oldText[p] === newText[p]) p++;
+  let q = 0;
+  while (q < max - p && oldText[oldText.length - 1 - q] === newText[newText.length - 1 - q]) q++;
+  const oldEnd = oldText.length - q;
+  const delta = newText.length - oldText.length;
+  const kept: VoiceSpan[] = [];
+  const touched: string[] = [];
+  for (const s of spans) {
+    if (s.end <= p) kept.push(s);
+    else if (s.start >= oldEnd) kept.push({ ...s, start: s.start + delta, end: s.end + delta });
+    else touched.push(s.id);
+  }
+  return { spans: kept, touched };
+}
+```
+
+已知边界：前缀恰好落在代理对（emoji）中间时偏移会差一位，实现时要回退到码点边界。
+
+### 10.3 镜像层：在 `<textarea>` 上画下划线
+
+镜像 div 与 textarea 使用**相同的字体、padding、换行与宽度**，文字透明、只画下划线；textarea 在上层且背景透明；滚动位置同步。
+
+```tsx
+function segments(text: string, spans: VoiceSpan[]) {
+  const out: { text: string; span?: VoiceSpan }[] = [];
+  let at = 0;
+  for (const s of spans) {
+    if (s.start > at) out.push({ text: text.slice(at, s.start) });
+    out.push({ text: text.slice(s.start, s.end), span: s });
+    at = s.end;
+  }
+  if (at < text.length) out.push({ text: text.slice(at) });
+  return out;
+}
+
+export function UnderlineMirror({ text, spans, scrollTop }: {
+  text: string; spans: VoiceSpan[]; scrollTop: number;
+}) {
+  return (
+    <div className="voice-mirror" aria-hidden style={{ transform: `translateY(${-scrollTop}px)` }}>
+      {segments(text, spans).map((seg, i) =>
+        seg.span
+          ? <span key={i} data-span-id={seg.span.id} className={`voice-mark voice-mark-${seg.span.kind}`}>{seg.text}</span>
+          : <span key={i}>{seg.text}</span>)}
+      {'\n'}{/* 末尾换行，保证与 textarea 高度一致 */}
+    </div>
+  );
+}
+```
+
+命中测试不用鼠标坐标，而是用点击后的**光标偏移**，在 textarea 与镜像层之间零对齐误差：
+
+```ts
+export function spanAtOffset(spans: VoiceSpan[], offset: number) {
+  return spans.find(s => offset >= s.start && offset <= s.end);
+}
+// <textarea onClick={e => open(spanAtOffset(spans, e.currentTarget.selectionStart))} />
+```
+
+锚点矩形取 `mirrorRoot.querySelector('[data-span-id="…"]').getBoundingClientRect()`。屏幕阅读器看不到镜像层（`aria-hidden`），所以无障碍名称要走底栏的「N 处待检查」按钮与 `aria-live` 播报（§5.3.7）。
+
+### 10.4 浮层定位（纯函数）
+
+```ts
+type Box = { left: number; top: number; width: number; height: number };
+
+export function placePopover(anchor: Box, container: Box, panel: { width: number; height: number }) {
+  const gap = 9, pad = 8;
+  const below = anchor.top + anchor.height - container.top + gap;
+  const above = anchor.top - container.top - panel.height - gap;
+  const maxTop = container.height - panel.height - pad;
+  const top = Math.max(pad, Math.min(below <= maxTop ? below : above, maxTop));
+  const left = Math.max(pad, Math.min(anchor.left - container.left, container.width - panel.width - pad));
+  return { left, top };
+}
+```
+
+触发重算：浮层与容器的 `ResizeObserver`、窗口 `resize`、textarea 滚动。
+
+### 10.5 词级回放区间（纯函数，并入 `VoiceClipButton`）
+
+```ts
+export function clipRange(span: Pick<VoiceSpan, 'startMs' | 'endMs'>, trackDurationMs: number) {
+  if (span.startMs === undefined || span.endMs === undefined) {
+    return { startMs: 0, endMs: trackDurationMs, scope: 'whole' as const };
+  }
+  return {
+    startMs: Math.max(0, span.startMs - 200),
+    endMs: Math.min(trackDurationMs, span.endMs + 300),
+    scope: 'span' as const,
+  };
+}
+// 播放：player.currentTime = startMs / 1000；在 timeupdate 里 currentTime >= endMs / 1000 时 pause()
+```
+
+`scope: 'whole'` 时界面标明「整段」；时间线与所播轨不一致时也走这条回退（§5.3.5）。
+
+### 10.6 选定之后：同串回改与一步撤销
+
+```ts
+export function applyCorrection(text: string, spans: VoiceSpan[], spanId: string, after: string) {
+  const target = spans.find(s => s.id === spanId);
+  if (!target) return { text, spans, changed: 0 };
+  const key = (v: string) => v.trim().toLowerCase();
+  const heard = key(text.slice(target.start, target.end));
+  // 从右往左替换，避免前面的替换改变后面的偏移
+  const hits = spans.filter(s => key(text.slice(s.start, s.end)) === heard).sort((a, b) => b.start - a.start);
+  let next = text;
+  for (const s of hits) next = next.slice(0, s.start) + after + next.slice(s.end);
+  return { text: next, changed: hits.length /* 重算 spans：先全部 remap，再标记已处理 */ };
+}
+```
+
+整个 `applyCorrection` 作为**一次**对输入框状态的写入（只推一个历史点），这样「撤销」一次回到纠正前（§5.3.3）。注意：key 比较要保留 CJK 字符（§5.8 第 4 点：丢掉中文的归一化会让 `AC 零零二` 与 `AC 零零五` 撞键）。
+
+### 10.7 建议的测试
+
+| 对象 | 用例 |
+|---|---|
+| `validateSpans` | 重叠、越界、空 span 抛错；合法通过 |
+| `remapSpans` | 改动在 span 前 / 后 / 内 / 跨两个 span；纯插入在 span 边界；删除整段 |
+| `spanAtOffset` | 边界两侧偏移；无命中返回 `undefined` |
+| `placePopover` | 下方放得下 / 放不下转上方 / 夹在左右边界 |
+| `clipRange` | 有 / 无时间戳；起点被夹到 0、终点被夹到轨长 |
+| `applyCorrection` | 同串多处一次改完；含 CJK 的同形不同串不撞键；一次撤销回到原文 |
+| 组件（e2e，沿用 §6 阶段 2） | 点标记 → 选候选 → 同串回改 → 一次撤销；「保留原词」产生 `keep` 事件；手机视口下候选条单手可完成；键盘仅用 Alt+Enter / 数字键 / Esc 完成一次纠正 |
+| 样例夹具 | `Create a key task.`（`key`→`quay`，保留原词为反例）、`检查 cloud cli …`、`检查 sand message …` |

@@ -25,6 +25,7 @@ import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { createFakeVoiceCapture } from '@/modules/chat/tests/voiceCaptureTestHarness';
 
 import type * as SharedApi from '@/shared/api';
+import type * as SharedVoiceConfig from '@/shared/voiceConfig';
 
 const { transcribeVoice, captureRawVoice } = vi.hoisted(() => ({
   transcribeVoice: vi.fn(),
@@ -49,10 +50,22 @@ vi.mock('@/shared/api', async (importOriginal) => {
 
 // The switch is the deployment's; the hook only reads it. Doubled so a case decides what it says,
 // and so nothing here performs the once-per-token fetch (`hydrateVoiceRawCapture`).
-vi.mock('@/shared/voiceConfig', () => ({
-  isVoiceRawCaptureEnabled: () => deployment.rawCapture,
-  hydrateVoiceRawCapture: async () => undefined,
-}));
+//
+// THE REST OF THE MODULE STAYS REAL, and it has to: the hook reads the USER's recording switch
+// (`readVoiceConfig`) on the very transcription path these cases drive, to decide whether to look
+// for the record id the recogniser's answer carries. A double that returned only the two exports
+// above would erase that accessor, and the listen would fail for a reason that has nothing to do
+// with the raw corpus — which is exactly what happened when the lookup was added. The real one
+// answers the shipped default (recording on), so a case here reads the same settings a fresh user
+// has rather than a second copy of the defaults.
+vi.mock('@/shared/voiceConfig', async (importOriginal) => {
+  const actual = await importOriginal<typeof SharedVoiceConfig>();
+  return {
+    ...actual,
+    isVoiceRawCaptureEnabled: () => deployment.rawCapture,
+    hydrateVoiceRawCapture: async () => undefined,
+  };
+});
 
 // A plain install: no debug reading, VAD on, the shipped caps.
 vi.mock('@/shared/voiceDebug', () => ({

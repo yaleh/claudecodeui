@@ -426,6 +426,7 @@ export default function ChatComposer({
     clipSlot,
     clipPlayState,
     toggleClipPlayback,
+    writeSentLabels,
   } = useVoiceInput(
     onVoiceTranscript ?? noopTranscript,
     handleVoiceError,
@@ -481,8 +482,14 @@ export default function ChatComposer({
   // passes its position to the send path directly, so the composer neither records nor forwards it.
   const handleComposerSubmit = useCallback((event: Parameters<typeof onSubmit>[0]) => {
     event.preventDefault();
+    // THE WEAK LABEL IS TAKEN HERE, at the one moment both halves of it exist: `input` is what the
+    // user is sending and the listen holds what the recogniser produced for the same words. It is
+    // fired BEFORE the send and never awaited — the label is a side channel, and the message going
+    // out is not conditional on it. A draft that was never dictated has no listen to compare
+    // against, so this is a no-op for it.
+    writeSentLabels(input);
     onSubmit(event);
-  }, [onSubmit]);
+  }, [input, onSubmit, writeSentLabels]);
   // Every sentence this hint can print names a keyboard key — Enter, Shift+Enter, Ctrl+Enter — and a
   // soft keyboard has none of them, so there is no wording that would be true on a touch-only device.
   // Such a device is given no hint at all rather than the wrong one: the button is the only way out

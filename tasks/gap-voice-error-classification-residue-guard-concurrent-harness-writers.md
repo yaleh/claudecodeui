@@ -3,7 +3,7 @@ id: gap-voice-error-classification-residue-guard-concurrent-harness-writers
 title: AC-152 判据的 no-residue 守卫又把并发的、gitignore 的 harness 面（.playwright-mcp/
   日志）算成残留 ⇒ 驱动两轮 goal-gate 假红（同一文件在追写，368553→423578 字节）；上一轮只加了
   .quay，本轮必须按「谁在写就排除谁」这一类覆盖并发写者，并停止把纯 mtime 变更算残留
-status: todo
+status: ready
 labels:
   - gap
   - defect
@@ -64,7 +64,7 @@ AssertionError: the run left files behind:
 
 ## AC
 
-- [ ] AC1 负对照（并发写者下确定性绿）：先做修复前基线 —— 后台循环每 10ms `touch` 一个 `.playwright-mcp/console-*.log`，连跑判据命令 ≥5 次，**≥5/5 红**且红在 `the run left files behind`（读数记入完成记录）；落地后同一根杠杆，连跑 **20 次退出 0**、每次 stdout 含 `git-clean-after=true` 与 `6 passed` ⇒ 20/20。再对 `tasks/`（或 `goals/`）下的一个文件起同样的循环，同样要求 20/20 绿（证明覆盖的是「被跟踪的驱动库」这一类，不只 gitignore 面）。跑完 `kill` 循环、不留探针、`git status --porcelain` 与本任务启动时逐字相同。
+- [ ] AC1 负对照（并发写者下确定性绿）：先做修复前基线 —— 后台循环每 10ms `touch` 一个 `.playwright-mcp/console-*.log`，连跑判据命令 ≥5 次，**≥5/5 红**且红在 `the run left files behind`（读数记入完成记录）；修复实现后同一根杠杆，连跑 **20 次退出 0**、每次 stdout 含 `git-clean-after=true` 与 `6 passed` ⇒ 20/20。再对 `tasks/`（或 `goals/`）下的一个文件起同样的循环，同样要求 20/20 绿（证明覆盖的是「被跟踪的驱动库」这一类，不只 gitignore 面）。跑完 `kill` 循环、不留探针、`git status --porcelain` 与本任务启动时逐字相同。
 - [ ] AC2 正对照（守卫的牙仍在）：跑前确认 `git check-ignore -v src/shared/tests/.ac152-residue-probe.tmp` **退出 1**（该路径不被 gitignore ⇒ 在任何「按类排除」的修法下都必须仍算残留）。随后 (a) `touch src/shared/tests/.ac152-residue-probe.tmp` 并起后台循环，(b) 另跑一次只在收尾前 `> src/shared/tests/.ac152-residue-probe.tmp`（新建/改写）—— 两种形态**都必须红**且 stderr 指名该探针。跑完删除探针，`git status --porcelain` 与本任务启动时逐字相同。此条证明修的是取景，不是把守卫拔掉。
 - [ ] AC3 实质读数不变（一次干净运行，退出 0）：stdout 逐条含 `rows=21`、`agreed=21`、`openai-family=4`、`classifier-defs=1 table-defs=1 adapter-local-tables=0 client-local-tables=0 client-imports-shared=true`、`mutation=client-second-table` 行的 `mutant-red=true`、`mutation=direct-status-only` 行的 `mutant-red=true`、`subprocess-imports=0`、`ports=0`；且 `6 passed`。
 - [ ] AC4 排除面与「本次运行的写」这一语义一致（源码读数）：`grep -nE "mtimeMs" src/shared/tests/voiceErrorClassification.test.ts` 在残留条目/比较处**零命中**（比较已改为内容维度），或该处逐字改为对 `size`/哈希的比较；`grep -n "playwright-mcp\|\.quay\|tasks\|goals" src/shared/tests/voiceErrorClassification.test.ts` 的命中落在排除面的**代码**里（不是只在注释里）；紧邻注释写明每类排除的写者是谁、以及它与 `.gitignore` / `git status --porcelain` 的关系。
