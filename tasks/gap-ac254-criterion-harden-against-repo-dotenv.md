@@ -77,7 +77,7 @@ goal_ac: AC-254
 
 ## Evidence
 
-判据实现提交：worktree 分支 `task/gap-ac254-criterion-harden-against-repo-dotenv` 上 `d560d724`（基于 `6b06a145`）。仅改判据一件：`e2e/mcp-settings.spec.ts`（+85/-10），`server/`、`src/`、`shared/` 零改动。验证在 worktree 内一份主检出 `.env` 的副本下进行（`MCP_ENABLED=true`、`PUBLIC_BASE_URL=https://cloudcli.lrfz.com`、`MCP_OAUTH_ENABLED=true`、`TRUST_PROXY=1`、`MCP_DCR=open`、`VOICE_CAPTURE=audio`）——即本条 DoD 所述的「部署方把两键钉在仓根 `.env`」条件；判据只读不写它。
+判据实现提交：worktree 分支 `task/gap-ac254-criterion-harden-against-repo-dotenv` 上 `d560d724`（基于 `6b06a145`）。仅改判据一件：`e2e/mcp-settings.spec.ts`（+85/-10），`server/`、`src/`、`shared/` 零改动。验证在 worktree 内一份主检出 `.env` 的副本下进行（`MCP_ENABLED=true`、`PUBLIC_BASE_URL=https://cloudcli.lrfz.com`、`MCP_OAUTH_ENABLED=true`、`TRUST_PROXY=1`、`MCP_DCR=open`、`VOICE_CAPTURE=audio`）——即本条 DoD 所述的「部署方把两键钉在仓根 `.env`」条件；判据只读不写它。该 `.env` 副本仅用于验证，退出前已从 worktree 删除（`.env` 是 gitignored，不入分支）。
 
 ### AC1 为什么早先没守住
 ```
@@ -169,12 +169,13 @@ Received string:  "claude mcp add --transport http cloudcli http://127.0.0.1:216
 - `npm run lint` 退出 0；`grep -c ": error "` = **0**（218 条 warning 均为既有）。
 - `e2e/access-tokens-settings.spec.ts`（AC-228）未改一字：退出 0，`1 passed (14.6s)`。（`/tmp/ac254-ac228.log`）
 
-### AC8 diff 对齐
+### AC8 diff 与 Touches 逐条对齐
+退出前的最终读数（已含 worker 协议的 pre-merge 与 ABI tick 提交）：
 ```
-$ git -C <worktree> diff --stat develop...HEAD
- e2e/mcp-settings.spec.ts | 95 +++++++++++++++++++++++++++++++++++++++++++-----
- 1 file changed, 85 insertions(+), 10 deletions(-)
+$ git -C <worktree> diff --name-only develop...HEAD
+e2e/mcp-settings.spec.ts
+tasks/gap-ac254-criterion-harden-against-repo-dotenv.md
 $ git -C <worktree> diff --stat develop HEAD -- server/ src/ shared/
 (空输出)
 ```
-分支 delta 的唯一文件 `e2e/mcp-settings.spec.ts` 在 `## Touches` 内；`## Touches` 的另一条 `tasks/gap-ac254-criterion-harden-against-repo-dotenv.md` 是任务记录本身，经 Provider ABI（`task_write`）写入、随 develop 传播，不在分支 delta 内——故 diff ⊆ Touches，无未声明文件。出货源码（`server/`、`src/`、`shared/`）逐字为空输出。
+分支 delta 恰为两个文件，与 `## Touches` 的两条逐条对齐（无多、无少）。其中 `tasks/gap-ac254-criterion-harden-against-repo-dotenv.md` 即任务记录本身，由 Provider ABI（`task_write`）写入、经 worker 协议 cherry-pick 到任务分支——fan-in 的 ac-precheck 读的就是 `<worktree>/tasks/<id>.md`。出货源码（`server/`、`src/`、`shared/`）逐字为空输出，零改动。
