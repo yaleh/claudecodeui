@@ -2,7 +2,7 @@
 id: gap-ac303-mcp-write-notification
 title: AC-303 外部客户端成功写调用推送一条通知（不打断、60 秒内合并、通知器抛错不影响结果）；判据
   server/modules/mcp-gateway/tests/mcp-write-notification.test.ts
-status: todo
+status: ready
 labels:
   - gap
 parent: null
