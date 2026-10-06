@@ -638,6 +638,12 @@ const mcpGateway = mountMcpGateway(
                 projects: projectsDb,
                 sessions: sessionsService,
                 control: chatControl,
+                // The same capability matrix and session-row writer AC-272's
+                // `session_reconfigure` is wired with, so a `session_create` that
+                // names a `permissionMode` checks it against the ONE matrix and
+                // records it on the row through the ONE writer.
+                capabilities: providerCapabilitiesService,
+                models: providerModelsService,
             }),
             sessionInterrupt: buildSessionInterruptDeps({ control: chatControl }),
             sessionHostControl: createSessionHostControl({

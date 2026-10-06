@@ -29,6 +29,7 @@
  * the bags carry the instance it was given.
  */
 
+import type { providerCapabilitiesService, providerModelsService } from '@/modules/providers/index.js';
 import type { LLMProvider, ProjectRepositoryRow } from '@/shared/types.js';
 
 import type {
@@ -65,6 +66,15 @@ export type McpSessionCreateWiring = {
     switchSessionLifecycleMode(provider: LLMProvider, sessionId: string, mode: string): unknown;
   };
   control: McpControlSeam;
+  /**
+   * The provider capability matrix and the session-row writer `session_create`
+   * reads for its optional `permissionMode` — the same two services
+   * `session_reconfigure` is wired with. OPTIONAL so a composition that does not
+   * hand them over still assembles; the tool fails closed on a mode it cannot
+   * verify against the matrix.
+   */
+  capabilities?: Pick<typeof providerCapabilitiesService, 'getProviderCapabilities'>;
+  models?: Pick<typeof providerModelsService, 'setSessionPermissionMode'>;
 };
 
 /**
@@ -98,6 +108,8 @@ export function buildSessionCreateDeps(wiring: McpSessionCreateWiring): McpSessi
         wiring.sessions.switchSessionLifecycleMode(provider, sessionId, mode),
     },
     control: wiring.control,
+    ...(wiring.capabilities === undefined ? {} : { capabilities: wiring.capabilities }),
+    ...(wiring.models === undefined ? {} : { models: wiring.models }),
   };
 }
 
