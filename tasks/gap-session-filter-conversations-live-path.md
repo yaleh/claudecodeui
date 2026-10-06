@@ -2,7 +2,7 @@
 id: gap-session-filter-conversations-live-path
 title: 会话过滤覆盖 Conversations 视图的实时更新：session_upserted
   对命中规则的会话不再插入，已有行改名为命中规则后移除，实时列表与重新加载一致
-status: todo
+status: ready
 labels:
   - gap
 parent: null
