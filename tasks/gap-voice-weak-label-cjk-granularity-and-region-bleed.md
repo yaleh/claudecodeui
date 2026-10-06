@@ -53,12 +53,12 @@ op    = replace
 
 ## AC
 
-- [ ] `npx vitest run src/shared/tests/voiceEditLabels.test.ts` 退出码 0，且该文件新增下列用例（用例名含括号里的编号，便于假形态点名）。真实句子用上面「现象」里的原文：①（汉字小修）口述 `检查了功启后，是否有服务端的语音识别？`，最终文本只含该段修正后的 `检查重启后是否有服务端的语音识别记录。`，得到**恰好 1 条**标签，其 `heard` 含 `功`、`final` 含 `重`，且两边长度都 ≤ 6 个字符，`op` 不是 `rewrite`；②（不吞段外文字）同一口述，最终文本前面多了另一次口述 `语音输入测试。`、后面多了自己打的 `谢谢`，得到的任何标签的 `heard`/`final` 都不含 `语音输入测试` 与 `谢谢`；③（标点与全半角不算改）口述 `是否有服务端的语音识别？`，最终文本 `是否有服务端的语音识别?`（全角问号改半角）与 `是否有服务端的语音识别`（去掉问号），都得到 `[]`；④（汉字整句改写是 rewrite）口述 `检查重启后是否有服务端的语音识别记录。`，最终文本 `明天下午三点开会讨论发布计划安排。`，得到的标签 `op` 全是 `rewrite`，且没有任何 `replace`；同一用例内的对照：小修（①的输入）不是 `rewrite`；⑤（汉字拉丁混排）口述 `检查 key 的 AC 一九零`，最终文本 `检查 quay 的 AC-190`，得到 2 条标签（`key → quay`，`AC 一九零 → AC-190`，两条的 `op` 都不是 `rewrite`），任何标签的 `heard`/`final` 都不含 `检查` 或 `的`；⑥（两段只改第二段）两个口述段，最终文本只改第二段里的一个字，只产生 `segmentIndex` 为第二段的标签；两段之间用户自己插入的文字不产生标签；⑦（清空）最终文本为空，每个有字的段各得到 1 条 `delete`。
-- [ ] 既有用例不变红：同一文件里在本任务动手前已存在的全部用例（含 `key → quay`、`AC 零零二 → AC-002`（仍是 `replace`，不是 `rewrite`）、`quay fleet → quay-fleet`、口述前后自己打字不产生标签、整句改写是 `rewrite`、`isIdentifierShaped` 与离线实验的已知答案对照）在 `npx vitest run src/shared/tests/voiceEditLabels.test.ts` 里全部仍然通过；`git diff develop -- src/shared/tests/voiceEditLabels.test.ts` 里没有删除或放宽任何既有断言行（只允许新增行）。
-- [ ] 假形态（每条各自点名变红的用例，改回后恢复全绿，`git status --short` 干净）：把 `tokenize` 改回 `text.split(/\s+/).filter(...)`（汉字不再按字切）→ `npx vitest run src/shared/tests/voiceEditLabels.test.ts` 退出码非 0，变红的用例含①与④；把区间收缩改回「无邻居时取 `-1`/`textLength` 并向端点膨胀」→ 退出码非 0，变红的用例含②。两条读数（退出码与变红用例名）记入 `## Evidence`。
-- [ ] 真实应用（一次性 spec，读完即删、不入库）：用 e2e harness（真实 Chromium + 真实 server + 宿主机上的真 `sensevoice-local`，环境变量与 `SENSEVOICE_PYTHONPATH` 的写法沿用 `gap-voice-phase0-readout-report` 的 `## Evidence` AC6），在同一输入框里先口述一段、再口述一段，把第二段里**一处**字改对后发送，读 `voice-data` 里这次发送写回的记录：第二段的标签只含被改的那处词（`heard`/`final` 都 ≤ 6 个字符），任何标签都不含第一段的文字；把读数（两条记录的 `labels` 原文、操作次数）记入 `## Evidence`。
-- [ ] 阶段 0 读数报告不被带坏：`node --test scripts/voice-phase0-report.test.mjs` 退出码 0（本任务不改该脚本，这条证明新标签形状它仍能读，`forms.rewrites` 与 `forms.corrections` 的分流不变）。
-- [ ] `npm run typecheck`、`npm run lint` 退出码 0。
+- [x] `npx vitest run src/shared/tests/voiceEditLabels.test.ts` 退出码 0，且该文件新增下列用例（用例名含括号里的编号，便于假形态点名）。真实句子用上面「现象」里的原文：①（汉字小修）口述 `检查了功启后，是否有服务端的语音识别？`，最终文本只含该段修正后的 `检查重启后是否有服务端的语音识别记录。`，得到**恰好 1 条**标签，其 `heard` 含 `功`、`final` 含 `重`，且两边长度都 ≤ 6 个字符，`op` 不是 `rewrite`；②（不吞段外文字）同一口述，最终文本前面多了另一次口述 `语音输入测试。`、后面多了自己打的 `谢谢`，得到的任何标签的 `heard`/`final` 都不含 `语音输入测试` 与 `谢谢`；③（标点与全半角不算改）口述 `是否有服务端的语音识别？`，最终文本 `是否有服务端的语音识别?`（全角问号改半角）与 `是否有服务端的语音识别`（去掉问号），都得到 `[]`；④（汉字整句改写是 rewrite）口述 `检查重启后是否有服务端的语音识别记录。`，最终文本 `明天下午三点开会讨论发布计划安排。`，得到的标签 `op` 全是 `rewrite`，且没有任何 `replace`；同一用例内的对照：小修（①的输入）不是 `rewrite`；⑤（汉字拉丁混排）口述 `检查 key 的 AC 一九零`，最终文本 `检查 quay 的 AC-190`，得到 2 条标签（`key → quay`，`AC 一九零 → AC-190`，两条的 `op` 都不是 `rewrite`），任何标签的 `heard`/`final` 都不含 `检查` 或 `的`；⑥（两段只改第二段）两个口述段，最终文本只改第二段里的一个字，只产生 `segmentIndex` 为第二段的标签；两段之间用户自己插入的文字不产生标签；⑦（清空）最终文本为空，每个有字的段各得到 1 条 `delete`。
+- [x] 既有用例不变红：同一文件里在本任务动手前已存在的全部用例（含 `key → quay`、`AC 零零二 → AC-002`（仍是 `replace`，不是 `rewrite`）、`quay fleet → quay-fleet`、口述前后自己打字不产生标签、整句改写是 `rewrite`、`isIdentifierShaped` 与离线实验的已知答案对照）在 `npx vitest run src/shared/tests/voiceEditLabels.test.ts` 里全部仍然通过；`git diff develop -- src/shared/tests/voiceEditLabels.test.ts` 里没有删除或放宽任何既有断言行（只允许新增行）。
+- [x] 假形态（每条各自点名变红的用例，改回后恢复全绿，`git status --short` 干净）：把 `tokenize` 改回 `text.split(/\s+/).filter(...)`（汉字不再按字切）→ `npx vitest run src/shared/tests/voiceEditLabels.test.ts` 退出码非 0，变红的用例含①与④；把区间收缩改回「无邻居时取 `-1`/`textLength` 并向端点膨胀」→ 退出码非 0，变红的用例含②。两条读数（退出码与变红用例名）记入 `## Evidence`。
+- [x] 真实应用（一次性 spec，读完即删、不入库）：用 e2e harness（真实 Chromium + 真实 server + 宿主机上的真 `sensevoice-local`，环境变量与 `SENSEVOICE_PYTHONPATH` 的写法沿用 `gap-voice-phase0-readout-report` 的 `## Evidence` AC6），在同一输入框里先口述一段、再口述一段，把第二段里**一处**字改对后发送，读 `voice-data` 里这次发送写回的记录：第二段的标签只含被改的那处词（`heard`/`final` 都 ≤ 6 个字符），任何标签都不含第一段的文字；把读数（两条记录的 `labels` 原文、操作次数）记入 `## Evidence`。
+- [x] 阶段 0 读数报告不被带坏：`node --test scripts/voice-phase0-report.test.mjs` 退出码 0（本任务不改该脚本，这条证明新标签形状它仍能读，`forms.rewrites` 与 `forms.corrections` 的分流不变）。
+- [x] `npm run typecheck`、`npm run lint` 退出码 0。
 
 ## DoD
 
@@ -67,6 +67,93 @@ op    = replace
 L_D 该轴仍暗，理由：不新增数据能力，只修标签的对齐精度。
 
 L_G 该轴有读数：同一对（口述，最终文本）上，修前标签是整句对整句且混入段外文字，修后是单处小修；两者作为 `## Evidence` 的前后对照。
+
+## Evidence
+
+### AC1/AC2 —— 单元用例与「只加不删」
+
+`npx vitest run src/shared/tests/voiceEditLabels.test.ts`（工作树，合并前）**退出码 0**，`Tests 23 passed (23)`。
+
+新增的汉字用例 ①–⑦（用例名，摘录自 `--reporter=verbose`）：
+
+```
+① a one-character Han repair is one small label, not the whole sentence
+② another dictation and the user's own typing stay out of the labels
+③ a punctuation or full/half-width difference is not a change
+④ a whole Han sentence rewritten is a rewrite, never a replace
+⑤ a mixed Han/Latin sentence yields its two words and no surrounding Han context
+⑥ two segments: only the second is labelled, and text typed between them is not
+⑦ an emptied box deletes each segment that carried words
+```
+
+既有（本任务前就有的）拉丁用例 ①–⑦ 与标识符形状对照表同次全部通过；文件内还带两条自我证伪的变体用例（下）。
+
+`git diff develop --numstat -- src/shared/tests/voiceEditLabels.test.ts` = `265	0` —— **0 删除**（`--numstat` 的第二列即删除行数），即只新增、未删除或放宽任何既有断言行。
+
+### AC3 —— 两条假形态的读数
+
+实验方式：先把 `src/shared/voiceEditLabels.ts` 备份到 `/tmp`，用 Edit 就地改坏，跑同一文件，记退出码与变红用例名，再从备份恢复（恢复后 `sha1sum` 与改前一致 `5775edf9…`，`git status --short` 为空，重跑 23/23 通过）。
+
+**假形态 A —— `tokenize` 改回空白切分**（汉字不再按字切）：
+
+```
+MUT1_EXIT=1
+Tests  3 failed | 20 passed (23)
+× ① a one-character Han repair is one small label, not the whole sentence
+× ④ a whole Han sentence rewritten is a rewrite, never a replace
+× the Han tokenization is falsifiable: whitespace splitting reds cases ① and ④
+```
+
+**假形态 B —— 区间收缩改回「无邻居取 `-1`/`textLength` 并向端点膨胀」**：
+
+```
+MUT2_EXIT=1
+Tests  6 failed | 17 passed (23)
+× ⑤ text typed before or after the voice segment produces no labels
+× ① a one-character Han repair is one small label, not the whole sentence
+× ② another dictation and the user's own typing stay out of the labels
+× ⑥ two segments: only the second is labelled, and text typed between them is not
+× the Han tokenization is falsifiable: whitespace splitting reds cases ① and ④
+× the region shrink is falsifiable: expanding to the text ends reds case ②
+```
+
+两条都点名了 AC 要求的用例（A 含①④，B 含②；B 是要求的超集）。
+
+### AC4 —— 真实应用读数（真识别器 / 真浏览器 / 真落盘）
+
+用一份**临时** playwright spec（`e2e/zz-voice-cjk-labels-probe.spec.ts`，读完即 `rm`；为它临时改的三处 `playwright.config.ts` 也已 `git checkout --` 还原，故工作树只剩实现本身）驱动真实 Chromium + 真实 Vite client + 真实 server，识别器是**宿主机上的真 `sensevoice-local`**（server 进程带 `SENSEVOICE_MODEL_DIR` / `SENSEVOICE_PYTHON`（venv）/ `SENSEVOICE_PYTHONPATH`（sherpa-onnx 构建产物）/ `VOICE_PROVIDER_ID=sensevoice-local`，写法沿用 `gap-voice-phase0-readout-report` 的 AC6）。会话是**调试 agent 会话**（ADR-003，不跑真实 CLI）：`POST /api/debug-agent/scenarios` → `POST /api/session-hosts/:id/start` → 进 `/session/<id>?voiceDebug=1&voiceVad=off`。在同一输入框里**两次**经 `Upload audio file` 口述宿主机上的真 WAV，然后把第二段里的**一处**字手改对，真实按 Enter 发送，读 `<dataDir>/voice-data/` 下写回的记录：
+
+```
+A transcribe={"text":"语音输入测试。", "recordId":"0e25ff29-f2e6-459d-9dc3-55dfe7b733cb"}
+B transcribe={"text":"检查了功启后，是否有服务端的语音识别？", "recordId":"1403f119-fa7b-493e-92af-de865f993c3a"}
+joined composer="语音输入测试。 检查了功启后，是否有服务端的语音识别？"
+PATCH 200 {"recordId":"1403f119-fa7b-493e-92af-de865f993c3a"}
+record 0e25ff29…  finalText=undefined labels=undefined          (第一段记录：未被改动，未被写标签)
+record 1403f119…  finalText="语音输入测试。 检查了重启后，是否有服务端的语音识别？"
+                  labels=[{"segmentIndex":0,"heard":"了功启","final":"了重启","op":"replace"}]
+opCounts={"replace":1}
+```
+
+第二段的标签**恰好 1 条**，`heard="了功启"`/`final="了重启"` 各 3 个字符（≤ 6），`op` 是 `replace` 不是 `rewrite`；`final` 里**没有**第一段的 `语音输入测试。`（它只出现在被写回的 `finalText` 全量文本里，不进任何标签）。spec 打印 `PROBE OK` 并 7.8s 通过。
+
+**修前对照（同一条命令、同一对（口述，最终文本），换成 pre-fix 的 `develop` 模块）**：
+
+```
+labels=[{"segmentIndex":0,
+         "heard":"检查了功启后，是否有服务端的语音识别？",          (整句，19 字)
+         "final":"语音输入测试。 检查了重启后，是否有服务端的语音识别？",  (混入第一段口述)
+         "op":"replace"}]
+```
+
+即整句对整句，且 `final` 吞掉了另一次口述；同一 spec 在同一次运行里变红（`heard too long … 19`）。这就是 DoD 要求的前后对照：L_G 读数由同一对输入给出。
+
+### AC5 —— 阶段 0 读数报告不被带坏
+
+`node --test scripts/voice-phase0-report.test.mjs` **退出码 0**，`pass 16 / fail 0`（本任务未改该脚本）。
+
+### AC6 —— 类型与 lint
+
+`npm run typecheck` **退出码 0**；`npm run lint` **退出码 0**（仅有若干与本任务无关、且不在本次改动文件里的既有 warning）。
 
 ## Touches
 
