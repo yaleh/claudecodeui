@@ -92,6 +92,7 @@ import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import type { LLMProvider, NormalizedMessage } from '@/shared/types.js';
 import type { QuaySnapshot } from '@/modules/quay/index.js';
+import type { ActivityProtocolSnapshot } from '@/modules/websocket/index.js';
 
 // --------------------------------------------------------------------------
 // A scratch HOME is set before any aliased module is imported, so settings reads
@@ -444,9 +445,17 @@ async function withHarness(run: (harness: Harness) => Promise<void>): Promise<vo
   const now = (): number => runtime.clock;
 
   const activity = {
-    snapshot: (sessionId: string) =>
+    snapshot: (sessionId: string): ActivityProtocolSnapshot | null =>
       sessionId === SESSION_HIT
-        ? { turn: { phase: 'tool', toolName: 'Bash', toolDurationMs: null } }
+        ? {
+            sessionId,
+            bootId: BOOT_ONE,
+            rev: 1,
+            asOf: BASE_MS,
+            turn: { phase: 'tool', toolName: 'Bash', toolDurationMs: null },
+            tasks: [],
+            schedules: [],
+          }
         : null,
   };
 

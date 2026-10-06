@@ -618,11 +618,15 @@ test('(d) expired and never-seen request ids are APPROVAL_NOT_FOUND, reasons apa
       // old reading could express.
       assert.equal(expired.isError, true, `an expired request is an error (text=${expired.text})`);
       assert.equal(expired.payload?.code, 'APPROVAL_NOT_FOUND', 'the expired error carries APPROVAL_NOT_FOUND');
-      assert.equal(expired.payload?.details?.reason, 'expired', 'a removed request was HELD, so it is expired');
+      assert.equal(
+        (expired.payload?.details as AnyRecord | undefined)?.reason,
+        'expired',
+        'a removed request was HELD, so it is expired',
+      );
       assert.equal(never.isError, true, `a never-seen request is an error (text=${never.text})`);
       assert.equal(never.payload?.code, 'APPROVAL_NOT_FOUND', 'the never-seen error carries APPROVAL_NOT_FOUND');
       assert.equal(
-        never.payload?.details?.reason,
+        (never.payload?.details as AnyRecord | undefined)?.reason,
         'never_issued',
         'an id this runtime never held is never_issued',
       );
