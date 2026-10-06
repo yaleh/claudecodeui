@@ -3,7 +3,7 @@ id: gap-ac254-criterion-harden-against-repo-dotenv
 title: AC-254 判据在部署方 .env 钉住 MCP_ENABLED=true
   的检出里仍须产出「关」态读数：e2e/mcp-settings.spec.ts 的 disabled 臂删掉 MCP_ENABLED 后被
   server/load-env.ts 从 .env 顶回 true，(b) 红；(a) 的基址同样被 .env 的 PUBLIC_BASE_URL 顶住
-status: ready
+status: done
 labels:
   - gap
   - defect
