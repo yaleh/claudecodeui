@@ -497,6 +497,12 @@ test('(e) an OAuth token missing the tool scope is denied with one denied audit 
     assert.equal(deniedExchange.status, 200, 'a denied tool call is still an HTTP 200 JSON-RPC error');
     assert.equal(resultIsError(deniedExchange), true, 'a missing scope must answer isError');
     assert.equal(deniedRow.outcome, 'denied');
+    // AC-286: the denied row carries the scope the OAuth token was missing.
+    assert.deepEqual(
+      JSON.parse(deniedRow.denied_scopes ?? 'null'),
+      [PROBE_SCOPE],
+      'the denied row must carry the missing probe scope',
+    );
     assert.equal(deniedRow.token_id, sendOnly.tokenId, 'the denied row must name the invoking token');
     assert.equal(deniedRow.client_id, h.clientId, 'the denied row must name the OAuth client');
     assert.equal(okExchange.status, 200);

@@ -58,9 +58,10 @@
  */
 
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test, { after, before } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +82,17 @@ import type { McpReadToolDeps, McpResidentToolDeps, McpWriteToolDeps } from '../
 // below therefore comes in dynamically.
 process.env.JWT_SECRET = 'mcp-error-envelope-test-secret';
 delete process.env.VITE_IS_PLATFORM;
+
+// Every failed probe below reaches the audited wrapper, which writes one
+// `mcp_audit_log` row (AC-286 adds the `denied_scopes` column that row now
+// carries). A file that writes audit rows needs a database with the CURRENT
+// schema, so give it its own migrated temp DB rather than riding the ambient
+// `DATABASE_PATH` — the ambient file is a developer's real DB, and one that
+// predates a migration reds the insert with a bare "no such column".
+const dbDirectory = mkdtempSync(path.join(tmpdir(), 'mcp-error-envelope-'));
+process.env.DATABASE_PATH = path.join(dbDirectory, 'audit.db');
+const { closeConnection, initializeDatabase } = await import('@/modules/database/index.js');
+await initializeDatabase();
 
 const { ACCESS_TOKEN_SCOPES } = await import('@/modules/oauth/index.js');
 const { MCP_ERROR_CODES, MCP_GATEWAY_PATH, mountMcpGateway } = await import('../index.js');
@@ -362,6 +374,8 @@ after(async () => {
   await deniedClient.close().catch(() => undefined);
   await mountA.close();
   await mountB.close();
+  closeConnection();
+  rmSync(dbDirectory, { recursive: true, force: true });
 });
 
 // --------------------------- the probe table ---------------------------

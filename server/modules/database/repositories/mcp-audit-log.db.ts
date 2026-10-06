@@ -30,12 +30,20 @@ export type McpAuditLogRow = {
   args_digest: string | null;
   outcome: string;
   duration_ms: number | null;
+  /**
+   * AC-286: the JSON array of scopes a `denied` row's caller was missing, or
+   * null on every other outcome. Stored as text (the table column is TEXT); a
+   * reader that wants the list parses it.
+   */
+  denied_scopes: string | null;
 };
 
 /**
  * The fields a caller supplies to insert a row. `at` is optional: when omitted
  * the column default (`CURRENT_TIMESTAMP`) is used, so the audit wrapper does not
- * have to read the clock just to stamp the row.
+ * have to read the clock just to stamp the row. `deniedScopes` is optional too —
+ * only a scope denial supplies it, and it is serialized to a JSON array here so
+ * the caller passes the list, never a hand-encoded string.
  */
 export type InsertMcpAuditLogInput = {
   at?: string;
@@ -45,23 +53,26 @@ export type InsertMcpAuditLogInput = {
   argsDigest: string | null;
   outcome: string;
   durationMs: number | null;
+  deniedScopes?: readonly string[] | null;
 };
 
-const AUDIT_COLUMNS = 'id, at, token_id, client_id, tool, args_digest, outcome, duration_ms';
+const AUDIT_COLUMNS = 'id, at, token_id, client_id, tool, args_digest, outcome, duration_ms, denied_scopes';
 
 export const mcpAuditLogDb = {
   /**
    * Inserts one audit row and returns its new id. `at` is honoured when the
    * caller passes it; otherwise `COALESCE(?, CURRENT_TIMESTAMP)` uses the
    * column's default, so an omitted timestamp is the insert instant.
+   * `deniedScopes` is serialized to a JSON array (null when absent), so the
+   * stored `denied_scopes` is text the caller never has to encode by hand.
    */
   insert(input: InsertMcpAuditLogInput): number {
     const db = getConnection();
     const result = db
       .prepare(
         `INSERT INTO mcp_audit_log
-           (at, token_id, client_id, tool, args_digest, outcome, duration_ms)
-         VALUES (COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?, ?)`
+           (at, token_id, client_id, tool, args_digest, outcome, duration_ms, denied_scopes)
+         VALUES (COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.at ?? null,
@@ -70,7 +81,8 @@ export const mcpAuditLogDb = {
         input.tool,
         input.argsDigest,
         input.outcome,
-        input.durationMs
+        input.durationMs,
+        input.deniedScopes && input.deniedScopes.length > 0 ? JSON.stringify(input.deniedScopes) : null
       );
     return Number(result.lastInsertRowid);
   },

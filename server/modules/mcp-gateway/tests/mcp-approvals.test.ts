@@ -167,7 +167,7 @@ function parseToolResult(result: unknown): ToolCall {
 }
 
 /** An audit row as this criterion reads it back. */
-type AuditRow = { id: number; tool: string; outcome: string };
+type AuditRow = { id: number; tool: string; outcome: string; denied_scopes: string | null };
 
 // --------------------------- the fake runtime ---------------------------
 
@@ -394,7 +394,7 @@ async function withHarness(options: HarnessOptions, run: (harness: Harness) => P
       },
       auditRows() {
         return getConnection()
-          .prepare('SELECT id, tool, outcome FROM mcp_audit_log ORDER BY id ASC')
+          .prepare('SELECT id, tool, outcome, denied_scopes FROM mcp_audit_log ORDER BY id ASC')
           .all() as AuditRow[];
       },
     });
@@ -626,6 +626,12 @@ test('(e) a read-only token is denied with one denied audit row and no resolve',
       assert.equal(newRows.length, 1, 'exactly one audit row is added for the denied call');
       assert.equal(newRows[0].tool, 'approval_answer', 'the denied row names the tool');
       assert.equal(newRows[0].outcome, 'denied', 'the denied row records the refusal');
+      // AC-286: the denied row carries the scope the caller was missing.
+      assert.deepEqual(
+        JSON.parse(newRows[0].denied_scopes ?? 'null'),
+        [APPROVE_SCOPE],
+        'the denied row must carry the missing approve scope',
+      );
       assert.equal(harness.resolveCalls.length, 0, 'the denied call never reaches the resolver');
 
       // Positive control: the token that carries cloudcli:approve is let through.

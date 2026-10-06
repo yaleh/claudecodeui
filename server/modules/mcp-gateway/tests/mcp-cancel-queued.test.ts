@@ -661,6 +661,12 @@ test('(d) a token lacking the control scope is denied, audits one denied row, an
     assert.equal(newRows.length, 1, 'exactly one audit row must be written');
     assert.equal(newRows[0].tool, 'session_cancel_queued', 'the audit row must name session_cancel_queued');
     assert.equal(newRows[0].outcome, 'denied', 'the audit row must read denied');
+    // AC-286: the denied row names the missing scope, not just the denial.
+    assert.deepEqual(
+      JSON.parse(newRows[0].denied_scopes ?? 'null'),
+      [SESSION_CONTROL_SCOPE],
+      'the denied row must carry the missing control scope',
+    );
     assert.equal(cancelCallsBefore, 0, 'the control service was not called before the denied call');
     assert.equal(cancelCallsAfter, 0, 'the control service must NOT be called for a denied tool');
   });

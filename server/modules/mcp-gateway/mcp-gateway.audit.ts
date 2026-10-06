@@ -6,7 +6,10 @@
  * runs) or `error` (the handler threw). The arguments are reduced to a digest
  * before they reach the database — session and project ids are kept verbatim,
  * every other string is replaced by its length and first 40 characters — so the
- * full text of a tool call can never be read back out of the log.
+ * full text of a tool call can never be read back out of the log. AC-286: a
+ * `denied` row also carries the scopes the caller was MISSING
+ * (`denied_scopes`), whether the refusal came from the generic check here or
+ * from a handler's own scope check throwing {@link McpScopeDeniedError}.
  *
  * The retention sweep and the audit dispatch are both injectable: the clock and
  * the interval scheduler are seams, so a criterion can plant an old row or
@@ -27,8 +30,10 @@ import { z } from 'zod';
 import { mcpAuditLogDb } from '@/modules/database/index.js';
 
 import {
+  insufficientScopeResult,
   invalidArgumentFields,
   MCP_ERROR_CODES,
+  McpScopeDeniedError,
   mcpErrorResult,
   toMcpErrorResult,
   unknownToolResult,
@@ -105,6 +110,13 @@ export type McpToolCallReading = {
   /** Non-negative elapsed time of the dispatch, in milliseconds. */
   durationMs: number;
   args: unknown;
+  /**
+   * AC-286: for a `denied` row, the scopes the caller's token was missing —
+   * persisted so an operator can read WHICH scope a refusal was about without
+   * replaying the request. Absent (or null) for every other outcome, including
+   * a denial with no scope reading (an unauthenticated call).
+   */
+  deniedScopes?: readonly string[] | null;
 };
 
 /**
@@ -121,6 +133,7 @@ export function recordMcpToolCall(reading: McpToolCallReading): number {
     argsDigest: summarizeToolArgs(reading.args),
     outcome: reading.outcome,
     durationMs: reading.durationMs,
+    deniedScopes: reading.deniedScopes ?? null,
   });
 }
 
@@ -444,8 +457,11 @@ function createAuditedRunner(
       );
     }
 
-    const permitted = registration.requiredScopes.every((scope) => principal.scopes.includes(scope));
-    if (!permitted) {
+    // AC-286: name the scopes the caller is MISSING (declared minus held), not
+    // the tool's whole declared set — that is what the envelope and the denied
+    // audit row both carry, so a caller can re-authorize with exactly these.
+    const missingScopes = registration.requiredScopes.filter((scope) => !principal.scopes.includes(scope));
+    if (missingScopes.length > 0) {
       recordMcpToolCall({
         tokenId: principal.tokenId,
         clientId: principal.clientId,
@@ -453,8 +469,9 @@ function createAuditedRunner(
         outcome: 'denied',
         durationMs: elapsedMs(),
         args,
+        deniedScopes: missingScopes,
       });
-      return mcpErrorResult(MCP_ERROR_CODES.INSUFFICIENT_SCOPE, 'Insufficient scope for this tool.');
+      return insufficientScopeResult(missingScopes, registration.name);
     }
 
     // The declared schema is validated HERE, so a missing, wrong-typed,
@@ -506,13 +523,19 @@ function createAuditedRunner(
             structuredContent: toStructuredContent(result),
           };
     } catch (error) {
+      // AC-286: a handler that owns its own scope check throws
+      // McpScopeDeniedError; that is a DENIAL, not an error, so it records the
+      // missing scopes and reads back `denied` — the same outcome the generic
+      // scope branch above writes. Every other throw keeps its `error` reading.
+      const scopeDenied = error instanceof McpScopeDeniedError;
       recordMcpToolCall({
         tokenId: principal.tokenId,
         clientId: principal.clientId,
         tool: registration.name,
-        outcome: 'error',
+        outcome: scopeDenied ? 'denied' : 'error',
         durationMs: elapsedMs(),
         args,
+        deniedScopes: scopeDenied ? error.requiredScopes : null,
       });
       return toMcpErrorResult(error);
     }

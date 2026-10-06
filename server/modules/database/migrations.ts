@@ -89,6 +89,22 @@ const addAccessTokenOAuthColumns = (db: Database): void => {
   );
 };
 
+/**
+ * Widens a pre-AC-286 `mcp_audit_log` with its `denied_scopes` column.
+ *
+ * A database created before AC-286 has `mcp_audit_log` without `denied_scopes`;
+ * the updated `MCP_AUDIT_LOG_TABLE_SCHEMA_SQL` only shapes a fresh table
+ * (`IF NOT EXISTS` leaves an existing one alone), so an existing install needs
+ * the column added. The guard reads the live `PRAGMA table_info`, which is what
+ * makes a second `runMigrations` a no-op rather than a duplicate-column error.
+ * The column is nullable with no default: a pre-AC-286 row simply has no scope
+ * reading, which is the honest state for a row written before the column existed.
+ */
+const addMcpAuditLogDeniedScopesColumn = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'mcp_audit_log').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'mcp_audit_log', columnNames, 'denied_scopes', 'TEXT');
+};
+
 const migrateLegacySessionNames = (db: Database): void => {
   const hasLegacySessionNamesTable = tableExists(db, 'session_names');
   const hasSessionsTable = tableExists(db, 'sessions');
@@ -985,8 +1001,10 @@ export const runMigrations = (db: Database) => {
     db.exec(OAUTH_CODE_REDEMPTIONS_TABLE_SCHEMA_SQL);
     // The MCP tool-call audit log (AC-244). `CREATE TABLE IF NOT EXISTS` makes a
     // second startup a no-op over an existing table; the index backs the
-    // retention sweep, which scans by `at`.
+    // retention sweep, which scans by `at`. An existing table is widened with
+    // `denied_scopes` (AC-286) by the guarded migration that follows.
     db.exec(MCP_AUDIT_LOG_TABLE_SCHEMA_SQL);
+    addMcpAuditLogDeniedScopesColumn(db);
     db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_audit_log_at ON mcp_audit_log(at)');
     // The revocation cascades scan by grant, so without these the cascade and
     // the per-client listing table-scan access_tokens.

@@ -81,11 +81,21 @@ export type {
 // list, and `unknownToolResult` is the envelope an unregistered tool name gets.
 // The audited wrapper (through `installMcpCallDispatcher`) is their consumer;
 // `tests/mcp-invalid-argument.test.ts` reads both off the wire.
+//
+// AC-286 adds the scope-denial seam: `insufficientScopeResult` renders the
+// `INSUFFICIENT_SCOPE` envelope with the MISSING scopes named (the audited
+// wrapper's generic scope branch is its consumer), and `McpScopeDeniedError` is
+// the throw a handler that owns its own scope check raises — `mcp-session-
+// background.ts`'s stop branch raises it and the audited wrapper's catch branch
+// discriminates it to record `denied` with the missing scopes. The criterion
+// `tests/mcp-insufficient-scope.test.ts` reads both off the wire.
 export {
+  insufficientScopeResult,
   invalidArgumentFields,
   isMcpErrorCode,
   MCP_ERROR_CODES,
   mcpErrorResult,
+  McpScopeDeniedError,
   McpToolError,
   toMcpErrorResult,
   unknownToolResult,
