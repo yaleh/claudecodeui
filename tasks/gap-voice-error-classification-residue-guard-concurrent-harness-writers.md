@@ -3,7 +3,7 @@ id: gap-voice-error-classification-residue-guard-concurrent-harness-writers
 title: AC-152 判据的 no-residue 守卫又把并发的、gitignore 的 harness 面（.playwright-mcp/
   日志）算成残留 ⇒ 驱动两轮 goal-gate 假红（同一文件在追写，368553→423578 字节）；上一轮只加了
   .quay，本轮必须按「谁在写就排除谁」这一类覆盖并发写者，并停止把纯 mtime 变更算残留
-status: todo
+status: ready
 labels:
   - gap
   - defect
