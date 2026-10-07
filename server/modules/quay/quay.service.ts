@@ -195,6 +195,37 @@ export type QuayFanInSummary = {
   recent: QuayFanInAttemptSummary[];
 };
 
+/**
+ * One task a project's Quay worker driver currently reports as in flight, read from the
+ * `.quay/worker-round.jsonl` carrier — the SAME file the `quay serve` Web dashboard's
+ * "Live" card renders from. It closes the gap this reading exists for: the driver-status
+ * CLI answers only `alive`/`running`/`last_record_ts` (never WHICH task), so a CloudCLI
+ * client could see a driver running but never learn what it was running.
+ *
+ * Consumer: the MCP `quay_snapshot` tool (`mcp-overview-tools.ts`) surfaces the whole
+ * list as `snapshot.inFlight`.
+ */
+export type QuayInFlightTask = {
+  taskId: string;
+  /**
+   * `'fan-in'` when the task's most recent attempt in the Fan-in card's reading holds the
+   * fan-in lock (`lockAcquireEpoch` non-null, `lockReleaseEpoch` still null); otherwise
+   * `'implementing'`. Both states are derived from the already-collected `fanIn.recent`
+   * reading rather than a second state machine.
+   */
+  phase: 'implementing' | 'fan-in';
+  /** The task's dispatch instant (ISO) from the round record's per-task start map, or `null` when it carries none. */
+  startedAt: string | null;
+  /** The round record's own heartbeat instant (ISO) — i.e. when this reading was written. */
+  lastHeartbeat: string;
+  /**
+   * The worker-driver loop's own process id from the round record — the `--kind worker`
+   * instance, NOT a per-task child/session pid (the carrier holds no per-task pid). `null`
+   * when the record carries none.
+   */
+  workerPid: number | null;
+};
+
 export type QuayConfigIssueCounts = {
   total: number;
   errors: number;
@@ -220,6 +251,15 @@ export type QuaySnapshot = {
   tests: QuayTestsSummary;
   /** Fan-in card: recent mechanical fan-in attempts, read from `.quay/worker-outcome.jsonl`. */
   fanIn: QuayFanInSummary;
+  /**
+   * Tasks the worker driver currently reports in flight, read from `.quay/worker-round.jsonl`
+   * (the same carrier `quay serve`'s Live card renders from). `null` = the carrier is absent,
+   * unreadable, or carried no parseable record ("no reading"); `[]` = the carrier read but
+   * names no in-flight task ("nothing running"). The two are deliberately distinct — the same
+   * null-vs-empty convention `tests.current` and `driver` follow — so "could not read" is
+   * never shown as "nothing running".
+   */
+  inFlight: QuayInFlightTask[] | null;
   /**
    * Link to quay's own `quay serve` dashboard, when a live web service is
    * reported for this project. `null` when no dashboard is running — an absent
@@ -453,6 +493,12 @@ function readUpdatedAtEpochMs(value: unknown): number | null {
 const QUAY_SUITE_STATE_FILE = 'full-suite-state.json';
 const QUAY_ROUND_HISTORY_FILE = 'verification-round.jsonl';
 const QUAY_WORKER_OUTCOME_FILE = 'worker-outcome.jsonl';
+/**
+ * The worker driver's per-round heartbeat carrier. `quay serve`'s Live card reads this
+ * same file for "which task is running"; this service reads only its newest record for
+ * the snapshot's `inFlight` reading (a different, lighter projection than the Live card's).
+ */
+const QUAY_WORKER_ROUND_FILE = 'worker-round.jsonl';
 
 /**
  * Bytes read per step when streaming a carrier file's tail. 64 KiB holds ten
@@ -472,6 +518,50 @@ function countTailRecords(text: string, hasPartialLeadingLine: boolean): number 
 }
 
 /**
+ * Reads a bounded trailing window of a JSONL carrier file and returns its non-blank
+ * lines in file order. The byte window starts at `CARRIER_TAIL_WINDOW_BYTES` and doubles
+ * until it holds at least `minLines` records or reaches the start of the file, so a
+ * multi-megabyte history costs a fraction of its bytes rather than a whole-file read. A
+ * non-zero window start can split one leading line in half, which is dropped (and not
+ * counted by `countTailRecords`).
+ */
+async function readCarrierTailLines(
+  reader: QuayFileReader,
+  filePath: string,
+  minLines: number,
+): Promise<string[]> {
+  if (minLines <= 0) {
+    return [];
+  }
+
+  const size = await reader.size(filePath);
+  if (size === null || size <= 0) {
+    return [];
+  }
+
+  let windowBytes = Math.min(CARRIER_TAIL_WINDOW_BYTES, size);
+  let text = '';
+  let start = 0;
+  // Grow the trailing window until it holds minLines records (a non-zero start can
+  // split one leading line in half, which countTailRecords drops).
+  for (;;) {
+    start = Math.max(0, size - windowBytes);
+    text = await reader.readChunk(filePath, start, size - start);
+    if (start === 0 || countTailRecords(text, true) >= minLines) {
+      break;
+    }
+    windowBytes *= 2;
+  }
+
+  const lines = text.split('\n');
+  if (start > 0) {
+    lines.shift();
+  }
+
+  return lines.filter((line) => line.trim() !== '');
+}
+
+/**
  * Streams the last `maxLines` newline-delimited JSON records out of a carrier
  * file without materialising the whole file: it reads a bounded byte window from
  * the end through the injected reader and, when that window holds too few
@@ -487,36 +577,8 @@ export async function readCarrierFileTail(
   filePath: string,
   maxLines: number,
 ): Promise<unknown[]> {
-  if (maxLines <= 0) {
-    return [];
-  }
-
-  const size = await reader.size(filePath);
-  if (size === null || size <= 0) {
-    return [];
-  }
-
-  let windowBytes = Math.min(CARRIER_TAIL_WINDOW_BYTES, size);
-  let text = '';
-  let start = 0;
-  // Grow the trailing window until it holds maxLines records (a non-zero start
-  // can split one leading line in half, which countTailRecords drops).
-  for (;;) {
-    start = Math.max(0, size - windowBytes);
-    text = await reader.readChunk(filePath, start, size - start);
-    if (start === 0 || countTailRecords(text, true) >= maxLines) {
-      break;
-    }
-    windowBytes *= 2;
-  }
-
-  const lines = text.split('\n');
-  if (start > 0) {
-    lines.shift();
-  }
-
+  const lines = await readCarrierTailLines(reader, filePath, maxLines);
   return lines
-    .filter((line) => line.trim() !== '')
     .slice(-maxLines)
     .flatMap((line) => {
       try {
@@ -525,6 +587,28 @@ export async function readCarrierFileTail(
         return [];
       }
     });
+}
+
+/**
+ * Reads the LAST parseable JSONL record from a carrier file's tail, or `null` when the
+ * file is absent/empty or carries no parseable record at all.
+ *
+ * Used for the round heartbeat carrier, where only the newest record matters — so,
+ * unlike {@link readCarrierFileTail}, the caller wants "the most recent readable row"
+ * rather than a fixed-size history. A malformed trailing line (a torn append) is skipped
+ * in favour of the previous parseable record in the same bounded window instead of
+ * blanking the reading.
+ */
+async function readLastCarrierRecord(reader: QuayFileReader, filePath: string): Promise<unknown | null> {
+  const lines = await readCarrierTailLines(reader, filePath, 1);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      return JSON.parse(lines[index]) as unknown;
+    } catch {
+      // A torn/malformed line: keep scanning earlier records in the same window.
+    }
+  }
+  return null;
 }
 
 /** Projects a parsed `full-suite-state.json` body; `null` when it carries no usable `state` string. */
@@ -616,6 +700,86 @@ function summarizeFanInAttempts(value: unknown): QuayFanInAttemptSummary[] {
       },
     ];
   });
+}
+
+/**
+ * Reads the field the round carrier persists under its snake_case key (`in_flight_tasks`)
+ * or, when that is absent, the camelCase spelling the in-memory round options use
+ * (`inFlightTasks`). Quay's `writeRound` builds each record from camelCase options but
+ * persists it through a snake_case projection, and this reading's own notes referenced the
+ * option spelling; accepting both keeps a fixture written either way reading identically.
+ */
+function readRoundField(record: Record<string, unknown>, snakeCase: string, camelCase: string): unknown {
+  return record[snakeCase] !== undefined ? record[snakeCase] : record[camelCase];
+}
+
+/** Reads a task-id array field, keeping only non-empty strings and de-duplicating while preserving order. */
+function readInFlightTaskIds(value: unknown): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const entry of asArray(value)) {
+    if (typeof entry === 'string' && entry.length > 0 && !seen.has(entry)) {
+      seen.add(entry);
+      ids.push(entry);
+    }
+  }
+  return ids;
+}
+
+/**
+ * The phase for one in-flight task, from its most recent attempt in the Fan-in reading.
+ * `fanInAttempts` is in file order (oldest → newest), so the LAST matching entry is the
+ * task's most recent attempt: it holds the fan-in lock (`lockAcquireEpoch` non-null,
+ * `lockReleaseEpoch` still null) exactly when the task is parked in fan-in. A task with no
+ * attempt at all has never entered fan-in, so it reads `'implementing'`.
+ */
+function inFlightPhase(taskId: string, fanInAttempts: QuayFanInAttemptSummary[]): QuayInFlightTask['phase'] {
+  for (let index = fanInAttempts.length - 1; index >= 0; index -= 1) {
+    const attempt = fanInAttempts[index];
+    if (attempt.task !== taskId) {
+      continue;
+    }
+    return attempt.lockAcquireEpoch !== null && attempt.lockReleaseEpoch === null
+      ? 'fan-in'
+      : 'implementing';
+  }
+  return 'implementing';
+}
+
+/**
+ * Projects one `.quay/worker-round.jsonl` record to the snapshot's in-flight list.
+ *
+ * Returns `null` when there is no usable reading — no record at all (the file is absent,
+ * empty, or carried no parseable line) or a record without a heartbeat instant, which
+ * leaves every row's required `lastHeartbeat` unfillable. A usable record always yields
+ * an array, `[]` when it names no in-flight task, so "no reading" and "nothing running"
+ * stay distinguishable.
+ *
+ * `fanInAttempts` is the already-collected Fan-in reading; it supplies each task's
+ * `phase`, so this projection opens no second state machine.
+ */
+function summarizeInFlightTasks(
+  roundRecord: unknown,
+  fanInAttempts: QuayFanInAttemptSummary[],
+): QuayInFlightTask[] | null {
+  const record = asRecord(roundRecord);
+  // `ts` is the persisted heartbeat key; `at` is the option spelling `writeRound` is
+  // called with. Either names the same instant.
+  const lastHeartbeat = record ? readNullableString(readRoundField(record, 'ts', 'at')) : null;
+  if (!record || !lastHeartbeat) {
+    return null;
+  }
+
+  const starts = asRecord(readRoundField(record, 'in_flight_task_starts', 'inFlightTaskStarts'));
+  const workerPid = readNullableNumber(record.pid);
+
+  return readInFlightTaskIds(readRoundField(record, 'in_flight_tasks', 'inFlightTasks')).map((taskId) => ({
+    taskId,
+    phase: inFlightPhase(taskId, fanInAttempts),
+    startedAt: starts ? readNullableString(starts[taskId]) : null,
+    lastHeartbeat,
+    workerPid,
+  }));
 }
 
 /**
@@ -831,6 +995,7 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
       currentSuite,
       recentRoundRecords,
       fanInRecords,
+      workerRoundRecord,
       dashboardUrl,
     ] = await Promise.all([
       readJson(['task', 'list', '--json']),
@@ -849,6 +1014,7 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
         path.join(quayDir, QUAY_WORKER_OUTCOME_FILE),
         QUAY_RECENT_LIST_LIMIT,
       ),
+      readLastCarrierRecord(dependencies.readFile, path.join(quayDir, QUAY_WORKER_ROUND_FILE)),
       readDashboardUrl(projectPath),
     ]);
 
@@ -858,6 +1024,10 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
         warnings.push(read.warning);
       }
     }
+
+    // The fan-in attempts feed two readings: the Fan-in card, and the in-flight tasks'
+    // `phase` (a task holding an unreleased fan-in lock reads `'fan-in'`). Fold once.
+    const fanInAttempts = summarizeFanInAttempts(fanInRecords);
 
     return {
       projectId,
@@ -870,7 +1040,8 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
       adrs: summarizeAdrs(adrsRead.value),
       configIssues: summarizeConfigIssues(configRead.value),
       tests: { current: currentSuite, recentRounds: summarizeTestRounds(recentRoundRecords) },
-      fanIn: { recent: summarizeFanInAttempts(fanInRecords) },
+      fanIn: { recent: fanInAttempts },
+      inFlight: summarizeInFlightTasks(workerRoundRecord, fanInAttempts),
       dashboardUrl,
       warnings,
     };

@@ -33,6 +33,10 @@
  *       matches is an error `PROJECT_NOT_FOUND` (AC-287; see the leg's note on
  *       why not the prose `TARGET_NOT_FOUND`) — the two no longer collapse;
  *   (e) twenty projects still cost zero runner calls.
+ *   (f) `quay_snapshot` carries the in-flight reading (taskId/phase/startedAt/
+ *       lastHeartbeat/workerPid) end to end, while `overview`'s compact quay entry
+ *       deliberately does NOT grow an `inFlight` key (gap-cloudcli-quay-snapshot-
+ *       inflight-tasks: the field is added to `quay_snapshot` only).
  */
 
 import assert from 'node:assert/strict';
@@ -112,6 +116,21 @@ const CACHED_TASKS_TOTAL = 7;
 const CACHED_DRIVER_STATE = 'running';
 const CACHED_SUITE_STATE = 'passed';
 
+/**
+ * The in-flight reading the main project's cached snapshot carries — the same shape and
+ * values AC2 pins for the quay service, so leg (f) can assert the MCP round trip is
+ * verbatim.
+ */
+const IN_FLIGHT_READING = [
+  {
+    taskId: 'gap-example-task',
+    phase: 'implementing' as const,
+    startedAt: '2026-10-06T23:50:00.000Z',
+    lastHeartbeat: '2026-10-07T00:00:00.000Z',
+    workerPid: 4242,
+  },
+];
+
 // --------------------------- the injected quay fake ---------------------------
 
 /** A complete `QuaySnapshot` for the fake cache, overridable per project. */
@@ -149,6 +168,7 @@ function makeSnapshot(projectId: string, overrides: Partial<QuaySnapshot> = {}):
       recentRounds: [],
     },
     fanIn: { recent: [] },
+    inFlight: null,
     dashboardUrl: null,
     warnings: [],
     ...overrides,
@@ -393,7 +413,9 @@ async function withOverviewHarness(run: (harness: Harness, fixture: Fixture) => 
 
   // Only the main project's snapshot is cached; every other project (including
   // the other named one) is a cache MISS, which `overview` must mark `unknown`.
-  const cachedSnapshots = new Map<string, QuaySnapshot>([[mainId, makeSnapshot(mainId)]]);
+  const cachedSnapshots = new Map<string, QuaySnapshot>([
+    [mainId, makeSnapshot(mainId, { inFlight: IN_FLIGHT_READING })],
+  ]);
   // Every extra project is "has quay config" on ODD indices — index 0 (the
   // no-quay fixture) is deliberately config-less — and its snapshot is never
   // cached, so the listing is a mix of unknown and no_quay_config entries.
@@ -679,5 +701,30 @@ test('(e) twenty projects cost zero runner calls', { concurrency: false }, async
     console.log(`[e] projects=${projectCount} entries=${quay.length} refreshCount=${refreshCount}`);
     assert.equal(quay.length, projectCount, 'every project must be represented');
     assert.equal(refreshCount, 0, 'no project count may cause a runner call');
+  });
+});
+
+// --------------------------- (f) quay_snapshot carries in-flight; overview does not ---------------------------
+
+test('(f) quay_snapshot carries the in-flight reading and overview deliberately omits it', { concurrency: false }, async () => {
+  await withOverviewHarness(async (harness, fixture) => {
+    const refreshed = await harness.call('quay_snapshot', { project: fixture.mainId, refresh: true });
+    assert.equal(refreshed.isError, false, 'the refreshing read must not error');
+    const snapshot = (refreshed.payload as AnyRecord).snapshot as AnyRecord;
+    console.log(`[f] quay_snapshot.inFlight = ${JSON.stringify(snapshot.inFlight)}`);
+    // The in-flight task reaches the CloudCLI client verbatim, through the real mount.
+    assert.deepEqual(snapshot.inFlight, IN_FLIGHT_READING, 'the in-flight reading must round-trip verbatim');
+
+    // Scope guard: `overview`'s per-project summary is AC-247's and this task must not
+    // widen it — the cached snapshot HAS an in-flight reading, yet the overview entry
+    // carries no `inFlight` key at all.
+    const overview = await harness.call('overview');
+    assert.equal(overview.isError, false, 'overview must not error');
+    const entry = ((overview.payload as AnyRecord).quay as AnyRecord[]).find(
+      (row) => row.projectId === fixture.mainId,
+    );
+    console.log(`[f] overview main entry = ${JSON.stringify(entry)}`);
+    assert.ok(entry, 'the cached project must appear in overview');
+    assert.equal('inFlight' in entry, false, 'overview must not grow an inFlight key (scope stayed on quay_snapshot)');
   });
 });
