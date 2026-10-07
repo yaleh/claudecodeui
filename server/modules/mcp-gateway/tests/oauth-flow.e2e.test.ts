@@ -1,7 +1,8 @@
 /**
- * AC-268 criterion: the OAuth authorization-code flow, end to end, over real
- * HTTP against a REAL `server/index.ts` process (GOAL-021 exit condition 7;
- * mcp-gateway-SPEC v3.1 §403–§421, §148–§156, §451).
+ * AC-268 criterion (re-based on the SPA consent hand-off,
+ * gap-oauth-consent-spa-backend-contract): the OAuth authorization-code flow, end
+ * to end, over real HTTP against a REAL `server/index.ts` process (GOAL-021 exit
+ * condition 7; mcp-gateway-SPEC v3.1 §403–§421, §148–§156, §451).
  *
  * The instance is a real child process on a temporary port, with a temporary
  * `HOME` and an EXPLICITLY overridden `DATABASE_PATH` (the ambient shell exports
@@ -13,19 +14,24 @@
  * set of ports `listen(0)` can land on.
  *
  * One run reads:
- *   (a) discovery (both `/.well-known/*` answer JSON) -> DCR registration -> the
- *       server-rendered consent page -> a password+CSRF POST that 302s back with
- *       a code -> `/oauth/token` exchanging it for access+refresh;
+ *   (a) discovery (both `/.well-known/*` answer JSON) -> DCR registration ->
+ *       `GET /oauth/authorize` 302s to the relative SPA route -> the JWT-guarded
+ *       `/api/oauth/authorize/context` and `/decision` round trip -> the
+ *       `redirectTo` carries a code -> `/oauth/token` exchanges it for
+ *       access+refresh;
  *   (b) `/mcp` `tools/list` and `overview` with the access token;
  *   (c) refresh rotation (new pair) and the OLD refresh token's rejection;
  *   (d) the SAME access token: 200 before the settings revoke, 401 after;
- *   (e) three counterexamples in the same run: wrong password gets no code, a
- *       wrong `code_verifier` gets no token, a replayed code is refused;
+ *   (e) three counterexamples in the same run: a consent decision with NO bearer
+ *       JWT gets 401 (the session gate), a wrong `code_verifier` gets no token, a
+ *       replayed code is refused;
  *   (R) `/oauth/revoke` genuinely revokes a token (its next `/mcp` is 401).
  *
- * The mount under test is the production one: `/oauth/authorize`, `/oauth/token`
- * and `/oauth/revoke` are attached by `mountOAuthServer` in `server/index.ts`
- * BEFORE `createStaticAssetsMiddleware` (AC8 scans the source for that order).
+ * The mount under test is the production one: `/oauth/authorize`, the
+ * `/api/oauth/authorize` JSON API, `/oauth/token` and `/oauth/revoke` are
+ * attached by `mountOAuthServer`, and the SPA document-header middleware is
+ * mounted at `/oauth/consent` — both in `server/index.ts` BEFORE
+ * `createStaticAssetsMiddleware` (AC8 scans the source for that order).
  */
 
 import assert from 'node:assert/strict';
@@ -34,18 +40,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import http from 'node:http';
-import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-
-// bcrypt ships no TypeScript declarations here; the criterion narrows the only
-// method it uses before hashing the seeded user's password.
-const require = createRequire(import.meta.url);
-const bcrypt = require('bcrypt') as { hash(password: string, rounds: number): Promise<string> };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // server/modules/mcp-gateway/tests -> repo root is four directories up.
@@ -56,10 +56,10 @@ const READY_LINE = 'CloudCLI Server - Ready';
 
 const TEST_JWT_SECRET = 'oauth-flow-e2e-secret';
 const USERNAME = 'oauth-e2e-user';
-const PASSWORD = 'correct-horse-battery-staple';
-const WRONG_PASSWORD = 'not-the-password';
 const REDIRECT_URI = 'https://app.example/cb';
 const READ_SCOPE = 'cloudcli:read';
+/** The route the authorization endpoint hands the browser to (mirrors `shared/oauthConsent.ts`). */
+const SPA_CONSENT_PATH = '/oauth/consent';
 /** The Accept a Streamable HTTP client must send; without it the transport answers 406. */
 const MCP_ACCEPT = 'application/json, text/event-stream';
 const BOOT_TIMEOUT_MS = 120_000;
@@ -170,20 +170,19 @@ function pkcePair(): { verifier: string; challenge: string } {
   return { verifier, challenge: crypto.createHash('sha256').update(verifier).digest('base64url') };
 }
 
-/** The CSRF token the consent page rendered into its hidden field. */
-function parseCsrf(html: string): string {
-  const match = html.match(/name="csrf_token" value="([^"]+)"/);
-  assert.ok(match, 'the consent page must render a csrf_token hidden field');
-  return match[1];
-}
-
-/** The `code`/`state` a consent POST's `Location` carries, or null when it did not redirect. */
-function codeFromLocation(location: string | undefined): { code: string | null; state: string | null } {
-  if (location === undefined) {
+/** The `code`/`state` a decision's `redirectTo` carries, or nulls when it did not redirect. */
+function codeFromRedirectTo(redirectTo: string | undefined): { code: string | null; state: string | null } {
+  if (redirectTo === undefined) {
     return { code: null, state: null };
   }
-  const url = new URL(location);
+  const url = new URL(redirectTo);
   return { code: url.searchParams.get('code'), state: url.searchParams.get('state') };
+}
+
+/** The `redirectTo` a decision response's JSON body carries, or undefined. */
+function redirectToOf(reading: HttpReading): string | undefined {
+  const value = reading.json?.redirectTo;
+  return typeof value === 'string' ? value : undefined;
 }
 
 // --------------------------- seeding + spawning ---------------------------
@@ -224,10 +223,11 @@ type ServerContext = {
 };
 
 /**
- * Seeds a temp database with ONE CloudCLI user (bcrypt password hash, so the
- * consent POST verifies through the same `authService.login` path a real login
- * uses), boots a real `server/index.ts` process against it on a temp port, waits
- * for the ready line, and hands the context to `run`. The process group is
+ * Seeds a temp database with ONE CloudCLI user, boots a real `server/index.ts`
+ * process against it on a temp port, waits for the ready line, and hands the
+ * context to `run`. The user row is what `oauth_grants.user_id` references and
+ * what `authenticateToken` loads for the minted JWT — the consent API no longer
+ * verifies a password, so the hash is an unused placeholder. The process group is
  * SIGKILLed and the temp tree removed on every exit path.
  */
 async function withRealServer(run: (context: ServerContext) => Promise<void>): Promise<void> {
@@ -238,14 +238,13 @@ async function withRealServer(run: (context: ServerContext) => Promise<void>): P
 
   // Seed BEFORE spawning: the database module reads DATABASE_PATH when it
   // connects, so the temp path is in place first. `initializeDatabase` builds the
-  // production schema; `userDb.createUser` writes the one user the consent page
-  // authenticates.
+  // production schema; `userDb.createUser` writes the one user the consent API's
+  // JWT belongs to.
   const previousDatabasePath = process.env.DATABASE_PATH;
   process.env.DATABASE_PATH = dbPath;
   const { closeConnection, initializeDatabase, userDb } = await import('@/modules/database/index.js');
   await initializeDatabase();
-  const passwordHash = await bcrypt.hash(PASSWORD, 12);
-  const created = userDb.createUser(USERNAME, passwordHash);
+  const created = userDb.createUser(USERNAME, 'placeholder-hash');
   const userId = Number(created.id);
   closeConnection();
   if (previousDatabasePath === undefined) {
@@ -387,14 +386,20 @@ test('AC-268: the OAuth flow completes end to end on a real server process', { c
     // top of the file and would make the comparison vacuous).
     const mountAt = indexSource.indexOf('mountOAuthServer(app');
     const staticAt = indexSource.indexOf('createStaticAssetsMiddleware({');
+    const docHeadersAt = indexSource.indexOf('createOAuthConsentDocumentHeadersMiddleware()');
     assert.ok(mountAt >= 0, 'server/index.ts must call mountOAuthServer');
     assert.ok(staticAt >= 0, 'server/index.ts must mount createStaticAssetsMiddleware');
     assert.ok(
       mountAt < staticAt,
       `mountOAuthServer (offset ${mountAt}) must precede createStaticAssetsMiddleware (offset ${staticAt})`
     );
+    assert.ok(docHeadersAt >= 0, 'server/index.ts must mount createOAuthConsentDocumentHeadersMiddleware()');
+    assert.ok(
+      docHeadersAt < staticAt,
+      `the SPA document-header middleware (offset ${docHeadersAt}) must precede createStaticAssetsMiddleware (offset ${staticAt})`
+    );
     const cmdline = fs.readFileSync(`/proc/${ctx.leaderPid}/cmdline`, 'utf8').split('\0').filter(Boolean);
-    console.log(`[AC8] server/index.ts: mountOAuthServer@${mountAt} < createStaticAssetsMiddleware@${staticAt}`);
+    console.log(`[AC8] server/index.ts: mountOAuthServer@${mountAt} < consentDocHeaders@${docHeadersAt} < createStaticAssetsMiddleware@${staticAt}`);
     console.log(`[AC8] process cmdline: ${cmdline.join(' ')}`);
     assert.ok(cmdline.some((part) => part.includes(SERVER_ENTRY)), 'the live process must be server/index.ts');
     assert.ok(ctx.logText().includes('oauth server mounted'), `the mount must be logged, got:\n${ctx.logText().slice(-3000)}`);
@@ -431,8 +436,31 @@ test('AC-268: the OAuth flow completes end to end on a real server process', { c
     // A public client (token_endpoint_auth_method none) carries no secret.
     assert.equal(registration.json?.client_secret, undefined, 'a public DCR client must carry no secret');
 
-    // The full consent + code + exchange path, factored so each grant reuses it.
-    async function obtainCode(): Promise<{ verifier: string; challenge: string; state: string; code: string; location: string }> {
+    // ---- (AC8) the consent surface's headers on the live server --------------
+    const spaProbe = await httpCall(ctx.port, {
+      method: 'GET',
+      path: `${SPA_CONSENT_PATH}?client_id=${clientId as string}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code`,
+    });
+    console.log(
+      `[AC8] GET ${SPA_CONSENT_PATH} -> ${spaProbe.status} location=${String(spaProbe.headers.location)} `
+      + `x-frame-options=${String(spaProbe.headers['x-frame-options'])} `
+      + `csp="${String(spaProbe.headers['content-security-policy'])}" `
+      + `cache-control="${String(spaProbe.headers['cache-control'])}"`
+    );
+    assert.equal(spaProbe.headers['x-frame-options'], 'DENY', 'the SPA consent route must refuse framing');
+    assert.ok(
+      String(spaProbe.headers['content-security-policy']).includes("frame-ancestors 'none'"),
+      'the SPA consent route must carry frame-ancestors none'
+    );
+    assert.ok(
+      String(spaProbe.headers['cache-control']).includes('no-store'),
+      'the SPA consent route must not be cached'
+    );
+
+    // The full consent + code + exchange path, factored so each grant reuses it:
+    // `GET /oauth/authorize` validates and hands off to the SPA route; the SPA's
+    // two JWT-guarded JSON round trips mint the code; the token endpoint exchanges it.
+    async function obtainCode(): Promise<{ verifier: string; challenge: string; state: string; code: string; redirectTo: string }> {
       const { verifier, challenge } = pkcePair();
       const state = crypto.randomBytes(8).toString('hex');
       const query = new URLSearchParams({
@@ -444,36 +472,47 @@ test('AC-268: the OAuth flow completes end to end on a real server process', { c
         scope: READ_SCOPE,
         state,
       });
-      const get = await httpCall(ctx.port, { method: 'GET', path: `/oauth/authorize?${query.toString()}` });
-      console.log(`[a] GET /oauth/authorize -> ${get.status} ${get.contentType}`);
-      assert.equal(get.status, 200, 'the consent page must render');
-      assert.ok((get.contentType ?? '').includes('text/html'), 'the consent page must be served as HTML');
-      const csrf = parseCsrf(get.text);
 
-      const post = await httpCall(ctx.port, {
+      const authorize = await httpCall(ctx.port, { method: 'GET', path: `/oauth/authorize?${query.toString()}` });
+      const location = (authorize.headers.location as string | undefined) ?? '';
+      console.log(`[a] GET /oauth/authorize -> ${authorize.status} location=${location}`);
+      assert.equal(authorize.status, 302, 'a valid authorization request must redirect to the SPA route');
+      assert.ok(
+        location.startsWith(`${SPA_CONSENT_PATH}?`),
+        `the redirect must be the relative SPA route carrying the query: ${location}`
+      );
+
+      const context = await httpCall(ctx.port, {
+        method: 'GET',
+        path: `/api/oauth/authorize/context?${query.toString()}`,
+        headers: { authorization: `Bearer ${ctx.jwt}` },
+      });
+      console.log(`[a] GET /api/oauth/authorize/context -> ${context.status} ${context.text}`);
+      assert.equal(context.status, 200, 'the context API must answer with the bearer JWT');
+      assert.equal(context.json?.state, state, 'the context must echo the state');
+      assert.equal(context.json?.redirectUri, REDIRECT_URI, 'the context must echo the redirect_uri');
+
+      const decision = await httpCall(ctx.port, {
         method: 'POST',
-        path: '/oauth/authorize',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: formEncode({
+        path: '/api/oauth/authorize/decision',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${ctx.jwt}` },
+        body: JSON.stringify({
           client_id: clientId as string,
           redirect_uri: REDIRECT_URI,
           state,
           code_challenge: challenge,
           code_challenge_method: 'S256',
-          csrf_token: csrf,
-          username: USERNAME,
-          password: PASSWORD,
+          scopes: [READ_SCOPE],
           action: 'allow',
-          scope: READ_SCOPE,
         }),
       });
-      const location = (post.headers.location as string | undefined) ?? '';
-      console.log(`[a] POST /oauth/authorize -> ${post.status} location=${location}`);
-      assert.equal(post.status, 302, 'a successful consent POST must redirect');
-      const parsed = codeFromLocation(location);
-      assert.equal(parsed.state, state, 'the redirect must echo the state');
-      assert.ok(parsed.code, 'the redirect must carry an authorization code');
-      return { verifier, challenge, state, code: parsed.code as string, location };
+      const redirectTo = redirectToOf(decision);
+      console.log(`[a] POST /api/oauth/authorize/decision -> ${decision.status} redirectTo=${String(redirectTo)}`);
+      assert.equal(decision.status, 200, 'an allow decision must answer 200');
+      const parsed = codeFromRedirectTo(redirectTo);
+      assert.equal(parsed.state, state, 'the redirectTo must echo the state');
+      assert.ok(parsed.code, 'the redirectTo must carry an authorization code');
+      return { verifier, challenge, state, code: parsed.code as string, redirectTo: redirectTo as string };
     }
 
     async function exchangeCode(params: {
@@ -592,44 +631,39 @@ test('AC-268: the OAuth flow completes end to end on a real server process', { c
     assert.equal(afterRefreshReplay.status, 401, 'reusing a rotated refresh token must revoke the whole grant');
 
     // ---- (AC7 / (e)) the three counterexamples -------------------------------
-    // (e1) wrong password: no code is issued.
-    const wrongChallenge = pkcePair();
-    const wrongGet = await httpCall(ctx.port, {
-      method: 'GET',
-      path: `/oauth/authorize?${new URLSearchParams({
-        response_type: 'code',
-        client_id: clientId as string,
-        redirect_uri: REDIRECT_URI,
-        code_challenge: wrongChallenge.challenge,
-        code_challenge_method: 'S256',
-        scope: READ_SCOPE,
-      }).toString()}`,
+    // (e1) no bearer JWT: the consent JSON API refuses both routes, and the
+    // decision hands back no `redirectTo`.
+    const noJwtQuery = new URLSearchParams({
+      client_id: clientId as string,
+      redirect_uri: REDIRECT_URI,
+      state: 'no-jwt',
+      code_challenge: pkcePair().challenge,
+      code_challenge_method: 'S256',
     });
-    assert.equal(wrongGet.status, 200, 'the consent page must render for the wrong-password probe');
-    const wrongCsrf = parseCsrf(wrongGet.text);
-    const wrongPasswordPost = await httpCall(ctx.port, {
+    const contextNoJwt = await httpCall(ctx.port, {
+      method: 'GET',
+      path: `/api/oauth/authorize/context?${noJwtQuery.toString()}`,
+    });
+    console.log(`[e1] GET /api/oauth/authorize/context (no JWT) -> ${contextNoJwt.status} ${contextNoJwt.text}`);
+    assert.equal(contextNoJwt.status, 401, 'the context API must refuse a request with no bearer JWT');
+
+    const decisionNoJwt = await httpCall(ctx.port, {
       method: 'POST',
-      path: '/oauth/authorize',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: formEncode({
+      path: '/api/oauth/authorize/decision',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
         client_id: clientId as string,
         redirect_uri: REDIRECT_URI,
-        code_challenge: wrongChallenge.challenge,
+        state: 'no-jwt',
+        code_challenge: pkcePair().challenge,
         code_challenge_method: 'S256',
-        csrf_token: wrongCsrf,
-        username: USERNAME,
-        password: WRONG_PASSWORD,
+        scopes: [READ_SCOPE],
         action: 'allow',
-        scope: READ_SCOPE,
       }),
     });
-    console.log(`[e1] POST /oauth/authorize (wrong password) -> ${wrongPasswordPost.status} location=${String(wrongPasswordPost.headers.location)}`);
-    assert.equal(wrongPasswordPost.status, 401, 'a wrong password must be refused');
-    assert.equal(
-      codeFromLocation(wrongPasswordPost.headers.location as string | undefined).code,
-      null,
-      'a wrong password must not yield a code'
-    );
+    console.log(`[e1] POST /api/oauth/authorize/decision (no JWT) -> ${decisionNoJwt.status} ${decisionNoJwt.text}`);
+    assert.equal(decisionNoJwt.status, 401, 'the decision API must refuse a request with no bearer JWT');
+    assert.equal(redirectToOf(decisionNoJwt), undefined, 'an unauthenticated decision must not hand back a redirectTo');
 
     // (e2) wrong code_verifier: no token.
     const grantC = await obtainCode();

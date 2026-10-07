@@ -30,13 +30,13 @@ import { activityStore, BOOT_ID, broadcastHostsChanged, chatRunRegistry, createA
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
+import { OAUTH_CONSENT_SPA_PATH } from '../shared/oauthConsent.js';
 
 import { createGitModule } from './modules/git/index.js';
 import {
     authenticateToken,
     authenticateWebSocket,
     authRoutes,
-    credentialVerifier,
     validateApiKey,
 } from './modules/auth/index.js';
 import { taskmasterRoutes } from './modules/taskmaster/index.js';
@@ -46,6 +46,7 @@ import { settingsRoutes } from './modules/settings/index.js';
 import {
     createAccessTokensService,
     createOAuthClientsRouter,
+    createOAuthConsentDocumentHeadersMiddleware,
     createOAuthRequestLogger,
     createOAuthProvider,
     createOAuthSettingsRouter,
@@ -582,12 +583,20 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // process `BOOT_ID`, the same identity the activity snapshots and every run this
 // registry opens carry, so `run_get` can report "服务已重启" when a run belongs to
 // a previous process boot.
-// One secret-free log line per request to the OAuth and MCP surfaces. Mounted before
-// any of them so the lines also cover requests an inner router refuses. Without it a
-// client that registered but never exchanged its code is indistinguishable from one
-// whose request never arrived.
+// One secret-free log line per request to the OAuth and MCP surfaces, including
+// the SPA consent API under `/api/oauth/authorize` (whose `state`/`code`/
+// `code_challenge` values the logger redacts). Mounted before any of them so the
+// lines also cover requests an inner router refuses. Without it a client that
+// registered but never exchanged its code is indistinguishable from one whose
+// request never arrived.
 app.use(
-    ['/oauth', '/mcp', '/.well-known/oauth-authorization-server', '/.well-known/oauth-protected-resource'],
+    [
+        '/oauth',
+        '/api/oauth/authorize',
+        '/mcp',
+        '/.well-known/oauth-authorization-server',
+        '/.well-known/oauth-protected-resource',
+    ],
     createOAuthRequestLogger(),
 );
 const oauthMetadataGate = readOAuthMetadataGate();
@@ -803,24 +812,36 @@ if (oauthMetadata.mounted) {
     );
 }
 
-// The authorization-server HTTP surface (AC-268): `/oauth/authorize` (AC-260's
-// consent page, reused verbatim), `/oauth/token` and `/oauth/revoke`, over the
-// ONE provider that also backs `/mcp`'s verification seam. Gated on OAuth being
-// on — the metadata mount's own reading, not a second read of the switch — and
-// attached BEFORE the static layer for the same reason as the two mounts above:
-// behind the SPA catch-all every one of these paths would answer `200 text/html`
-// and no OAuth client could complete a flow.
+// The authorization-server HTTP surface (AC-268; SPA consent,
+// gap-oauth-consent-spa-backend-contract): `/oauth/authorize` (the validating
+// redirect router), the JWT-guarded `/api/oauth/authorize` consent API,
+// `/oauth/token` and `/oauth/revoke`, over the ONE provider that also backs
+// `/mcp`'s verification seam. `authenticateToken` is the application's own bearer
+// middleware, so the consent API is session-bound and a form POST from another
+// origin carries no cookie authority. Gated on OAuth being on — the metadata
+// mount's own reading, not a second read of the switch — and attached BEFORE the
+// static layer for the same reason as the mounts above: behind the SPA catch-all
+// every one of these paths would answer `200 text/html` and no OAuth client could
+// complete a flow.
 if (oauthMetadata.mounted && oauthProvider !== undefined) {
     const oauthServer = mountOAuthServer(app, {
         provider: oauthProvider,
         store: oauthStore,
         clients: oauthClientsDb,
-        verifyCredentials: credentialVerifier,
+        authenticateToken,
     });
     console.log(
-        `[MCP] oauth server ${oauthServer.mounted ? 'mounted' : 'not mounted'} at /oauth/authorize|token|revoke (${oauthServer.reason})`,
+        `[MCP] oauth server ${oauthServer.mounted ? 'mounted' : 'not mounted'} at /oauth/authorize|api/oauth/authorize|token|revoke (${oauthServer.reason})`,
     );
 }
+
+// The anti-framing / no-store posture on the SPA consent DOCUMENT. Mounted at the
+// exact consent route, ahead of the static layer, because that layer's SPA
+// catch-all sets its own `Cache-Control` for `index.html` and would otherwise win
+// on the one document the headers are for; the middleware re-asserts them at
+// `writeHead` so they land whether the static layer serves `dist/index.html` or
+// the dev branch redirects to the Vite server.
+app.use(OAUTH_CONSENT_SPA_PATH, createOAuthConsentDocumentHeadersMiddleware());
 
 // Static assets and the SPA entry, mounted after every API route so response
 // compression only ever applies to the bundle and HTML above (see the module

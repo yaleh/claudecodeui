@@ -737,9 +737,7 @@ before(async () => {
   const oauthApp = express();
   oauthApp.use(
     createOAuthConsentRouter({
-      provider: {} as never,
       clients: { findById: () => undefined },
-      verifyCredentials: (async () => ({ ok: false })) as never,
     }),
   );
   const oauthServer = oauthApp.listen(0, '127.0.0.1');

@@ -1,21 +1,29 @@
 /**
- * OAuth authorization-server HTTP mount (mcp-gateway-SPEC §148–§156, AC-268).
+ * OAuth authorization-server HTTP mount (mcp-gateway-SPEC §148–§156, AC-268;
+ * SPA consent, gap-oauth-consent-spa-backend-contract).
  *
- * The production wiring of the three endpoints the discovery documents advertise
- * (`buildAuthorizationServerMetadata`: `authorization_endpoint`, `token_endpoint`,
- * `revocation_endpoint`) and that every earlier stage-5 task left to its own
- * mechanism:
+ * The production wiring of the endpoints the discovery documents advertise
+ * (`buildAuthorizationServerMetadata`: `authorization_endpoint`,
+ * `token_endpoint`, `revocation_endpoint`) plus the JSON consent API the SPA
+ * drives:
  *
- *   GET/POST /oauth/authorize → AC-260's consent page factory
- *                               ({@link createOAuthConsentRouter}, reused verbatim)
- *   POST     /oauth/token     → AC-259's provider exchanges (authorization_code,
- *                               refresh_token)
- *   POST     /oauth/revoke    → AC-258's grant cascade (RFC 7009)
+ *   GET  /oauth/authorize            → validate, then 302 to the SPA route
+ *                                      ({@link createOAuthConsentRouter})
+ *   GET  /api/oauth/authorize/context   → the consent screen's data
+ *   POST /api/oauth/authorize/decision  → allow/deny, one `redirectTo`
+ *                                      ({@link createOAuthAuthorizeApiRouter})
+ *   POST /oauth/token               → AC-259's provider exchanges
+ *                                      (authorization_code, refresh_token)
+ *   POST /oauth/revoke              → AC-258's grant cascade (RFC 7009)
  *
  * This file owns TRANSPORT ONLY. It does not re-implement the store, the
- * authorization-server semantics, the page, DCR or the settings surface: the
- * consent form, the PKCE/rotation/reuse rules and the revocation cascade stay
- * where their own tasks put them, and are reached through the injected seams.
+ * authorization-server semantics, the consent policy, DCR or the settings
+ * surface: those stay where their own tasks put them and are reached through the
+ * injected seams.
+ *
+ * AUTHENTICATION is the composition root's job, not this router's: the JSON API
+ * is mounted BEHIND the injected `authenticateToken`, so no route here inspects
+ * a token and a caller that skipped the middleware can never be half-admitted.
  *
  * Mount ORDER is the composition root's job (`server/index.ts` calls this BEFORE
  * `createStaticAssetsMiddleware`): behind the SPA catch-all a `POST /oauth/token`
@@ -27,13 +35,12 @@
  * whole flow over real HTTP against the real server process.
  */
 
-import type { Express, Request, Response } from 'express';
+import type { Express, Request, Response, RequestHandler } from 'express';
 import express from 'express';
 
-import type { CredentialVerifier } from '@/modules/auth/index.js';
 import type { OAuthClientRow } from '@/modules/database/index.js';
 
-import { createOAuthConsentRouter } from './oauth-consent.routes.js';
+import { createOAuthAuthorizeApiRouter, createOAuthConsentRouter } from './oauth-consent.routes.js';
 import type { ExchangeResult, OAuthProvider } from './oauth-provider.service.js';
 import type { OAuthStore } from './oauth-store.service.js';
 
@@ -41,9 +48,9 @@ import type { OAuthStore } from './oauth-store.service.js';
  * The seams the mount needs. `provider` is the SAME instance `server/index.ts`
  * hands `/mcp`'s verification seam, so an authorization issued at
  * `/oauth/authorize` and verified at `/mcp` are two views of one object;
- * `clients` is the store-backed lookup the consent page renders; and
- * `verifyCredentials` is the auth module's non-throwing credential check the
- * consent POST authenticates the browser user with.
+ * `clients` is the store-backed lookup both consent routes validate against; and
+ * `authenticateToken` is the application's ordinary bearer-JWT middleware, which
+ * is what makes the consent API session-bound rather than form-driven.
  *
  * Consumers: `server/index.ts` and this module's AC-268 criterion.
  */
@@ -51,11 +58,11 @@ export type MountOAuthServerDeps = {
   provider: OAuthProvider;
   store: OAuthStore;
   clients: { findById(clientId: string): OAuthClientRow | undefined };
-  verifyCredentials: CredentialVerifier;
+  authenticateToken: RequestHandler;
 };
 
 /**
- * Whether the three endpoints were attached, and why. Mirrors the sibling mount
+ * Whether the endpoints were attached, and why. Mirrors the sibling mount
  * readings (`mountOAuthMetadata`, `mountOAuthRegister`) so `server/index.ts` logs
  * one shape. Consumers: `server/index.ts` and the AC-268 criterion.
  */
@@ -93,14 +100,15 @@ function sendExchangeResult(res: Response, result: ExchangeResult): void {
 }
 
 /**
- * Mounts `/oauth/authorize`, `/oauth/token` and `/oauth/revoke` on `app`.
+ * Mounts the authorization endpoint, the consent JSON API, `/oauth/token` and
+ * `/oauth/revoke` on `app`.
  *
- * `/authorize` is AC-260's router mounted verbatim, so the page render,
- * HTML escaping, CSRF ledger and password rate limiter are the ones that task's
- * criterion already pins. `/token` and `/revoke` are form-encoded POSTs; the
- * body parser is attached on the route rather than assumed, so the factory is
- * self-contained whether it sits behind `server/index.ts`'s global
- * `express.urlencoded` or on a bare app (the AC-268 criterion does both).
+ * `/authorize` is the validating redirect router; the JSON API is the same
+ * consent contract behind `authenticateToken`. `/token` and `/revoke` are
+ * form-encoded POSTs; the body parser is attached on the route rather than
+ * assumed, so the factory is self-contained whether it sits behind
+ * `server/index.ts`'s global `express.urlencoded` or on a bare app (the AC-268
+ * criterion does both).
  *
  * `/token` dispatches on `grant_type` to the two provider exchanges and never
  * inspects a token itself. `/revoke` looks the presented token up through the
@@ -109,14 +117,14 @@ function sendExchangeResult(res: Response, result: ExchangeResult): void {
  * makes the presented access token fail the very next `/mcp` request.
  */
 export function mountOAuthServer(app: Express, deps: MountOAuthServerDeps): OAuthServerMountReading {
-  const { provider, store, clients, verifyCredentials } = deps;
+  const { provider, store, clients, authenticateToken } = deps;
 
   const router = express.Router();
 
-  // The consent page (AC-260): GET renders, POST re-verifies the password and
-  // hands the request to the provider. Mounted at `/oauth` so its `/authorize`
-  // path matches the advertised `authorization_endpoint`.
-  router.use(createOAuthConsentRouter({ provider, clients, verifyCredentials }));
+  // The authorization endpoint: validate, then hand the browser to the SPA.
+  // Mounted at `/oauth` so its `/authorize` path matches the advertised
+  // `authorization_endpoint`.
+  router.use(createOAuthConsentRouter({ clients }));
 
   // The token endpoint (AC-259's exchanges over HTTP, RFC 6749 §3.2).
   router.post('/token', express.urlencoded({ extended: false }), (req: Request, res: Response) => {
@@ -184,6 +192,11 @@ export function mountOAuthServer(app: Express, deps: MountOAuthServerDeps): OAut
   });
 
   app.use('/oauth', router);
+
+  // The consent JSON API, behind the application's own bearer-JWT middleware.
+  // Mounted AFTER `/api/oauth`'s token-info route and BEFORE the static layer so
+  // it answers JSON rather than the SPA.
+  app.use('/api/oauth/authorize', authenticateToken, createOAuthAuthorizeApiRouter({ provider, clients }));
 
   return { mounted: true, reason: 'MCP OAuth is on' };
 }
