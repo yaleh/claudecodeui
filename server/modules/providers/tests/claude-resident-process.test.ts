@@ -527,13 +527,33 @@ test('(a) three real chat.send rounds on one resident host: same pid, same hostI
     await withResidentHarness(mock, async ({ socket, cwd }) => {
       const readings: HostReading[] = [];
       const nodes: string[] = [];
+      // Terminal frames per round, and the count before the first round, so the
+      // tally below says what the transport did rather than what the rounds were
+      // expected to do. This socket plays the frontend's role — the client's own
+      // `complete` handler is what refreshes the transcript tail — so a round
+      // that produced no terminal frame, or two, is visible here.
+      const completesBeforeRounds = completesOf(socket).length;
+      const completesPerRound: number[] = [];
 
       for (const content of ['round one', 'round two', 'round three']) {
+        const roundStart = completesOf(socket).length;
         const complete = await sendRound(socket, content, cwd);
+        completesPerRound.push(completesOf(socket).length - roundStart);
         assert.strictEqual(complete.aborted, false, `"${content}" completed rather than aborting`);
         assert.strictEqual(complete.exitCode, 0, `"${content}" exited cleanly`);
         readings.push(liveResidentReading());
       }
+
+      // The reading gap-fork-from-assistant-reply-anchor's first criterion is
+      // about: whether the resident path gives the client a terminal frame at
+      // the end of EVERY turn. It decides whether that task has to add a
+      // turn-end tail refresh of its own, so it is printed in the form the
+      // criterion names rather than left to be inferred from the assertions
+      // above — those hold for any non-zero count.
+      const completesAfterRounds = completesOf(socket).length - completesBeforeRounds;
+      const everyTurn = completesPerRound.every((count) => count === 1);
+      console.log(`[resident] completesBeforeRounds=${completesBeforeRounds} completesPerRound=${completesPerRound.join(',')}`);
+      console.log(`residentTurnComplete=${everyTurn && completesAfterRounds === completesPerRound.length ? 'every-turn' : 'not-every-turn'}`);
 
       assertSameHostAcrossRounds(readings, 'three rounds');
       for (const reading of readings) {
