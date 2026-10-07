@@ -12,7 +12,7 @@
  * `resolveDeps` list.
  *
  * Readings, one leg each:
- *   (a) `tools/list` names 17 tools; each has an error probe in the table and
+ *   (a) `tools/list` names 19 tools; each has an error probe in the table and
  *       each of those probes answers `isError === true` with a `structuredContent`
  *       envelope whose `code` matches `^[A-Z][A-Z0-9_]*$` and is a member of the
  *       gateway's one code vocabulary, whose `message` is non-empty English, and
@@ -423,7 +423,7 @@ type ToolProbe = { probeClass: ProbeClass; args: AnyRecord; expect: string };
  *
  * Every entry deliberately uses the SHALLOWEST failure the tool has — a missing
  * required argument or a wrong-typed one — so the envelope is produced by the
- * wrapper's validation branch for all 17 at once. The classes that need a
+ * wrapper's validation branch for all 18 at once. The classes that need a
  * particular tool and argument are probed separately in {@link CLASS_PROBES}.
  */
 const PROBE_TABLE: Record<string, ToolProbe> = {
@@ -448,6 +448,9 @@ const PROBE_TABLE: Record<string, ToolProbe> = {
   session_background: { probeClass: '参数类型错', args: { session: 5 }, expect: 'INVALID_ARGUMENT' },
   approvals_list: { probeClass: '参数类型错', args: { session: 5 }, expect: 'INVALID_ARGUMENT' },
   approval_answer: { probeClass: '参数缺失', args: {}, expect: 'INVALID_ARGUMENT' },
+  // `client` is a declared optional string, so a wrong-typed one fails the
+  // wrapper's validation before any device resolution runs.
+  ui_visible_context: { probeClass: '参数类型错', args: { client: 5 }, expect: 'INVALID_ARGUMENT' },
 };
 
 /**
@@ -648,9 +651,9 @@ test('(d) the probe table covers exactly the tools the registry lists', async ()
   const covered = [...Object.keys(PROBE_TABLE), ...Object.keys(EXEMPT_TOOLS)].sort();
 
   // Non-vacuity: the registry really answered, and answered with the full set —
-  // eight read + five write + five resident tools. A mount that registered
+  // nine read + five write + five resident tools. A mount that registered
   // nothing would fail the equality below, not pass it.
-  assert.equal(registryNames.length, 18, `tools/list must return the full 18-tool set, got ${registryNames.join(', ')}`);
+  assert.equal(registryNames.length, 19, `tools/list must return the full 19-tool set, got ${registryNames.join(', ')}`);
   say(`(d) registry names: ${registryNames.join(', ')}`);
 
   assert.deepEqual(

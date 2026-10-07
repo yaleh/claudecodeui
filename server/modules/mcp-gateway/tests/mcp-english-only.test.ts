@@ -15,7 +15,7 @@
  * needed beyond the audit table the audited wrapper writes.
  *
  * Readings, one leg each:
- *   (a) `tools/list` names 18 tools. Every tool has a success probe; every tool
+ *   (a) `tools/list` names 19 tools. Every tool has a success probe; every tool
  *       with declared arguments also has a failure probe (the one argument-less
  *       tool, `ui_last_opened_session`, has no validation branch to drive and is
  *       exempted with a reasoned entry — {@link NO_VALIDATION_FAILURE}); the
@@ -406,6 +406,44 @@ const readTools = {
   // this reader answering `null`; that arm is the owner criterion's, see
   // {@link NO_VALIDATION_FAILURE}.)
   uiLastOpened: { read: () => ({ sessionId: 'sess-1', openedAt: FIXED_NOW - 60 * 1000 }) },
+  // The UI-state round trip, wired so `ui_visible_context` has a real success
+  // path: one device whose one tab reports the `sess-1` this fixture resolves,
+  // watching `m-1`..`m-9`. Every field is an ASCII identifier, so (a)'s walk and
+  // its supplementary rule both read the same nothing-to-translate payload a real
+  // browser answering about an English-titled session would send.
+  uiVisibleContext: {
+    listUiClients: () => [
+      {
+        deviceId: 'dev-1',
+        deviceName: 'laptop',
+        tabs: [{ tabId: 'tab-1', deviceName: 'laptop', connectedAt: FIXED_NOW - 120 * 1000 }],
+      },
+    ],
+    requestUiState: async () => [
+      {
+        deviceId: 'dev-1',
+        deviceName: 'laptop',
+        lastFocusedAt: FIXED_NOW - 60 * 1000,
+        tabs: [
+          {
+            tabId: 'tab-1',
+            deviceName: 'laptop',
+            unresponsive: false,
+            navigationPolicy: 'ask-before-navigate',
+            visibility: 'visible' as const,
+            hasFocus: true,
+            lastFocusedAt: FIXED_NOW - 60 * 1000,
+            panel: 'chat',
+            selectedProject: 'proj-1',
+            selectedSession: 'sess-1',
+            visibleMessages: { first: 'm-1', last: 'm-9' },
+            pendingApprovals: 1,
+            queuedMessages: 0,
+          },
+        ],
+      },
+    ],
+  },
 } as unknown as McpReadToolDeps;
 
 /** Builds the write bag over a control service. */
@@ -708,6 +746,10 @@ const SUCCESS_TABLE: Record<string, AnyRecord> = {
   // No arguments: the success path is the INJECTED pointer reader saying a
   // session was opened, wired below to the `sess-1` this fixture resolves.
   ui_last_opened_session: {},
+  // No arguments: the success path is the INJECTED round trip answering with one
+  // device whose tab reports the `sess-1` fixture above; asking no device in
+  // particular is the broadest (and here, only) question.
+  ui_visible_context: {},
 };
 
 /**
@@ -740,6 +782,9 @@ const FAILURE_TABLE: Record<string, { args: AnyRecord; expect: string }> = {
   session_background: { args: { session: 5 }, expect: 'INVALID_ARGUMENT' },
   approvals_list: { args: { session: 5 }, expect: 'INVALID_ARGUMENT' },
   approval_answer: { args: {}, expect: 'INVALID_ARGUMENT' },
+  // `client` is a declared optional string, so a wrong-typed one is a shallow
+  // validation failure like the rest — no device resolution is reached.
+  ui_visible_context: { args: { client: 5 }, expect: 'INVALID_ARGUMENT' },
 };
 
 /**
@@ -924,7 +969,7 @@ test('(a) the success and failure tables cover exactly the tools the registry li
   const listed = await listClient.listTools();
   const registryNames = listed.tools.map((tool) => tool.name).sort();
 
-  assert.equal(registryNames.length, 18, `tools/list must return the full 18-tool set, got ${registryNames.join(', ')}`);
+  assert.equal(registryNames.length, 19, `tools/list must return the full 19-tool set, got ${registryNames.join(', ')}`);
   assert.deepEqual(
     Object.keys(SUCCESS_TABLE).sort(),
     registryNames,
@@ -963,7 +1008,7 @@ test('(a) every tool description and parameter description is English', async ()
       }
     }
   }
-  assert.ok(scanned >= 18, `every one of the 18 tools must declare a description, scanned ${scanned}`);
+  assert.ok(scanned >= 19, `every one of the 19 tools must declare a description, scanned ${scanned}`);
   say(`(a) scanned ${scanned} tool/parameter descriptions, all English`);
 });
 
