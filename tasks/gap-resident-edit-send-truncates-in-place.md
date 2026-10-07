@@ -54,8 +54,8 @@ extra:
 - [x] 读取侧不回归：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0（该文件已有 `dropSupersededPromptBranches` 的用例，不得被本任务改红；仅在该文件里新增「resident 重建产生的同父双 prompt 夹具读出后只剩替换那条」用例，如需新增则声明在 Touches）。— 28/28 exit 0；本任务未改读取侧，故未新增该夹具（原因见完成记录）。
 - [x] 假形态承重（实测红文案写进完成记录）：临时把 `handleChatEditSend` 里 resident 分支改回「直接追加、不 rewind」后，重建用例**必须变红**，还原后转绿；临时去掉 host 驱动对 `resumeSessionAt` 的映射后，透传用例**必须变红**，还原后转绿。— 两条红文案见完成记录。
 - [x] 工具链：`npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 均退出码 0。— 三者 exit 0。
-- [ ] 读取侧剪枝扩展（人类裁定 2026-10-07 新增）：`dropSupersededPromptBranches`（`server/modules/providers/list/claude/claude-sessions.provider.ts`）在原有「字面同 `parentUuid`」规则之外，额外丢弃一条更早的 user prompt 分支（连同其处理痕迹），当存在一条**更晚**的 user prompt **直接锚在**该早 prompt 的最近 assistant 祖先（分支点）上——即使该早 prompt 挂在回合结束块（prompt_snapshot / stop_hook_summary）之下。在 `server/modules/providers/tests/claude-sessions.test.ts` 验证：(a) run-4 链夹具（assistant 563a602f → 回合结束块 → 被 abort 的 user → `[Request interrupted by user]`；替换 user 锚在 563a602f）读出后只剩替换那条；(b) 负控制「abort 后另发新消息」（新 prompt 锚在被 abort 的 prompt 或其 interrupt 标记上，而非分支点）读出后**两条 prompt 都保留**；(c) 既有字面同 `parentUuid` 用例行为不变。单文件运行 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0；另加假形态：撤销该扩展后用例必须变红，红文案写进完成记录。
-- [ ] 语料回归（人类裁定 2026-10-07 新增）：离线遍历 `~/.claude/projects` 下全部 transcript（上次计数 6143 份），对比旧规则与收窄后新规则；打印结果改变的 transcript 数量，并对**每一份**改变的 transcript 断言：额外被丢弃的 prompt 符合收窄后的形态（存在更晚的 prompt 直接锚在其分支点上）；任何「按收窄定义本不被替换、读出结果却变了」的 prompt 即为失败。各计数写进完成记录。
+- [x] 读取侧剪枝扩展（人类裁定 2026-10-07 新增）：`dropSupersededPromptBranches`（`server/modules/providers/list/claude/claude-sessions.provider.ts`）在原有「字面同 `parentUuid`」规则之外，额外丢弃一条更早的 user prompt 分支（连同其处理痕迹），当存在一条**更晚**的 user prompt **直接锚在**该早 prompt 的最近 assistant 祖先（分支点）上——即使该早 prompt 挂在回合结束块（prompt_snapshot / stop_hook_summary）之下。在 `server/modules/providers/tests/claude-sessions.test.ts` 验证：(a) run-4 链夹具（assistant 563a602f → 回合结束块 → 被 abort 的 user → `[Request interrupted by user]`；替换 user 锚在 563a602f）读出后只剩替换那条；(b) 负控制「abort 后另发新消息」（新 prompt 锚在被 abort 的 prompt 或其 interrupt 标记上，而非分支点）读出后**两条 prompt 都保留**；(c) 既有字面同 `parentUuid` 用例行为不变。单文件运行 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0；另加假形态：撤销该扩展后用例必须变红，红文案写进完成记录。— 30/30 exit 0；假形态 29/30 exit 1（红文案见完成记录「收尾」节），还原后 30/30。
+- [x] 语料回归（人类裁定 2026-10-07 新增）：离线遍历 `~/.claude/projects` 下全部 transcript（上次计数 6143 份），对比旧规则与收窄后新规则；打印结果改变的 transcript 数量，并对**每一份**改变的 transcript 断言：额外被丢弃的 prompt 符合收窄后的形态（存在更晚的 prompt 直接锚在其分支点上）；任何「按收窄定义本不被替换、读出结果却变了」的 prompt 即为失败。各计数写进完成记录。— 6232 份 / 改变 15 份 / 额外丢弃根 prompt 15 / 派生行 110 / 少剪 0 / failures 0，RESULT PASS，见完成记录「收尾」节。
 
 ## DoD
 
@@ -152,3 +152,54 @@ resident 重建已让**进程上下文**真正截断（读数 (c) 成立），�
 ### 人类裁定（2026-10-07）
 
 任务负责人裁定：接受 jsonl 按 append-only 保留被取代的被 abort prompt（U2）；但 CloudCLI 界面必须**只显示替换 prompt、永不显示 U2**，且在每条进入路径上一致——留在会话内、从别的会话切回、重新打开 CloudCLI。即采用上文第 7 节选项 1（收窄版）：读取侧剪枝在**本任务内**扩展（不另立 gap）。据此：Touches 增加 `claude-sessions.provider.ts`；AC-1 的期望读数改为 `sameBranchPoint=true`（已按完成记录第 1–2 节勾选）；新增 AC「读取侧剪枝扩展」与「语料回归」；DoD (b) 改为三情形读数（complete 后 / 切换后 / 重启后），删除原「共享 parentUuid」要求；DoD (a)(c) 保留。
+
+### 收尾（2026-10-07，第二轮：读取侧剪枝扩展 + 语料回归 + DoD 三情形读数）
+
+**改动**：`server/modules/providers/list/claude/claude-sessions.provider.ts`（收窄 `dropSupersededPromptBranches`）与 `server/modules/providers/tests/claude-sessions.test.ts`（+131 行，两个新用例）。分支 `task/gap-resident-edit-send-truncates-in-place`。
+
+**AC-8 读取侧剪枝扩展**：在原有「字面同 `parentUuid`」规则之外新增一条——一条 user prompt 若存在一条**更晚**的 user prompt **直接锚在**其「最近 assistant 祖先（分支点）」上（`candidate.parentUuid === branchPoint.uuid` 且 `candidate` 在文件中更晚），则该早 prompt 及其子树（含回合结束块、`[Request interrupted by user]` 等痕迹）在读取侧被丢弃。要求「直接锚在分支点」而非仅「共享分支点」，正是为了不误伤「abort 后另发一条新消息」——那条新 prompt 锚在 interrupt 标记上，不是分支点。
+
+判据 `server/modules/providers/tests/claude-sessions.test.ts`：
+- (a) run-4 链夹具（`assistant 563a602f → 回合结束块 → 被 abort 的 user → [Request interrupted by user]`；替换 user 锚在 563a602f）读出后 `['first prompt','first answer','replacement prompt','answer to the replacement']`（只剩替换那条）。
+- (b) 负控制「abort 后另发新消息」读出后 `['first prompt','first answer','abandoned prompt','fresh question','answer to the fresh question']`（两条 prompt 都保留）。
+- (c) 既有字面同 `parentUuid` 用例行为不变。
+
+    npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts
+    → ℹ tests 30 / pass 30 / fail 0 / exit 0
+
+假形态（把扩展判据临时改成 `const replaced = false && anchoredAtBranch.some(...)`）：
+
+    ✖ an edit that resumes partway prunes the prompt the turn-end block hid from the parent check
+    ℹ tests 30 / pass 29 / fail 1 / exit 1
+    AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+      actual:   [ 'first prompt', 'first answer', 'abandoned prompt', 'replacement prompt', 'answer to the replacement' ]
+      expected: [ 'first prompt', 'first answer', 'replacement prompt', 'answer to the replacement' ]
+
+还原后 30/30 exit 0（`grep -c 'false &&' …claude-sessions.provider.ts` = 0）。
+
+**AC-9 语料回归（离线，真实规则）**：脚本 `/tmp/corpus-regression/run.mts` 用文本切片从 `git show HEAD:<provider>`（旧规则）与工作树（新规则）各自提取**真实的** `isUserPromptRow` + `dropSupersededPromptBranches` 并动态导入，遍历 `~/.claude/projects/**/*.jsonl`，按 `parseTranscriptLine` 的口径（仅保留 `entry.sessionId === 文件名主干`）解析每一份，对比被丢弃的 uuid 集合，对每份改变的 transcript 断言：额外丢弃的**根** prompt 符合收窄形态（存在更晚 prompt 直接锚在其分支点上）；额外丢弃的非 prompt 行均从这类根派生；旧规则丢弃的行无一份被新规则保留（无少剪）。结果：
+
+    transcriptsScanned 6232 / totalRows 1312269
+    transcriptsChanged 15 / additionallyDroppedRootPrompts 15 / additionallyDroppedDescendantRows 110
+    underDroppedRows 0 / failures 0 → RESULT: PASS
+
+对照：把聚合键放宽成「分支点」的朴素变体在同一语料上 **28 份改变、含双向**（会误剪「abort 后另发一条新消息」的合法形态）；收窄成「必须直接锚在分支点上」后误剪消失，仅剩单向多剪的 15 份（全部是「同分支点被更晚 prompt 取代」的真形态）。
+
+**DoD 三情形读数（真实服务实例：临时 HOME + 临时 DATABASE_PATH + 真 claude 进程 + 真实 `chat.edit-send` 帧；endpoint `http://127.0.0.1:26510/`）**：
+
+故事：消息一「记住暗号：暗号甲=紫色河马。只回复「记住了」。」→ 等回合结束 → 消息二「暗号乙=绿色青蛙。然后请从 1 数到 300，每行一个数字，不要使用任何工具。」→ 中途 abort → 真实 `chat.edit-send` 改写为「暗号乙=蓝色鲸鱼。只回复「好的」。」发出。
+
+(a) **成立**：同一 app 会话行；`provider_session_id` 前后同为 `2f7eb936-927b-4a1d-bfb0-bf59a438b34d`；`lifecycle_mode` 前后均 `resident`；会话总数 1→1；无新会话行。重建：旧 host 以 `closeReason='rewind'` 关闭，新 host 新 pid（`hostChanged=true pidChanged=true`）。
+
+(b) **三情形均成立**：
+- 刚 `complete` 后（`GET /api/providers/sessions/:id/messages?limit=200`）：`messageCount=5`、`dropSupersededAbortedPrompt=true`（`绿色青蛙` 及其 `[Request interrupted by user]` 痕迹不在序列里）、`replacementPresent=true`。序列 `["记住暗号：暗号甲=紫色河马。…","…","记住了","暗号乙=蓝色鲸鱼。只回复「好的」。","好的"]`。
+- 切换到另一个会话再切回后（先读另一会话 id，返回 404 `Session "…-away" was not found`；再读本会话）：`afterSwitch.messageCount=5`、`afterSwitch.dropSupersededAbortedPrompt=true`、`afterSwitch.replacementPresent=true`。
+- 重启服务后（**新进程**，同一 HOME + DATABASE_PATH，重开 express + `providerRoutes`）：会话行仍在（`sessions=1`、`provider=claude`、`lifecycle_mode=resident`、`provider_session_id=2f7eb936…`）；`messageCount=7`（含 (c) 的追问轮）、`abortedMarkerAbsent=true`、`replacementPresent=true`。
+
+jsonl 本身按 append-only 保留被 abort 的 prompt（`user 4087e451…` 仍在文件里），属人类裁定已接受；界面读取侧按上文剪掉。
+
+(c) **成立**：再问「我之前告诉过你哪些暗号？只列出暗号本身，不要解释」，模型答 `暗号甲=紫色河马 / 暗号乙=蓝色鲸鱼` —— 没有 `绿色青蛙`。进程上下文确实被截断，且替换与更早上下文都在。
+
+（DoD 探针为一次性脚本，位于工作树 `tmp-dod-resident-edit.mts` / `tmp-dod-restart-read.mts`，验证完毕即删。）
+
+**工具链**：`claude-sessions.test.ts` 30/30、`claude-resident-process.test.ts` 10/10、`chat-edit-send.test.ts` 13/13 均 exit 0；`npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 均 exit 0。
