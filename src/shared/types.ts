@@ -2431,6 +2431,39 @@ export type CreatedOAuthClient = {
   clientSecret: string;
 };
 
+/** One scope the consent page offers, as `GET /api/oauth/authorize/context` returns it: the scope id, a human-readable description, whether it is the pinned read scope (`required`) and whether granting it lets the client change something (`writable`). The page renders one checked-or-not checkbox per row and disables the required one. */
+export type OAuthConsentScopeOption = {
+  scope: string;
+  description: string;
+  required: boolean;
+  writable: boolean;
+};
+
+/** The authorization request as `GET /api/oauth/authorize/context` answers it, once its `(client_id, redirect_uri)` pair has been validated: the client's display name, the host of its registered callback (the anti-phishing "you will be sent to" line), the request's own `state` echoed verbatim, and the whole scope vocabulary flagged for the screen. */
+export type OAuthConsentContext = {
+  clientName: string;
+  callbackHost: string;
+  redirectUri: string;
+  scopes: OAuthConsentScopeOption[];
+  state: string | null;
+};
+
+/** The decision the consent page submits to `POST /api/oauth/authorize/decision`. Field names are the authorization request's own (snake_case); `action` is the user's choice and `scopes` is the checkbox selection, which the server intersects with its vocabulary before granting. */
+export type OAuthConsentDecisionRequest = {
+  client_id: string;
+  redirect_uri: string;
+  state: string | null;
+  code_challenge: string | null;
+  code_challenge_method: string | null;
+  scopes: string[];
+  action: 'allow' | 'deny';
+};
+
+/** The decision's answer, as `POST /api/oauth/authorize/decision` returns it: the client callback URL the browser must be sent to — carrying `code` and `state` on allow, or `error=access_denied` and `state` on deny. The page performs the navigation itself with `window.location.assign`. */
+export type OAuthConsentDecisionResponse = {
+  redirectTo: string;
+};
+
 // ---------------------------
 
 //----------------- SHELL ------------

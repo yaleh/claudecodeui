@@ -120,6 +120,19 @@ import zhTWChat from '@/modules/i18n/locales/zh-TW/chat.json';
 import zhTWCodeEditor from '@/modules/i18n/locales/zh-TW/codeEditor.json';
 // oxlint-disable-next-line importx/order
 import zhTWTasks from '@/modules/i18n/locales/zh-TW/tasks.json';
+import deConsent from '@/modules/i18n/locales/de/consent.json';
+import enConsent from '@/modules/i18n/locales/en/consent.json';
+import esConsent from '@/modules/i18n/locales/es/consent.json';
+import frConsent from '@/modules/i18n/locales/fr/consent.json';
+import idConsent from '@/modules/i18n/locales/id/consent.json';
+import itConsent from '@/modules/i18n/locales/it/consent.json';
+import jaConsent from '@/modules/i18n/locales/ja/consent.json';
+import koConsent from '@/modules/i18n/locales/ko/consent.json';
+import ruConsent from '@/modules/i18n/locales/ru/consent.json';
+import trConsent from '@/modules/i18n/locales/tr/consent.json';
+import zhConsent from '@/modules/i18n/locales/zh-CN/consent.json';
+// oxlint-disable-next-line importx/order
+import zhTWConsent from '@/modules/i18n/locales/zh-TW/consent.json';
 
 // Import supported languages configuration
 import { languages } from '@/modules/i18n/languages';
@@ -155,6 +168,7 @@ i18n
         chat: enChat,
         codeEditor: enCodeEditor,
         tasks: enTasks,
+        consent: enConsent,
 git: enGit,
       },
       fr: {
@@ -165,6 +179,7 @@ git: enGit,
         chat: frChat,
         codeEditor: frCodeEditor,
         tasks: frTasks,
+        consent: frConsent,
       },
       es: {
         common: esCommon,
@@ -174,6 +189,7 @@ git: enGit,
         chat: esChat,
         codeEditor: esCodeEditor,
         tasks: esTasks,
+        consent: esConsent,
       },
       ko: {
         common: koCommon,
@@ -183,6 +199,7 @@ git: enGit,
         chat: koChat,
         codeEditor: koCodeEditor,
         tasks: koTasks,
+        consent: koConsent,
       },
       'zh-CN': {
         common: zhCommon,
@@ -192,6 +209,7 @@ git: enGit,
         chat: zhChat,
         codeEditor: zhCodeEditor,
         tasks: zhTasks,
+        consent: zhConsent,
       },
       ja: {
         common: jaCommon,
@@ -201,6 +219,7 @@ git: enGit,
         chat: jaChat,
         codeEditor: jaCodeEditor,
         tasks: jaTasks,
+        consent: jaConsent,
       },
       ru: {
         common: ruCommon,
@@ -210,6 +229,7 @@ git: enGit,
         chat: ruChat,
         codeEditor: ruCodeEditor,
         tasks: ruTasks,
+        consent: ruConsent,
       },
       de: {
         common: deCommon,
@@ -219,6 +239,7 @@ git: enGit,
         chat: deChat,
         codeEditor: deCodeEditor,
         tasks: deTasks,
+        consent: deConsent,
       },
       tr: {
         common: trCommon,
@@ -228,6 +249,7 @@ git: enGit,
         chat: trChat,
         codeEditor: trCodeEditor,
         tasks: trTasks,
+        consent: trConsent,
       },
       it: {
         common: itCommon,
@@ -237,6 +259,7 @@ git: enGit,
         chat: itChat,
         codeEditor: itCodeEditor,
         tasks: itTasks,
+        consent: itConsent,
       },
       id: {
         common: idCommon,
@@ -246,6 +269,7 @@ git: enGit,
         chat: idChat,
         codeEditor: idCodeEditor,
         tasks: idTasks,
+        consent: idConsent,
         git: idGit,
       },
       'zh-TW': {
@@ -256,6 +280,7 @@ git: enGit,
         chat: zhTWChat,
         codeEditor: zhTWCodeEditor,
         tasks: zhTWTasks,
+        consent: zhTWConsent,
       },
     },
 
@@ -269,7 +294,7 @@ git: enGit,
     debug: false,
 
     // Namespaces - load only what's needed
-    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git'],
+    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git', 'consent'],
     defaultNS: 'common',
 
     // Key separator for nested keys (default: '.')

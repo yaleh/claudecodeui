@@ -2161,7 +2161,13 @@ const connectedAppsSelection =
   // `ui-visible-context-range.spec.ts` makes the same kind of reading — a PAT calling a stage-3
   // read tool over `/mcp` — for the `ui_visible_context` range, so it needs the gateway mounted and
   // reads the same deployment environment. Same reason, same one block of four variables.
-  || selectedSpecFiles().includes('ui-visible-context-range.spec.ts');
+  || selectedSpecFiles().includes('ui-visible-context-range.spec.ts')
+  // `oauth-consent-page.spec.ts` drives the real authorization flow — `/oauth/authorize`'s 302,
+  // the `/api/oauth/authorize/*` consent API, `/oauth/token` (PKCE), `/mcp` — through a client it
+  // registers at the real `/oauth/register`. All of those are mounted by the same gate: without
+  // `MCP_OAUTH_ENABLED` and `MCP_DCR=open` the server answers none of them, and the criterion's
+  // Allow leg would have no endpoint to reach. Same block of four variables, same reason.
+  || selectedSpecFiles().includes('oauth-consent-page.spec.ts');
 
 /**
  * Where the raw-corpus criterion's server tees its own stdout.

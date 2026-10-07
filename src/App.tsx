@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 
+import { OAUTH_CONSENT_SPA_PATH } from '@shared/oauthConsent';
 import { ThemeProvider } from '@/shared/context/ThemeContext';
 import { UiPreferencesProvider } from '@/shared/context/UiPreferencesContext';
 import { AuthProvider, ProtectedRoute } from '@/modules/auth';
@@ -8,6 +9,7 @@ import { TaskMasterProvider,TasksSettingsProvider } from '@/modules/task-master'
 import { WebSocketProvider } from '@/shared/context/WebSocketContext';
 import { PluginsProvider } from '@/modules/plugins';
 import { ProjectWorkspaceRoute } from '@/modules/project-workspace';
+import { OAuthConsentRoute } from '@/modules/oauth-consent';
 import { i18n } from '@/modules/i18n';
 
 const DEPLOYMENT_ASSET_DIRECTORIES = new Set(['assets', 'static', 'icons', 'images']);
@@ -123,6 +125,13 @@ export default function App() {
                     <Routes>
                       <Route path="/" element={<ProjectWorkspaceRoute />} />
                       <Route path="/session/:sessionId" element={<ProjectWorkspaceRoute />} />
+                      {/* The OAuth consent screen: a full-page surface of its own, NOT
+                          inside the project workspace shell, so an authorization request
+                          never mounts the sidebar, tabs or chat pane behind it. It is
+                          behind the same ProtectedRoute as the workspace — an anonymous
+                          visitor lands on the login form with the query string untouched,
+                          which is what sends them back here after they sign in. */}
+                      <Route path={OAUTH_CONSENT_SPA_PATH} element={<OAuthConsentRoute />} />
                     </Routes>
                   </Router>
                 </ProtectedRoute>
