@@ -2,7 +2,7 @@
 id: gap-ac142-recording-evidence-load-flake
 title: AC-142 判据在宿主并发下红在录音腿：固定 1.5s 捕获窗零帧时应用不发请求（useVoiceInput.ts:1124
   空捕获静默），15s POST 谓词超时 ⇒ 红；把录音证据改成有界可回放并让失败可分辨，不改产品行为与任何读数
-status: ready
+status: done
 labels:
   - gap
   - defect
