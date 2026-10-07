@@ -2,7 +2,7 @@
 id: gap-ac184-criterion-startup-guard-cannot-afford-a-replay
 title: e2e/activity-dock-truthful.spec.ts 的有界启动守卫预算算不过来：首跳超时后 12s 只剩 4s，永远到不了重放
   ⇒ AC-184 判据在负载下死在启动形态（同一棵树 05:20 pass / 05:22 fail）
-status: todo
+status: ready
 labels:
   - gap
   - defect
