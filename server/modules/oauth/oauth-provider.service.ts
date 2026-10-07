@@ -20,6 +20,11 @@
  * the gateway's `authorize` seam). HTTP endpoints, the consent page, DCR, the
  * settings surface and the scope vocabulary are out of scope.
  *
+ * `verifyAccessToken` also maintains the "last used" reading the settings page
+ * shows for connected apps: an accepted OAuth access token stamps its own row
+ * and its grant through `lastUsedStamp`, so the column is fresh without a write
+ * on every `/mcp` request.
+ *
  * Consumers: this module's `tests/oauth-provider.test.ts`; the later OAuth
  * endpoint tasks (AC-262+) build the authorization-server HTTP surface on it
  * through the OAuth module barrel.
@@ -36,6 +41,7 @@ import {
   oauthGrantsDb,
 } from '@/modules/database/index.js';
 import type { OAuthStore, OAuthTokenRejectionReason } from '@/modules/oauth/oauth-store.service.js';
+import { lastUsedStamp } from '@/shared/utils.js';
 
 /** Stable error codes, shared by `authorize` and both token exchanges. */
 export type OAuthErrorCode =
@@ -132,7 +138,11 @@ export type OAuthProvider = {
   exchangeAuthorizationCode(input: ExchangeAuthorizationCodeInput): ExchangeResult;
   /** Rotates a refresh token, revoking the presented one and cascading on a replayed token. */
   exchangeRefreshToken(input: ExchangeRefreshTokenInput): ExchangeResult;
-  /** Verifies an access token and binds it to an audience. */
+  /**
+   * Verifies an access token and binds it to an audience. A successful check
+   * stamps the token row's `last_used` and, when the token belongs to a grant,
+   * the grant's, both throttled to one write per throttle window.
+   */
   verifyAccessToken(token: string, options?: { resource?: string }): VerifyOAuthAccessTokenResult;
 };
 
@@ -409,6 +419,23 @@ export function createOAuthProvider(options: OAuthProviderOptions): OAuthProvide
       // middleware copies this into the principal so the audit row distinguishes an
       // OAuth call from a PAT one (AC-263).
       const grant = row.grant_id === null ? null : oauthGrantsDb.findById(row.grant_id);
+
+      // A successful verification is a "use": stamp the token row and, when it
+      // belongs to a grant, the grant too, so the settings page's connected-apps
+      // row stops reading as never-used. Both writes go through `lastUsedStamp`,
+      // so a hot `/mcp` stream writes at most once per throttle window instead of
+      // once per request.
+      const stampAt = now();
+      const tokenStamp = lastUsedStamp(row.last_used, stampAt);
+      if (tokenStamp !== null) {
+        accessTokensDb.updateLastUsed(row.id, tokenStamp);
+      }
+      if (grant) {
+        const grantStamp = lastUsedStamp(grant.last_used, stampAt);
+        if (grantStamp !== null) {
+          oauthGrantsDb.updateLastUsed(grant.id, grantStamp);
+        }
+      }
 
       return {
         ok: true,
