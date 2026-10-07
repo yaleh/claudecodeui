@@ -878,7 +878,8 @@
       "createButton": "Create token",
       "cancelButton": "Cancel",
       "scopesLabel": "Scopes",
-      "writeScopeRisk": "This token can send, create and control sessions. Keep it secret."
+      "writeScopeRisk": "This token can send, create and control sessions. Keep it secret.",
+      "defaultName": "MCP token · {{date}}"
     },
     "newToken": {
       "alertTitle": "⚠️ Save Your Access Token",
@@ -895,7 +896,9 @@
       "active": "Active",
       "revoked": "Revoked",
       "revokeButton": "Revoke",
-      "revokeConfirm": "Are you sure you want to revoke this token? This cannot be undone."
+      "revokeConfirm": "Are you sure you want to revoke this token? This cannot be undone.",
+      "created": "Created:",
+      "expired": "Expired"
     },
     "scopes": {
       "read": "Read (cloudcli:read)",
@@ -904,6 +907,17 @@
       "sessionControl": "Control sessions (cloudcli:session:control)",
       "approve": "Approve (cloudcli:approve)",
       "navigate": "Open a session in one of your browsers (cloudcli:navigate)"
+    },
+    "oauthTokens": {
+      "title": "Advanced: OAuth tokens (read-only)",
+      "description": "Tokens issued by OAuth flows (connected apps and MCP clients). They are managed by those flows and cannot be created or revoked here.",
+      "empty": "No OAuth tokens issued yet.",
+      "showInactive": "Show revoked and expired",
+      "unknownClient": "Unknown client",
+      "kind": "Type:",
+      "kindAccess": "Access token",
+      "kindRefresh": "Refresh token",
+      "scopes": "Scopes:"
     }
   },
   "mcpGateway": {

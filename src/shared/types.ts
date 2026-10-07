@@ -596,7 +596,16 @@ export type UiVisibleContextReport = {
   hasFocus: boolean;
   /** Epoch ms of the last moment this tab was focused; null when it never was. */
   lastFocusedAt: number | null;
-  /** The workspace panel this tab is showing, or null when none is known. */
+  /**
+   * The workspace panel this tab is showing: the active view's id, `null` when
+   * this tab shows no workspace at all (so the question does not apply), or
+   * `'unknown'` when a workspace is mounted but no view reports itself active.
+   *
+   * The two non-id values are deliberately different. A caller that sees `null`
+   * learns there is no panel here; a caller that sees `'unknown'` learns the tab
+   * does have a workspace and the reading failed — which is the case worth
+   * acting on, and which a shared `null` used to hide.
+   */
   panel: string | null;
   /** The project this tab has open, or null. */
   selectedProject: string | null;
@@ -851,6 +860,19 @@ export type ChatMessage = {
    * Claude; it is the anchor "edit this message" and "fork from here" send back.
    */
   transcriptAnchorId?: string;
+  /**
+   * The store row's own id, set on the rendered message when that row came from
+   * a read rather than from this client's stream.
+   *
+   * It is the value `session_read mode=around` resolves an id against, which is
+   * what lets a rendered row be *named back to the server* — the address
+   * `ui_visible_context` publishes and a jump lands on. It is deliberately not
+   * the same field as {@link id}: that one is this client's own row id and is
+   * left off a read row, because several providers re-mint their row ids on
+   * every read and a React key has to survive that. Addressing has the opposite
+   * requirement — it only has to survive one read — so the two are two fields.
+   */
+  transcriptRowId?: string;
   /**
    * The anchor a *fork* taken from this answer cuts at, when this message ends
    * a turn. Separate from `transcriptAnchorId` (which names a user input):
@@ -2350,6 +2372,19 @@ export type CreatedAccessToken = {
   lastUsed: string | null;
   createdAt: string | null;
   plaintext: string;
+};
+
+/** One OAuth access/refresh token as `GET /api/settings/oauth-tokens` returns it — read-only, and never carrying the stored hash. `clientName` is the OAuth client the token's grant belongs to (the token row itself has no name), and `kind` is `oauth_access` or `oauth_refresh`. The advanced list renders it; it is never created or revoked from there. */
+export type OAuthTokenItem = {
+  id: number;
+  kind: string;
+  tokenPrefix: string;
+  clientName: string | null;
+  scopes: string[];
+  createdAt: string | null;
+  expiresAt: string;
+  lastUsed: string | null;
+  revokedAt: string | null;
 };
 
 /** The CloudCLI MCP gateway's read-only status as `GET /api/settings/mcp-gateway` returns it: whether the gateway is enabled, the path it answers on, and the base url an MCP client should dial. */

@@ -111,6 +111,13 @@ const rowIsVisible = (row: HTMLElement): boolean => {
  * order, or a pair of nulls when no row is on screen. Reads the same
  * `data-message-anchor-id` the transcript's jump/locate machinery addresses rows
  * by, so the range names ids a `session_read` can be resolved against.
+ *
+ * The two nulls mean "nothing visible", so they are only honest when *every*
+ * visible row is addressable. That is the transcript's side of the contract:
+ * each row publishes `messageAnchorId(message)` — the provider anchor when it
+ * has one, else the message id — and not the raw `transcriptAnchorId`, which
+ * only a user row carries. A pane whose band holds a long assistant answer is
+ * full of a message and must report it, not an empty range.
  */
 const readVisibleMessages = (): UiVisibleContextReport['visibleMessages'] => {
   if (!hasDocument()) {
@@ -132,16 +139,48 @@ const readVisibleMessages = (): UiVisibleContextReport['visibleMessages'] => {
 };
 
 /**
- * The workspace panel this tab is showing — the active tab's own id off the
- * `data-workspace-tab`/`aria-current` pair the workspace renders — or null when
- * no workspace tab is mounted.
+ * The `panel` value for "a workspace is mounted, but no view says it is the
+ * active one" — a read that failed, not a tab that is not showing a workspace.
+ *
+ * `null` has to keep meaning exactly one thing, "there is no workspace panel to
+ * report", or a caller cannot tell an unreadable panel from an absent one. This
+ * sentinel keeps the two apart; it is not a tab id, and no workspace view can
+ * be called it.
+ */
+export const UNKNOWN_PANEL = 'unknown';
+
+/**
+ * The workspace panel this tab is showing — the active view's own id off the
+ * `data-workspace-tab`/`aria-current` pair both workspace surfaces render.
+ *
+ * Three outcomes, and they are three on purpose:
+ *
+ * - `null` — no `data-workspace-tab` anywhere, so this tab is not showing a
+ *   workspace at all and the question does not apply. This is also what a
+ *   non-browser context reports.
+ * - the id — the view that marks itself `aria-current`. Both surfaces carry
+ *   that pair: the desktop pill and the mobile selector's rows already did, and
+ *   the mobile *trigger* now does too, so the collapsed layout — where the rows
+ *   live inside a closed dialog and nothing else on screen names the view — is
+ *   readable without opening the picker.
+ * - {@link UNKNOWN_PANEL} — a workspace is mounted but none of its views is
+ *   marked active. Reporting `null` here would be a lie of omission: it would
+ *   read to a caller exactly like "this tab shows no workspace".
  */
 const readActivePanel = (): string | null => {
   if (!hasDocument()) {
     return null;
   }
-  const active = document.querySelector<HTMLElement>('[data-workspace-tab][aria-current="true"]');
-  return active?.getAttribute('data-workspace-tab') ?? null;
+  const tabs = document.querySelectorAll<HTMLElement>('[data-workspace-tab]');
+  if (tabs.length === 0) {
+    return null;
+  }
+  for (const tab of tabs) {
+    if (tab.getAttribute('aria-current') === 'true') {
+      return tab.getAttribute('data-workspace-tab');
+    }
+  }
+  return UNKNOWN_PANEL;
 };
 
 /**

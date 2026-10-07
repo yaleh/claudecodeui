@@ -539,7 +539,8 @@
       "createButton": "Jeton oluştur",
       "cancelButton": "İptal",
       "scopesLabel": "Kapsamlar",
-      "writeScopeRisk": "Bu token oturumları gönderebilir, oluşturabilir ve kontrol edebilir. Gizli tutun."
+      "writeScopeRisk": "Bu token oturumları gönderebilir, oluşturabilir ve kontrol edebilir. Gizli tutun.",
+      "defaultName": "MCP jetonu · {{date}}"
     },
     "newToken": {
       "alertTitle": "⚠️ Erişim Jetonunuzu Kaydedin",
@@ -556,7 +557,9 @@
       "active": "Etkin",
       "revoked": "İptal edildi",
       "revokeButton": "İptal et",
-      "revokeConfirm": "Bu jetonu iptal etmek istediğinizden emin misiniz? Bu işlem geri alınamaz."
+      "revokeConfirm": "Bu jetonu iptal etmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
+      "created": "Oluşturulma:",
+      "expired": "Süresi doldu"
     },
     "scopes": {
       "read": "Okuma (cloudcli:read)",
@@ -565,6 +568,17 @@
       "sessionControl": "Oturumları kontrol et (cloudcli:session:control)",
       "approve": "Onayla (cloudcli:approve)",
       "navigate": "Oturumu tarayıcılarınızdan birinde aç (cloudcli:navigate)"
+    },
+    "oauthTokens": {
+      "title": "Gelişmiş: OAuth jetonları (salt okunur)",
+      "description": "OAuth akışları (bağlı uygulamalar ve MCP istemcileri) tarafından verilen jetonlar. Bu akışlar tarafından yönetilir ve burada oluşturulamaz veya iptal edilemez.",
+      "empty": "Henüz OAuth jetonu verilmedi.",
+      "showInactive": "İptal edilenleri ve süresi dolanları göster",
+      "unknownClient": "Bilinmeyen istemci",
+      "kind": "Tür:",
+      "kindAccess": "Erişim jetonu",
+      "kindRefresh": "Yenileme jetonu",
+      "scopes": "Kapsamlar:"
     }
   },
   "mcpGateway": {
