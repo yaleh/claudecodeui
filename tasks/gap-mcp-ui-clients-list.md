@@ -1,7 +1,7 @@
 ---
 id: gap-mcp-ui-clients-list
 title: MCP 只读工具 ui_clients_list：列出当前在线的浏览器设备（身份、标签页、可见性、导航策略），供调用方选设备
-status: todo
+status: ready
 labels:
   - gap
 parent: null
