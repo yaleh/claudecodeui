@@ -155,6 +155,18 @@ claude-resident 的 running view、voice 的 inflight-dot 等字面重合），�
   `npx vitest run src/modules/quay/tests/QuayPanel.test.tsx
   src/modules/quay/tests/quayTabVisibility.test.tsx` → `Test Files 2 passed (2)`,
   `Tests 20 passed (20)`，0 fail。
+- 验证读数（2026-10-07，本 worktree，AC1/AC6/AC8）：
+  - AC1（改动前红基线）：临时探针用例渲染 `QuayPanel` 并注入上面的 fixture，断言
+    `screen.queryByText(/gap-example-task/) === null`，在改动前的代码上
+    `npx vitest run src/modules/quay/tests/zz-ac1-red-baseline.probe.test.tsx` →
+    `Test Files 1 passed (1)` / `Tests 1 passed (1)`——断言成立，即面板看不到在飞任务
+    （该探针为实现前的一次性取证，已在提交前删除，不属交付物）。
+  - AC6：`npm run typecheck` → 退出 0（client / server / scripts 三个 tsconfig 全过）。
+  - AC8：`git diff --stat develop...HEAD` 实际改动清单为
+    `src/modules/quay/QuayPanel.tsx | 98 +-`、`src/modules/quay/tests/QuayPanel.test.tsx | 122 +-`、
+    `src/shared/types.ts | 26 +-`（3 files changed, 240 insertions(+), 6 deletions(-)），逐条
+    对应 `## Touches` 的三条代码路径；无新增文件。`tasks/gap-quay-panel-inflight-task-display.md`
+    的 tic k 由 task_write 落在 store 分支，develop 与 HEAD 内容一致，故不出现在该 diff 中。
 - 若实现时发现 `src/modules/quay/hooks/useQuayStatus.ts` 不需要改动（`inFlight` 只是
   `QuaySnapshot` 类型上的新字段，hook 本身只做 `response.json() as QuaySnapshot` 的类型
   断言，不逐字段解构），可以把它从 `## Touches` 里去掉对应的改动，但测试文件仍需要覆盖
