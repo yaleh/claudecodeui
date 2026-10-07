@@ -660,6 +660,21 @@
     "connectLabel": "연결 명령",
     "enableHint": "MCP 게이트웨이가 활성화되어 있지 않습니다. 서버 환경에서 MCP_ENABLED=true를 설정하고 CloudCLI를 다시 시작하세요."
   },
+  "mcpNavigation": {
+    "title": "탐색 요청",
+    "description": "MCP 클라이언트가 브라우저에서 세션을 열도록 요청할 때 이 기기가 응답하는 방식입니다.",
+    "deviceOnly": "이 설정은 이 기기에만 적용됩니다.",
+    "policy": {
+      "label": "응답",
+      "accept": "허용",
+      "ask": "매번 묻기",
+      "reject": "거부"
+    },
+    "deviceName": {
+      "label": "기기 이름",
+      "description": "이 기기가 MCP 클라이언트에 알리는 이름입니다. 비워 두면 브라우저에서 추론한 기본 이름을 사용합니다."
+    }
+  },
   "connectedApps": {
     "title": "연결된 앱",
     "description": "CloudCLI MCP 게이트웨이를 통해 회원님을 대신해 동작하도록 승인한 애플리케이션입니다. 승인을 취소하면 그 아래 발급된 모든 토큰이 즉시 거부됩니다.",

@@ -917,6 +917,21 @@
     "connectLabel": "Connect command",
     "enableHint": "The MCP gateway is not enabled. Set MCP_ENABLED=true in the server environment and restart CloudCLI to turn it on."
   },
+  "mcpNavigation": {
+    "title": "Navigation requests",
+    "description": "How this device responds when an MCP client asks to open a session in your browser.",
+    "deviceOnly": "This setting applies only to this device.",
+    "policy": {
+      "label": "Response",
+      "accept": "Allow",
+      "ask": "Ask each time",
+      "reject": "Refuse"
+    },
+    "deviceName": {
+      "label": "Device name",
+      "description": "The name this device reports to the MCP client. Leave it blank to use a default derived from your browser."
+    }
+  },
   "connectedApps": {
     "title": "Connected Apps",
     "description": "Applications you have authorized to act on your behalf through the CloudCLI MCP gateway. Revoking an authorization immediately rejects every token issued under it.",

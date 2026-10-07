@@ -578,6 +578,21 @@
     "connectLabel": "Bağlantı komutu",
     "enableHint": "MCP geçidi etkin değil. Sunucu ortamında MCP_ENABLED=true ayarlayıp etkinleştirmek için CloudCLI'yi yeniden başlatın."
   },
+  "mcpNavigation": {
+    "title": "Gezinme istekleri",
+    "description": "Bir MCP istemcisi tarayıcınızda oturum açmayı istediğinde bu cihazın nasıl yanıt vereceği.",
+    "deviceOnly": "Bu ayar yalnızca bu cihaz için geçerlidir.",
+    "policy": {
+      "label": "Yanıt",
+      "accept": "İzin ver",
+      "ask": "Her seferinde sor",
+      "reject": "Reddet"
+    },
+    "deviceName": {
+      "label": "Cihaz adı",
+      "description": "Bu cihazın MCP istemcisine bildirdiği ad. Tarayıcınızdan türetilen varsayılan adı kullanmak için boş bırakın."
+    }
+  },
   "connectedApps": {
     "title": "Bağlı Uygulamalar",
     "description": "CloudCLI MCP ağ geçidi üzerinden sizin adınıza işlem yapmasına izin verdiğiniz uygulamalar. Bir yetkiyi iptal etmek, altında verilen tüm jetonları anında reddeder.",

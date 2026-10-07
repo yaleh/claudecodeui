@@ -572,6 +572,21 @@
     "connectLabel": "連線命令",
     "enableHint": "MCP 閘道未啟用。請在伺服器環境設定 MCP_ENABLED=true 並重新啟動 CloudCLI 以啟用。"
   },
+  "mcpNavigation": {
+    "title": "導覽請求",
+    "description": "當 MCP 客戶端要求在您的瀏覽器中開啟工作階段時，本裝置如何回應。",
+    "deviceOnly": "此設定僅對本裝置生效。",
+    "policy": {
+      "label": "回應方式",
+      "accept": "允許",
+      "ask": "每次詢問",
+      "reject": "拒絕"
+    },
+    "deviceName": {
+      "label": "裝置名稱",
+      "description": "本裝置向 MCP 客戶端回報的名稱。留空則使用根據瀏覽器推斷的預設名稱。"
+    }
+  },
   "connectedApps": {
     "title": "已連接的應用程式",
     "description": "你已授權透過這些 CloudCLI MCP 閘道代表你行事。撤銷某個授權後，其下簽發的所有權杖會立即被拒絕。",

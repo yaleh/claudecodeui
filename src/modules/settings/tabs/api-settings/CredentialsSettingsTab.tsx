@@ -6,6 +6,7 @@ import AccessTokensSection from '@/modules/settings/tabs/api-settings/sections/A
 import ConnectedAppsSection from '@/modules/settings/tabs/api-settings/sections/ConnectedAppsSection';
 import GithubCredentialsSection from '@/modules/settings/tabs/api-settings/sections/GithubCredentialsSection';
 import McpGatewaySection from '@/modules/settings/tabs/api-settings/sections/McpGatewaySection';
+import McpNavigationSection from '@/modules/settings/tabs/api-settings/sections/McpNavigationSection';
 import NewAccessTokenAlert from '@/modules/settings/tabs/api-settings/sections/NewAccessTokenAlert';
 import NewOAuthClientAlert from '@/modules/settings/tabs/api-settings/sections/NewOAuthClientAlert';
 import OAuthClientsSection from '@/modules/settings/tabs/api-settings/sections/OAuthClientsSection';
@@ -88,6 +89,8 @@ export default function CredentialsSettingsTab() {
       )}
 
       <McpGatewaySection status={mcpGatewayStatus} />
+
+      <McpNavigationSection />
 
       <AccessTokensSection
         accessTokens={accessTokens}
