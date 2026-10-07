@@ -2,7 +2,7 @@
 id: gap-mcp-ui-visible-context
 title: MCP 只读工具 ui_visible_context：调用时服务端向已连接浏览器广播 ui.state_request 并发收集应答（1.5s
   超时），返回各窗口可见上下文的标识符与范围
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
@@ -83,3 +83,14 @@ depends_on:
 
 - 首次 fan-in suite 红：`mcp-english-only.test.ts` 与 `mcp-error-envelope.test.ts` 各断在「tools/list 必须是完整 18 工具集，得 19」——本任务把 `MCP_STAGE3_READ_TOOLS` 扩到 19（`ui_visible_context`），两张 registry 覆盖表未随之增长。delta 判定为 RELATED（同一模块、一跳导入），复现后按真因修复（见 Notes 末条）。
 - 修复后逐文件复跑：`mcp-english-only.test.ts` 10/10、`mcp-error-envelope.test.ts` 7/7；`npm run typecheck`（三条 tsconfig）退出码 0；AC 逐条复跑 `mcp-ui-visible-context.test.ts` 7/7、`mcp-tool-annotations.test.ts` 5/5、`mcp-error-vocabulary.test.ts` 5/5、`quay-test-script.test.ts` 11/11、`uiStateResponder.test.tsx` 5/5。
+
+## Needs-Human
+
+**执行 2026-10-07T04:08:58.869Z — 停派终止（失败无法归因，⛔ 不再重派）**
+
+- 阻碍原因：exited-not-landed 失败无法归因（基建/契约疑似，非实现缺陷）——停止重派，⛔ 不再拿新会话撞同一堵墙：suite red could not be attributed to any failing test file in 2 consecutive rounds (bounded to at most one retry) — infra/contract suspected, not an implementable defect (parser extracted 0 of 2 failing lines and attributed none to a file); stopping instead of spending another worker session
+- 失败步/判词：step=suite: __PERFILE__ duration_ms=6359 server/modules/oauth/tests/oauth-dcr.test.ts passed=false end_ms=1791346010957
+- run_id：wk-prod-anchor
+- session_id：0c64ee80-f841-4b26-b935-30d1b4a73db1
+- suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-mcp-ui-visible-context~wk-prod-anchor~1791345917182-d6257d.log
+- fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-mcp-ui-visible-context-wk-prod-anchor.log
