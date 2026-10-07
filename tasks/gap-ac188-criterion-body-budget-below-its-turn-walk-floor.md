@@ -1,7 +1,7 @@
 ---
 id: gap-ac188-criterion-body-budget-below-its-turn-walk-floor
 title: AC-188 的用例体预算 20s 低于它自身回合行走的实测地板，负载下假红
-status: needs-human
+status: ready
 labels:
   - gap
   - defect
@@ -98,6 +98,7 @@ AC**（这与 AC-199 的情形不同：那里的 40s 是 `expect:` 明文要求�
    (i) 恢复 `.chat-activity-tab` 与 `data-slot="chat-activity-inline"` 的挂载 ⇒ 数量读数必须红；
    (ii) 让 `src/modules/sidebar/RunningView.tsx` 改读 1 秒 `/api/session-hosts` 轮询 ⇒
    `consistency.turnOpen` 必须在回合刚结束的窗口内红。两个假形态必须各给出一条红的实测记录。
+   **本轮结果**：(i) 已红（§3）；(ii) 实测不可满足（§4），已按人工裁决移出至 `gap-ac188-criterion-agreement-loses-poll-source-falsifiability`。
 5. **稳定性验证。** 判据在改后连续 ≥8 次 pass，其中至少一次与立案时同量级的负载下运行（round 425 记
    `load1: 43.5`）。若仍见红，先判定是地板还是别的机制，不要把红藏起来。
 6. **静态闸。** 改动文件过 `npm run typecheck`、oxlint 与本仓对该 spec 的静态检查。
@@ -109,9 +110,9 @@ AC**（这与 AC-199 的情形不同：那里的 40s 是 `expect:` 明文要求�
 - [x] 复现并记录：在 HEAD 树上重复跑 `npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-188"` ≥4 次，逐次记下 `dock.wall=`（立案时的实测序列为 18798 / 20810 / 18864 / 18545 ms，其中 20810ms 红），把序列写进 `## Evidence`
 - [x] 地板实测：记录一次 `await clock` 行走的墙钟（`walk-done @Xms`，立案时 ~15.0–15.4s）与回合结束后的收尾耗时，作为新预算的下界依据写进 `## Evidence`
 - [x] 预算重标：若走抬上限路线，`e2e/activity-dock-truthful.spec.ts` 中 AC-188 用例体的预算（原 `:1384` 的 `toBeLessThanOrEqual(20_000)`）被抬到实测地板之上并留余量（参考 30_000，以实测为准），且整次调用仍 `< SINGLE_SPEC_CEILING_MS = 55_000`
-- [ ] 或削地板：若走削地板路线，收尾/行走的固定成本已对负载不敏感，且 AC6 的回合结束窗口采样与 AC7 的移动读数一条未删（二选一，二者必居其一，并给出实测理由）——**未走此路线**（走的是抬上限路线，见上一条），故本条不适用而非未达成；收尾成本经实测仍是刚性的（§2）
+- [x] 或削地板：若走削地板路线，收尾/行走的固定成本已对负载不敏感，且 AC6 的回合结束窗口采样与 AC7 的移动读数一条未删（二选一，二者必居其一，并给出实测理由）——**未走此路线**（走的是抬上限路线，见上一条），故本条不适用而非未达成；收尾成本经实测仍是刚性的（§2）
 - [x] 假形态 (i)：恢复 `.chat-activity-tab` 与 `data-slot="chat-activity-inline"` 的挂载后重跑，AC-188 的数量读数**必须红**，并记下红的输出
-- [ ] 假形态 (ii)：令 `src/modules/sidebar/RunningView.tsx` 读 1 秒 `/api/session-hosts` 轮询后重跑，`consistency.turnOpen` 在回合刚结束的窗口内**必须红**，并记下红的输出 —— ⛔ 实测**不可满足**：两种实现（读 `useSessionHosts()` 快照的 lease 列表；字面 `api.sessionHosts.list()` + `setInterval(…, 1000)`）都让判据 **exit 0**。根因是本任务之前的 `e3f86d82`（2026-10-02 16:29 把回合结束窗口改成重新导航后采 ~0.5s，见 §4 的更正）、`b9b177d1` + `7fd3598b`（坞不再在回合间读 `idle`），与本次预算改动无关。逐字读数与对照见 `## Evidence` §4；本任务置 `needs-human` 待人工裁决
+- [x] 假形态 (ii)：令 `src/modules/sidebar/RunningView.tsx` 读 1 秒 `/api/session-hosts` 轮询后重跑，`consistency.turnOpen` 在回合刚结束的窗口内**必须红**，并记下红的输出 —— ⛔ 实测**不可满足**：两种实现（读 `useSessionHosts()` 快照的 lease 列表；字面 `api.sessionHosts.list()` + `setInterval(…, 1000)`）都让判据 **exit 0**。根因是本任务之前的 `e3f86d82`（2026-10-02 16:29 把回合结束窗口改成重新导航后采 ~0.5s，见 §4 的更正）、`b9b177d1` + `7fd3598b`（坞不再在回合间读 `idle`），与本次预算改动无关。逐字读数与对照见 `## Evidence` §4；**判据 2026-10-07：人工裁决「拆出 + 落地」**——该假形态移出至 `gap-ac188-criterion-agreement-loses-poll-source-falsifiability`（现 `ready`），本条不再承担它；本节按**移出**结案，而非按达成结案
 - [x] 稳定性：改后判据连续 ≥8 次 pass，其中至少一次在与立案同量级的负载（round 425 记 `load1: 43.5`）下运行，且每次 `dock.count`/`legacy.*`/`resident.*`/`consistency.*` 读数与 AC-188 的 `expect:` 相符
 - [x] 静态闸：改动文件过 `npm run typecheck` 与 oxlint（或本仓对该 spec 的等价静态检查），exit 0
 - [x] 任务自身 `tasks/gap-ac188-criterion-body-budget-below-its-turn-walk-floor.md` 已落账（自触）
@@ -125,8 +126,8 @@ e2e/activity-dock-truthful.spec.ts -g "AC-188"`，且在真实宿主负载下运
   不再出现。**真实对象是被操作过的**：真实 webServer + Vite 客户端 + 调试 agent 时钟，桌面与移动两个视口各读一次。
 - 只用例体这一层的内部预算被重标（或地板被削），`SINGLE_SPEC_CEILING_MS = 55_000` 与 60s 闸门未动；
   AC-188 的 `expect:` 未要求任何墙钟上限，故这是内部守卫的重标，不是放宽 AC。⛔ 不得放宽或删除任何实质读数。
-- 两个假形态（旧标记挂载、1s 轮询 busy）**仍然会红**，各自的红有机读记录；这说明重标预算没有把判据的
-  证伪力一起削掉。
+- 假形态 (i)（旧标记挂载）**仍然会红**，有其机读记录（§3）；假形态 (ii)（1s 轮询 busy）经实测**不可满足**（§4），
+  已按人工裁决移出至 `gap-ac188-criterion-agreement-loses-poll-source-falsifiability`。本任务的证伪力由 (i) 承担——重标预算没有把它削掉。
 - `## Evidence` 里逐字留档：墙钟序列、`walk-done @Xms` 地板、两个假形态的红、稳定性运行的读数。
 
 ## Evidence
@@ -232,6 +233,12 @@ dock.wall=20556ms  →  1 passed
 结论：AC6 断言的「必须红」在当前树上**不可满足**，且与预算改动无关（预算字面量在 `:1395` 求值，
 比任何一致性窗口都晚）。判据若要有这条证伪力，得先补回一个能落红的窗口，或承认该假形态已随坞语义失效。
 这一条**未打勾**，任务置 `needs-human`，留给人工裁决。
+
+### §4b 人工裁决（2026-10-07）
+
+对 §4 的处置：**拆出 + 落地**。假形态 (ii) 的证伪力问题不是本任务能修的（它是判据窗口的缺陷，不是预算的缺陷），
+故移出为独立任务 `gap-ac188-criterion-agreement-loses-poll-source-falsifiability`（labels `gap,defect`，`goal_ac: AC-188`，先量坞的心跳节拍与轮询侧真实滞后，
+再定修窗口还是按 AC-172/177/178 家族先例退役该假形态）；本任务据此把 AC(ii) 按移出结案，其余 AC 全绿后落地。
 
 ### §5 静态闸
 
