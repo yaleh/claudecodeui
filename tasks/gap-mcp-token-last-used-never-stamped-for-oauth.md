@@ -2,7 +2,7 @@
 id: gap-mcp-token-last-used-never-stamped-for-oauth
 title: OAuth 访问令牌与授权(grant)的 last_used 从不落库：/mcp 走 OAuth 路径不打点，Settings
   里令牌与已连接应用永远显示"从未使用"
-status: todo
+status: ready
 labels:
   - gap
   - defect
