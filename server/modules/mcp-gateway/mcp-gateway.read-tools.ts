@@ -22,11 +22,20 @@
  * same way to `mcp-run-get.js` when the deps carry its bag; until then it keeps
  * the same refusal.
  *
- * `ui_last_opened_session` (gap-mcp-ui-last-opened-session) is the one tool this
- * table GAINED after AC-245 rather than having a handler replaced: it is routed
- * to `mcp-ui-tools.js` when the deps carry the browser pointer reader, and keeps
- * the same named refusal otherwise. Its summary is `session_get`'s own reading
- * ({@link buildSessionDetail}), so the two can never drift apart.
+ * `ui_last_opened_session` (gap-mcp-ui-last-opened-session) is one of the tools
+ * this table GAINED after AC-245 rather than having a handler replaced: it is
+ * routed to `mcp-ui-tools.js` when the deps carry the browser pointer reader,
+ * and keeps the same named refusal otherwise. Its summary is `session_get`'s own
+ * reading ({@link buildSessionDetail}), so the two can never drift apart.
+ *
+ * `ui_visible_context` (gap-mcp-ui-visible-context) and `ui_clients_list`
+ * (gap-mcp-ui-clients-list) are the other two: the observer and the discoverer
+ * of the connected browsers, routed to `mcp-ui-visible-context.js` and
+ * `mcp-ui-clients-list.js` when the deps carry the round trip, and keeping the
+ * same named refusal otherwise. This module GAINING a tool is deliberate and
+ * costs three edits in tandem (this table, `mcp-tool-annotations.ts`, and
+ * `mcp-tool-error-codes.ts`, whose records are total over the name union), plus
+ * the size pins the criteria hold — never a silent addition.
  *
  * Two text-shaping helpers are exported because the criterion drives them
  * directly as well as through a tool: {@link paginateMcpText} (the 4000-character
@@ -48,6 +57,8 @@ import { isOverviewWired, registerMcpOverviewTools } from './mcp-overview-tools.
 import type { McpActivityReader, McpOverviewDeps, McpOverviewRegistration, McpQuayRunner } from './mcp-overview-tools.js';
 import { isRunGetWired, registerMcpRunGetTool } from './mcp-run-get.js';
 import type { McpRunGetDeps, McpRunGetRegistration } from './mcp-run-get.js';
+import { isUiClientsListWired, registerMcpUiClientsListTool } from './mcp-ui-clients-list.js';
+import type { McpUiClientsListDeps } from './mcp-ui-clients-list.js';
 import {
   isUiVisibleContextWired,
   registerMcpUiVisibleContextTool,
@@ -115,6 +126,12 @@ export const MCP_STAGE3_READ_TOOLS = [
     requiredScope: READ_SCOPE,
     description:
       'Ask the connected browsers what they are showing right now: per device and tab, the open project and session, the visible message id range, the panel, and the pending approval and queued message counts. Identifiers and ranges only — read message text with session_read.',
+  },
+  {
+    name: 'ui_clients_list',
+    requiredScope: READ_SCOPE,
+    description:
+      'List the browsers connected right now: the identity of each device, its tabs, its navigation policy, and its current visibility and focus. Identity and status only — pick a device here, then read what it is showing with ui_visible_context.',
   },
 ] as const;
 
@@ -238,6 +255,18 @@ export type McpReadToolDeps = {
    * binds both members to the websocket module's own process-wide services.
    */
   uiVisibleContext?: McpUiVisibleContextDeps;
+  /**
+   * The connected-device listing (gap-mcp-ui-clients-list): the roster a
+   * `ui_clients_list` call enumerates, and the same round trip
+   * `ui_visible_context` uses for the status it reads from each device. Optional
+   * so a mount that predates this task — or a criterion that exercises the other
+   * read tools — is still a valid `McpReadToolDeps`; when absent `ui_clients_list`
+   * keeps its named `MCP_TOOL_NOT_IMPLEMENTED` refusal, when present
+   * `registerMcpReadTools` routes the name to
+   * {@link registerMcpUiClientsListTool}. `server/index.ts` binds both members to
+   * the same process-wide services `uiVisibleContext` binds above.
+   */
+  uiClientsList?: McpUiClientsListDeps;
   /** Clock seam, so every relative time is reproducible in a criterion. */
   now: () => number;
 };
@@ -836,6 +865,32 @@ const TOOL_BODIES = {
     // before their tasks landed.
     handle: () => notImplemented('ui_visible_context', 'gap-mcp-ui-visible-context'),
   },
+  ui_clients_list: {
+    inputSchema: {},
+    // The listing: one entry per connected device, identity and status only. The
+    // status fields are nullable because a device none of whose tabs answered
+    // reports none of them — the shape admits "asked, asleep" as readily as a
+    // full reading.
+    outputSchema: {
+      devices: z.array(
+        z.object({
+          deviceId: z.string(),
+          deviceName: z.string(),
+          lastFocusedAt: z.number().nullable(),
+          visibility: z.enum(['visible', 'hidden']).nullable(),
+          hasFocus: z.boolean().nullable(),
+          navigationPolicy: z.string().nullable(),
+          unresponsive: z.boolean(),
+          tabs: z.array(z.object({ tabId: z.string(), connectedAt: z.number() })),
+        }),
+      ),
+    },
+    // The real handler lives in `mcp-ui-clients-list.js` and is installed by
+    // `registerMcpReadTools` when the deps carry the round trip. A mount without
+    // it reads this named refusal, exactly like the overview/run_get placeholders
+    // before their tasks landed.
+    handle: () => notImplemented('ui_clients_list', 'gap-mcp-ui-clients-list'),
+  },
   session_read: {
     inputSchema: sessionReadInputSchema,
     outputSchema: {
@@ -949,8 +1004,9 @@ export type McpReadToolSeam = (registration: McpReadToolRegistration) => void;
  * keeps the body-table refusal. `ui_last_opened_session` follows it too: when
  * `deps.uiLastOpened` is supplied it is registered by `mcp-ui-tools.js`, and
  * otherwise it keeps the body-table refusal. `ui_visible_context` follows the
- * same routing through `mcp-ui-visible-context.js` and `deps.uiVisibleContext`.
- * The registered NAME SET is the table either way.
+ * same routing through `mcp-ui-visible-context.js` and `deps.uiVisibleContext`,
+ * and `ui_clients_list` through `mcp-ui-clients-list.js` and
+ * `deps.uiClientsList`. The registered NAME SET is the table either way.
  */
 export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDeps): void {
   const overviewDeps: McpOverviewDeps | null = isOverviewWired(deps) ? deps : null;
@@ -959,6 +1015,7 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
   const visibleContextDeps: McpUiVisibleContextDeps | null = isUiVisibleContextWired(deps)
     ? deps.uiVisibleContext
     : null;
+  const clientsListDeps: McpUiClientsListDeps | null = isUiClientsListWired(deps) ? deps.uiClientsList : null;
   const table = new Map<string, (typeof MCP_STAGE3_READ_TOOLS)[number]>(
     MCP_STAGE3_READ_TOOLS.map((tool) => [tool.name, tool]),
   );
@@ -992,6 +1049,9 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
     if (visibleContextDeps !== null && tool.name === 'ui_visible_context') {
       continue;
     }
+    if (clientsListDeps !== null && tool.name === 'ui_clients_list') {
+      continue;
+    }
     const body = TOOL_BODIES[tool.name];
     seam({
       name: tool.name,
@@ -1021,5 +1081,9 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
 
   if (visibleContextDeps !== null) {
     registerMcpUiVisibleContextTool(seam, visibleContextDeps, registration('ui_visible_context'));
+  }
+
+  if (clientsListDeps !== null) {
+    registerMcpUiClientsListTool(seam, clientsListDeps, registration('ui_clients_list'));
   }
 }

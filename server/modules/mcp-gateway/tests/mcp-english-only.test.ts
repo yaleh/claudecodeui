@@ -15,10 +15,11 @@
  * needed beyond the audit table the audited wrapper writes.
  *
  * Readings, one leg each:
- *   (a) `tools/list` names 19 tools. Every tool has a success probe; every tool
- *       with declared arguments also has a failure probe (the one argument-less
- *       tool, `ui_last_opened_session`, has no validation branch to drive and is
- *       exempted with a reasoned entry — {@link NO_VALIDATION_FAILURE}); the
+ *   (a) `tools/list` names 20 tools. Every tool has a success probe; every tool
+ *       with declared arguments also has a failure probe (the argument-less
+ *       tools — `ui_last_opened_session` and `ui_clients_list` — have no
+ *       validation branch to drive and are exempted with reasoned entries —
+ *       {@link NO_VALIDATION_FAILURE}); the
  *       success payloads are walked and every string under a
  *       {@link SERVER_AUTHORED_FIELDS} key must be CJK-free. The tool and
  *       parameter `description`s and the `initialize` instructions are read the
@@ -444,6 +445,44 @@ const readTools = {
       },
     ],
   },
+  // The same round trip, wired so `ui_clients_list` has a real success path: one
+  // device whose one tab reports the `sess-1` this fixture resolves. Only the
+  // device's identity and status reach the listing, and every one of those is an
+  // ASCII identifier, so (a)'s walk reads the same nothing-to-translate payload
+  // `ui_visible_context`'s does.
+  uiClientsList: {
+    listUiClients: () => [
+      {
+        deviceId: 'dev-1',
+        deviceName: 'laptop',
+        tabs: [{ tabId: 'tab-1', deviceName: 'laptop', connectedAt: FIXED_NOW - 120 * 1000 }],
+      },
+    ],
+    requestUiState: async () => [
+      {
+        deviceId: 'dev-1',
+        deviceName: 'laptop',
+        lastFocusedAt: FIXED_NOW - 60 * 1000,
+        tabs: [
+          {
+            tabId: 'tab-1',
+            deviceName: 'laptop',
+            unresponsive: false,
+            navigationPolicy: 'ask-before-navigate',
+            visibility: 'visible' as const,
+            hasFocus: true,
+            lastFocusedAt: FIXED_NOW - 60 * 1000,
+            panel: 'chat',
+            selectedProject: 'proj-1',
+            selectedSession: 'sess-1',
+            visibleMessages: { first: 'm-1', last: 'm-9' },
+            pendingApprovals: 1,
+            queuedMessages: 0,
+          },
+        ],
+      },
+    ],
+  },
 } as unknown as McpReadToolDeps;
 
 /** Builds the write bag over a control service. */
@@ -750,6 +789,9 @@ const SUCCESS_TABLE: Record<string, AnyRecord> = {
   // device whose tab reports the `sess-1` fixture above; asking no device in
   // particular is the broadest (and here, only) question.
   ui_visible_context: {},
+  // No arguments either: the success path is the INJECTED round trip answering
+  // with one device; listing every connected device is the only question it asks.
+  ui_clients_list: {},
 };
 
 /**
@@ -758,11 +800,12 @@ const SUCCESS_TABLE: Record<string, AnyRecord> = {
  * envelope comes from the wrapper's validation branch for all of them at once;
  * the other codes are probed in {@link CLASS_FAILURES}.
  *
- * The one tool that CANNOT appear here is the one that declares no input at all:
+ * The tools that CANNOT appear here are the ones that declare no input at all:
  * with no declared argument the wrapper's validation branch has nothing to
- * reject, so `ui_last_opened_session` has no shallow failure to drive. It is
- * named in {@link NO_VALIDATION_FAILURE} with its reason instead of by dropping
- * it — the registry deepEqual below forbids a silent omission.
+ * reject, so neither `ui_last_opened_session` nor `ui_clients_list` has a shallow
+ * failure to drive. They are named in {@link NO_VALIDATION_FAILURE} with their
+ * reasons instead of by dropping them — the registry deepEqual below forbids a
+ * silent omission.
  */
 const FAILURE_TABLE: Record<string, { args: AnyRecord; expect: string }> = {
   overview: { args: { project: 5 }, expect: 'INVALID_ARGUMENT' },
@@ -788,17 +831,19 @@ const FAILURE_TABLE: Record<string, { args: AnyRecord; expect: string }> = {
 };
 
 /**
- * The reasoned-exemption bucket the (a) failure half needs. It is NOT empty: one
- * tool declares no input arguments, so the wrapper's declared-input validation
+ * The reasoned-exemption bucket the (a) failure half needs. It is NOT empty: two
+ * tools declare no input arguments, so the wrapper's declared-input validation
  * branch — the shallowest failure every other tool is probed through — has
- * nothing to reject. Naming it here (rather than deleting it from the coverage
- * reading) is the same choice `mcp-error-envelope.test.ts` makes for the same
- * tool; the CJK-free property of its refusal literal is still read, by leg (d)'s
- * module-source scan.
+ * nothing to reject. Naming them here (rather than deleting them from the
+ * coverage reading) is the same choice `mcp-error-envelope.test.ts` makes for the
+ * same tools; the CJK-free property of their refusal literals is still read, by
+ * leg (d)'s module-source scan.
  */
 const NO_VALIDATION_FAILURE: Record<string, string> = {
   ui_last_opened_session:
     'declares no input arguments, so there is no INVALID_ARGUMENT probe to drive through the wrapper; its SESSION_NOT_FOUND envelope is covered by mcp-ui-last-opened.test.ts',
+  ui_clients_list:
+    'declares no input arguments, so there is no INVALID_ARGUMENT probe to drive through the wrapper; with no target reference either, no AC-246 refusal is reachable, and its success payload is the criterion tests/mcp-ui-clients-list.test.ts',
 };
 
 /** One failure beyond the validation class, so (b)'s buckets are not all one code. */
@@ -969,7 +1014,7 @@ test('(a) the success and failure tables cover exactly the tools the registry li
   const listed = await listClient.listTools();
   const registryNames = listed.tools.map((tool) => tool.name).sort();
 
-  assert.equal(registryNames.length, 19, `tools/list must return the full 19-tool set, got ${registryNames.join(', ')}`);
+  assert.equal(registryNames.length, 20, `tools/list must return the full 20-tool set, got ${registryNames.join(', ')}`);
   assert.deepEqual(
     Object.keys(SUCCESS_TABLE).sort(),
     registryNames,
@@ -1008,7 +1053,7 @@ test('(a) every tool description and parameter description is English', async ()
       }
     }
   }
-  assert.ok(scanned >= 19, `every one of the 19 tools must declare a description, scanned ${scanned}`);
+  assert.ok(scanned >= 20, `every one of the 20 tools must declare a description, scanned ${scanned}`);
   say(`(a) scanned ${scanned} tool/parameter descriptions, all English`);
 });
 

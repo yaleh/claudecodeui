@@ -48,6 +48,7 @@
  * | `quay_snapshot`       | none   | true     | false       | true       | false     | reads the quay store; `refresh` only repopulates a derived cache |
  * | `ui_last_opened_session`| none | true     | false       | true       | false     | reads the browser's last-opened pointer; the write is the browser's own route |
  * | `ui_visible_context`  | none   | true     | false       | true       | false     | asks the browsers what they show; nothing stored, no state mutated |
+ * | `ui_clients_list`     | none   | true     | false       | true       | false     | lists the connected browsers and their status; nothing stored, no state mutated |
  * | `session_send`        | none   | false    | false       | false      | true      | additive: queues/sends a message, starts a run; two sends are two turns |
  * | `session_create`      | none   | false    | false       | false      | true      | additive: mints a session (and may start its first run); two creates are two sessions |
  * | `session_interrupt`   | none   | false    | true        | false      | true      | terminates the run in flight; the work it held is lost |
@@ -122,6 +123,12 @@ export const MCP_TOOL_ANNOTATIONS: Record<McpGatewayToolName, ToolAnnotations> =
   // fact. The question reaches the browsers, but it drives no provider agent and
   // mutates no CloudCLI state, so the world stays closed.
   ui_visible_context: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  // lists the connected browsers and status, reading their answers to one
+  // round-trip question: nothing is stored, and a repeat with no browser state
+  // change reads the same roster. The question reaches the browsers, but it
+  // drives no provider agent and mutates no CloudCLI state, so the world stays
+  // closed — the same reading `ui_visible_context` above carries.
+  ui_clients_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 
   // -- stage-4 write tools ---------------------------------------------------
   // additive: a message is queued/sent and a run starts; nothing is discarded.
