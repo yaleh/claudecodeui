@@ -2,7 +2,7 @@
 id: gap-ac172-reload-landing-races-absolute-walk-plateau
 title: AC-172 判据重连后的 busy 读数与绝对偏移走查的 6s 平台竞争：reload 落点由宿主网络决定，慢一次就错过
   `turn-end@13000`（读数走 `idle`→`exited`）；上一个有界守卫（done）只兜住了 reload 失败、没兜住它的落点
-status: ready
+status: done
 labels:
   - gap
   - defect
