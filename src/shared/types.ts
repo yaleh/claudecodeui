@@ -538,6 +538,27 @@ export type ActivitySnapshotFrame = {
 //----------------- REALTIME TRANSPORT ------------
 
 /**
+ * The one frame a browser sends the chat websocket to say who it is.
+ *
+ * Sent once per connection — so also on every reconnect — and never again while
+ * that socket lives: the server keeps the identity in memory and drops it when
+ * the connection closes, so a reconnect has to re-announce rather than assume
+ * the previous announcement survived.
+ *
+ * `deviceId` is this browser's stable identity and is what an MCP caller selects
+ * a device by; `tabId` distinguishes the tabs of one browser; `deviceName` is
+ * the human-readable name this device chose for itself. The connection's own
+ * server-side id is deliberately absent — the caller addresses a device, never a
+ * socket.
+ */
+export type UiHelloFrame = {
+  type: 'ui.hello';
+  deviceId: string;
+  tabId: string;
+  deviceName: string;
+};
+
+/**
  * One frame received from the chat websocket. The server guarantees every
  * frame carries a `kind` (provider message kinds plus gateway kinds such as
  * `chat_subscribed`, `session_upserted`, `hosts_changed`, `loading_progress`,

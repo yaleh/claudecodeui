@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '@/modules/auth';
+import { readDeviceName } from '@/modules/settings';
 import { IS_PLATFORM } from '@/shared/utils';
 import { expireAuthSession, isAuthTokenExpired } from '@/shared/authToken';
 import { invalidateSessionHosts, setSessionHostsConnection } from '@/shared/hooks/useSessionHosts';
-import type { ServerEvent } from '@/shared/types';
+import { getDeviceId, getTabId } from '@/shared/utils/deviceIdentity';
+import type { ServerEvent, UiHelloFrame } from '@/shared/types';
 
 
 type ServerEventListener = (event: ServerEvent) => void;
@@ -32,6 +34,27 @@ export const useWebSocket = () => {
     throw new Error('useWebSocket must be used within a WebSocketProvider');
   }
   return context;
+};
+
+/**
+ * Announces this browser to the server on the socket it just opened.
+ *
+ * Sent from `onopen` and nowhere else, so it fires exactly once per connection —
+ * including every reconnect, because the identity lives only as long as the
+ * server's connection does. A guard on `readyState` keeps an already-closing
+ * socket from throwing mid-handshake.
+ */
+const sendUiHello = (socket: WebSocket) => {
+  if (socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  const frame: UiHelloFrame = {
+    type: 'ui.hello',
+    deviceId: getDeviceId(),
+    tabId: getTabId(),
+    deviceName: readDeviceName(),
+  };
+  socket.send(JSON.stringify(frame));
 };
 
 const buildWebSocketUrl = (token: string | null) => {
@@ -87,6 +110,10 @@ const useWebSocketProviderState = (): WebSocketContextType => {
 
       websocket.onopen = () => {
         setIsConnected(true);
+        // Announce this browser's identity before anything else can be asked of
+        // this connection: the server holds it in memory per connection, so the
+        // announcement and the connection have the same lifetime.
+        sendUiHello(websocket);
         if (hasConnectedRef.current) {
           // This is a reconnect — signal so components can catch up on missed messages
           dispatch({ kind: 'websocket_reconnected', timestamp: Date.now() });

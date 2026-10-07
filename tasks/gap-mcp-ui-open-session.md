@@ -32,13 +32,13 @@ depends_on:
 - **最后打开：** 只有最终状态为 `applied` 的导航才写入 `gap-mcp-ui-last-opened-session` 的记录（经该任务暴露的 upsert 接口），被拒绝、忽略的不记。
 - 审计走现有 `recordMcpToolCall`；新增的错误码（`CLIENT_REQUIRED`、`NO_CLIENT`、`RATE_LIMITED`、`CLIENT_NOT_FOUND` 等）进入现有错误码词汇表，同类别只用一个码，不另造平行词汇；`INSUFFICIENT_SCOPE` 沿用现有点名缺失 scope 的行为。
 
-**现状（已读代码核实）：** scope 常量定义在 `server/modules/oauth/access-tokens.service.ts`（含 `cloudcli:approve` 先例），授权同意页的 scope 文案在 `server/modules/oauth/oauth-consent.routes.ts`，前端 scope 清单在 `src/shared/constants.ts`，设置页令牌复选框读 `accessTokens.scopes.*`（12 种语言的 `settings.json`，`i18nMcpSettingsCompleteness.test.ts` 守完整性）。往返原语 `requestUiState`、设备清单 `listUiClients()`、前端 `ui.navigate` 执行分别由前述依赖任务提供。
+**现状（已读代码核实）：** scope 常量定义在 `server/modules/oauth/access-tokens.service.ts`（含 `cloudcli:approve` 先例），授权同意页的 scope 文案在 `server/modules/oauth/oauth-consent.routes.ts`，前端 scope 清单在 `src/shared/constants.ts`，设置页令牌复选框读 `accessTokens.scopes.*`（12 种语言的 `settings.json`，`i18nMcpSettingsCompleteness.test.ts` 守完整性）。往返原语 `requestUiState`、设备清单 `listUiClients()`、前端 `ui.navigate` 执行分别由前述依赖任务提供。仓库既有形态：使用 `@/*` 别名的 server 测试要带 `TSX_TSCONFIG_PATH=server/tsconfig.json` 才能直接运行；`quay-test-script` 的文件数 pin 只在 `server/shared/tests/quay-test-script.test.ts` 里，`scripts/test.sh` 没有字面量。
 
-**要交付：** 新文件 `server/modules/mcp-gateway/mcp-ui-open-session.ts`（工具）、`server/modules/websocket/services/ui-navigation.service.ts`（发送 `ui.navigate`、等待送达 ack、记录 `ui.navigate_result`、内存导航记录、`ui.navigate_ack` / `ui.navigate_result` 分派）、`mcp-ui-visible-context.ts` 增加 `navigations[]`；工具表、annotations、错误码、barrel、`server/index.ts` 装配；新 scope 贯通令牌服务、同意页、前端清单与 12 种语言的 `accessTokens.scopes` 文案；遵守 `$backend-module-standards` 与 `$frontend-module-standards`；同步 `quay-test-script` 文件数 pin。
+**要交付：** 新文件 `server/modules/mcp-gateway/mcp-ui-open-session.ts`（工具）、`server/modules/websocket/services/ui-navigation.service.ts`（发送 `ui.navigate`、等待送达 ack、记录 `ui.navigate_result`、内存导航记录、`ui.navigate_ack` / `ui.navigate_result` 分派）、`mcp-ui-visible-context.ts` 增加 `navigations[]`；工具表、annotations、错误码、barrel、`server/index.ts` 装配；新 scope 贯通令牌服务、同意页、前端清单与 12 种语言的 `accessTokens.scopes` 文案；遵守 `$backend-module-standards` 与 `$frontend-module-standards`；同步 `server/shared/tests/quay-test-script.test.ts` 里的文件数 pin。
 
 ## AC
 
-- [ ] `node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-open-session.test.ts` 退出码 0：断言单设备在线时 `client` 可省略；多设备时缺省返回 `CLIENT_REQUIRED` 且错误里列出候选；无设备返回 `NO_CLIENT`；`client` 多个命中或无命中返回候选或查询词；只向选中的设备发 `ui.navigate`，不向其他设备发。
+- [ ] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-open-session.test.ts` 退出码 0：断言单设备在线时 `client` 可省略；多设备时缺省返回 `CLIENT_REQUIRED` 且错误里列出候选；无设备返回 `NO_CLIENT`；`client` 多个命中或无命中返回候选或查询词；只向选中的设备发 `ui.navigate`，不向其他设备发。
 - [ ] 同一测试文件断言：前端回 `shown` 时工具返回 `pending_user`，回 `applied` 时返回 `applied`，回 `declined` 时返回 `declined`，送达超时返回 `unresponsive`；工具在送达 ack 到达后立即返回，不等 `ui.navigate_result`。
 - [ ] 同一测试文件断言：随后到达的 `ui.navigate_result` 更新内存导航记录，`ui_visible_context` 的 `navigations[]` 反映最终状态，可按 `navigationId` 过滤；未知 `navigationId` 的结果帧被丢弃；记录超过 50 条或 10 分钟后被清理。
 - [ ] 同一测试文件断言：同一令牌第 7 次调用（一分钟内）返回 `RATE_LIMITED`，限速值取自导出常量；缺少 `cloudcli:navigate` scope 时返回 `INSUFFICIENT_SCOPE` 且名出缺失的 scope；对调用方自己所在的会话照常执行，不返回 `SELF_TARGET`；只有最终 `applied` 的导航更新「最后打开」记录。
@@ -79,6 +79,5 @@ depends_on:
 - src/modules/i18n/locales/zh-TW/settings.json
 - src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts
 - server/modules/mcp-gateway/tests/mcp-ui-open-session.test.ts
-- scripts/test.sh
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-mcp-ui-open-session.md

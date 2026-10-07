@@ -1,7 +1,7 @@
 ---
 id: gap-mcp-ui-device-identity-hello
 title: 设备身份：前端生成 deviceId/tabId，WS 连接后发一次 ui.hello，服务端把身份挂到连接上（内存，断开即移除）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -27,6 +27,7 @@ depends_on:
 - 服务端全部聊天 WS 连接在 `server/modules/websocket/services/websocket-state.service.ts` 的 `connectedClients`（`RealtimeClientConnection`，类型在 `server/shared/types.ts`）。
 - 入站帧分派在 `server/modules/websocket/services/chat-websocket.service.ts` 的 `switch (messageType)`；前端 WS 在 `src/shared/context/WebSocketContext.tsx`（已有 `hosts_changed` 的入站处理）。
 - 服务端目前没有任何设备或客户端身份的概念。
+- 仓库既有形态：使用 `@/*` 别名的 server 测试要带 `TSX_TSCONFIG_PATH=server/tsconfig.json` 才能直接运行（`scripts/test.sh` 即如此）；`quay-test-script` 的文件数 pin 只在 `server/shared/tests/quay-test-script.test.ts` 里，`scripts/test.sh` 没有字面量。
 
 **要交付：**
 
@@ -36,10 +37,10 @@ depends_on:
 
 ## AC
 
-- [ ] `npx vitest run src/shared/tests/deviceIdentity.test.ts` 退出码 0：`getDeviceId()` 在同一 localStorage 内稳定、清除后变化；`getTabId()` 在同一 sessionStorage 内稳定、不同 sessionStorage 不同；存储不可用时不抛错。
-- [ ] `node --import tsx --test server/modules/websocket/tests/ui-client-registry.test.ts` 退出码 0：`ui.hello` 后 `listUiClients()` 返回该设备；连接关闭后消失；同一 `deviceId` 的两条连接聚合为一个设备两个标签页；字段超长或类型错误的 `ui.hello` 被丢弃且连接保持。
-- [ ] 前端测试断言每次 WS（重新）连接后恰好发送一次 `ui.hello`，且内容含 `deviceId`、`tabId` 与设备名。
-- [ ] `npm run typecheck` 退出码 0；`quay-test-script` 的文件数 pin 已同步（`scripts/test.sh` 与 `server/shared/tests/quay-test-script.test.ts`），该测试退出码 0。
+- [x] `npx vitest run src/shared/tests/deviceIdentity.test.ts` 退出码 0：`getDeviceId()` 在同一 localStorage 内稳定、清除后变化；`getTabId()` 在同一 sessionStorage 内稳定、不同 sessionStorage 不同；存储不可用时不抛错。
+- [x] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/websocket/tests/ui-client-registry.test.ts` 退出码 0：`ui.hello` 后 `listUiClients()` 返回该设备；连接关闭后消失；同一 `deviceId` 的两条连接聚合为一个设备两个标签页；字段超长或类型错误的 `ui.hello` 被丢弃且连接保持。
+- [x] 前端测试断言每次 WS（重新）连接后恰好发送一次 `ui.hello`，且内容含 `deviceId`、`tabId` 与设备名。
+- [x] `npm run typecheck` 退出码 0；`quay-test-script` 的文件数 pin 已同步（只在 `server/shared/tests/quay-test-script.test.ts`），该测试退出码 0。
 
 ## DoD
 
@@ -56,6 +57,5 @@ depends_on:
 - server/modules/websocket/index.ts
 - server/shared/types.ts
 - server/modules/websocket/tests/ui-client-registry.test.ts
-- scripts/test.sh
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-mcp-ui-device-identity-hello.md

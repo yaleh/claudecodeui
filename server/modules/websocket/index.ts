@@ -76,6 +76,18 @@ export { broadcastHostsChanged } from './services/hosts-changed-broadcast.servic
 // `createWebSocketServer` and driven directly by the gateway criteria.
 export { handleChatConnection } from './services/chat-websocket.service.js';
 export type { ProviderRuntimeGateway } from './services/chat-websocket.service.js';
+// The UI client registry: which devices (browsers) are connected, and which tabs
+// of each. `listUiClients` is the read port the MCP tools (`ui_clients_list`,
+// the `client` parameter of `ui_visible_context` / `ui_open_session`) call;
+// `uiClientRegistry` is the process-wide instance `handleChatConnection` writes
+// to and `createUiClientRegistry` is the isolated-registry seam a criterion
+// drives so one case's devices cannot leak into the next.
+export {
+  createUiClientRegistry,
+  listUiClients,
+  uiClientRegistry,
+} from './services/ui-client-registry.service.js';
+export type { UiClientRegistry } from './services/ui-client-registry.service.js';
 // handleShellConnection: driven by the passthrough-parity test to prove the pty
 // env stays byte-identical when no configured model is selected.
 export { handleShellConnection } from './services/shell-websocket.service.js';
