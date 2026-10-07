@@ -153,17 +153,4 @@ SENSEVOICE_MODEL_DIR=/opt/sensevoice-model
 - 环境变量样例：`.env.example`（`VOICE_CLIENT_MODEL_DIR`）
 - 子路径模板：`docs/nginx-subpath-template.conf`
 
----
-
-## 8. 已验证（真实页面读数）
-
-**本节由人（yale）在真实页面 `https://cloudcli.lrfz.com` 上取得读数后填写；执行者不得代写。**
-要记的是这几条，逐条一个读数：
-
-- 选中 `sensevoice-wasm` 后设置面板是否立即显示下载进度（已下载 / 总字节 / 速度 / 剩余时间）；
-- 下载期间说一句话：该片段是否由回退识别器出了文本，且**没有**「服务端没有 `sensevoice-wasm`
-  引擎」的 503；
-- 下载完成后再说一句：是否由本机（设备）路径出了文本。
-
-- （待填）
 
