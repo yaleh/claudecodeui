@@ -728,3 +728,87 @@ test('(f) quay_snapshot carries the in-flight reading and overview deliberately 
     assert.equal('inFlight' in entry, false, 'overview must not grow an inFlight key (scope stayed on quay_snapshot)');
   });
 });
+
+// --------------------------- (g) the `project` argument scopes the reading ---------------------------
+
+test('(g) overview reads its `project` argument: it scopes every list to that project and refuses an unknown id', { concurrency: false }, async () => {
+  await withOverviewHarness(async (harness, fixture) => {
+    // The whole-workspace reading (no argument) is the default and must be unchanged.
+    const whole = await harness.call('overview');
+    assert.equal(whole.isError, false, 'the unscoped overview must not error');
+    assert.equal(
+      ((whole.payload as AnyRecord).quay as AnyRecord[]).length,
+      fixture.projectCount,
+      'the unscoped overview still reads every project',
+    );
+
+    // Scoped: `project` names the one project the reading is restricted to. This
+    // is the declared argument that used to be ignored; a caller passing it now
+    // gets that project's overview instead of the whole workspace.
+    const scoped = await harness.call('overview', { project: fixture.mainId });
+    assert.equal(scoped.isError, false, 'a scoped overview of a real project must not error');
+    const scopedPayload = scoped.payload as AnyRecord;
+    console.log(`[g] scoped(main) payload = ${JSON.stringify(scopedPayload)}`);
+
+    const quay = scopedPayload.quay as AnyRecord[];
+    assert.deepEqual(
+      quay.map((entry) => entry.projectId),
+      [fixture.mainId],
+      'the scoped quay list is exactly the named project',
+    );
+
+    // MAIN_DIR holds the busy session; OTHER_DIR holds the aborted run and the
+    // resident host. Scoping to MAIN must keep the first and drop the others —
+    // so this separates "the filter ran" from "the list was empty anyway".
+    const running = scopedPayload.running as AnyRecord[];
+    assert.deepEqual(
+      running.map((entry) => entry.sessionId),
+      [SESSION_BUSY],
+      'the scoped running list is exactly the named project\'s running session',
+    );
+    assert.ok(
+      (scopedPayload.awaitingPermission as AnyRecord[]).every((entry) => entry.projectId === fixture.mainId),
+      'the scoped awaiting list carries only the named project',
+    );
+    const aborted = scopedPayload.aborted as AnyRecord[];
+    console.log(`[g] scoped aborted = ${JSON.stringify(aborted)}`);
+    assert.deepEqual(aborted, [], 'the aborted run belongs to the other project and must be out of scope');
+    assert.equal(
+      (scopedPayload.hosts as AnyRecord[]).some((entry) => entry.sessionId === SESSION_RESIDENT),
+      false,
+      'the resident host belongs to the other project and must be out of scope',
+    );
+
+    // A positive control: scoping to the OTHER project keeps ITS aborted run and
+    // resident host, so the two readings discriminate rather than both being empty.
+    const other = await harness.call('overview', { project: fixture.otherId });
+    assert.equal(other.isError, false, 'a scoped overview of the other real project must not error');
+    const otherPayload = other.payload as AnyRecord;
+    assert.deepEqual(
+      (otherPayload.aborted as AnyRecord[]).map((entry) => entry.runId),
+      [fixture.abortedRunId],
+      'the other project\'s scoped reading carries its aborted run',
+    );
+    assert.ok(
+      (otherPayload.hosts as AnyRecord[]).some((entry) => entry.sessionId === SESSION_RESIDENT),
+      'the other project\'s scoped reading carries its resident host',
+    );
+    assert.deepEqual(
+      (otherPayload.running as AnyRecord[]).map((entry) => entry.sessionId),
+      [],
+      'the busy session belongs to the main project and must be out of the other project\'s scope',
+    );
+
+    // An id nothing matches is a reference to nothing: it is refused, not
+    // answered with an empty-but-successful reading that would read as "quiet".
+    const missing = await harness.call('overview', { project: 'overview-no-such-project' });
+    console.log(`[g] scoped(missing) -> isError=${missing.isError} payload=${JSON.stringify(missing.payload)}`);
+    assert.equal(missing.isError, true, 'an unknown project must be an error, not an empty overview');
+    assert.equal(missing.payload?.code, 'PROJECT_NOT_FOUND', 'the unknown project error carries PROJECT_NOT_FOUND');
+    assert.equal(
+      (missing.payload?.details as AnyRecord | undefined)?.project,
+      'overview-no-such-project',
+      'the error names the project that was asked for',
+    );
+  });
+});
