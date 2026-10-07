@@ -2,7 +2,7 @@
 id: gap-mcp-ui-navigate-requester-name
 title: ui_open_session 的导航记录 requestedBy 为 null、提示条只能显示兜底名 MCP：请求方名称取令牌所属的 OAuth
   客户端名或 PAT 名
-status: ready
+status: done
 labels:
   - gap
   - defect
