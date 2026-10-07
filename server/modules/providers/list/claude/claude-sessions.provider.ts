@@ -632,9 +632,22 @@ function isUserPromptRow(row: AnyRecord): boolean {
  * Drops the rows belonging to prompts that were replaced by an edit.
  *
  * When a message is edited, Claude resumes the conversation partway and appends
- * the replacement, so two prompts end up sharing one parent and the file holds
- * both the abandoned attempt and the live one. A flat read would show them
- * stacked, which reads as the app having sent the message twice.
+ * the replacement, so the file holds both the abandoned attempt and the live
+ * one. A flat read would show them stacked, which reads as the app having sent
+ * the message twice.
+ *
+ * Two shapes mark a replaced prompt:
+ *
+ * 1. **Literal sibling** — two prompts parented onto the same row. This is the
+ *    per-run edit, where the replacement is appended as a second child of the
+ *    row the original came from.
+ * 2. **Replaced across a turn-end block** — a resident session always writes
+ *    `prompt_snapshot` / `stop_hook_summary` rows after a turn, so a prompt
+ *    sent then abandoned parents onto that block instead of onto the assistant
+ *    turn it followed. The replacement resumes at that assistant turn, so it is
+ *    anchored directly on the abandoned prompt's nearest assistant ancestor
+ *    (its branch point) — *there*, and not on any literal shared parent, is the
+ *    supersede signal.
  *
  * Only sibling *prompts* are treated as a fork. Branch points made by parallel
  * tool calls are extremely common — one assistant turn writes several chained
@@ -642,10 +655,39 @@ function isUserPromptRow(row: AnyRecord): boolean {
  * delete tool output from every transcript in the app.
  */
 function dropSupersededPromptBranches(rows: AnyRecord[]): AnyRecord[] {
-  const promptSiblings = new Map<string, AnyRecord[]>();
+  const rowsByUuid = new Map<string, AnyRecord>();
   for (const row of rows) {
-    if (typeof row.parentUuid !== 'string' || !isUserPromptRow(row)) {
+    if (typeof row.uuid === 'string') {
+      rowsByUuid.set(row.uuid, row);
+    }
+  }
+
+  // A row's branch point is its nearest assistant ancestor: the turn a resume
+  // partway to it keeps. Parents are written before children, so one forward
+  // pass resolves every chain.
+  const branchPointOf = new Map<string, string | null>();
+  for (const row of rows) {
+    if (typeof row.uuid !== 'string') {
       continue;
+    }
+    const parent = typeof row.parentUuid === 'string' ? rowsByUuid.get(row.parentUuid) : undefined;
+    if (!parent) {
+      branchPointOf.set(row.uuid, null);
+    } else if (parent.type === 'assistant') {
+      branchPointOf.set(row.uuid, row.parentUuid as string);
+    } else {
+      branchPointOf.set(row.uuid, typeof parent.uuid === 'string' ? branchPointOf.get(parent.uuid) ?? null : null);
+    }
+  }
+
+  const promptSiblings = new Map<string, AnyRecord[]>();
+  const promptIndex = new Map<string, number>();
+  rows.forEach((row, index) => {
+    if (typeof row.uuid === 'string') {
+      promptIndex.set(row.uuid, index);
+    }
+    if (typeof row.parentUuid !== 'string' || !isUserPromptRow(row)) {
+      return;
     }
     const siblings = promptSiblings.get(row.parentUuid);
     if (siblings) {
@@ -653,7 +695,7 @@ function dropSupersededPromptBranches(rows: AnyRecord[]): AnyRecord[] {
     } else {
       promptSiblings.set(row.parentUuid, [row]);
     }
-  }
+  });
 
   const supersededRoots = new Set<string>();
   for (const siblings of promptSiblings.values()) {
@@ -664,6 +706,33 @@ function dropSupersededPromptBranches(rows: AnyRecord[]): AnyRecord[] {
     // is the one that replaced the others.
     for (const row of siblings.slice(0, -1)) {
       if (typeof row.uuid === 'string') {
+        supersededRoots.add(row.uuid);
+      }
+    }
+  }
+
+  // A prompt is also superseded when a *later* prompt is anchored directly on
+  // its branch point: the replacement skipped this prompt's whole subtree,
+  // turn-end block included. Requiring that direct anchor — rather than merely
+  // sharing the branch point — keeps a prompt sent after an abort (which
+  // parents onto the interrupt marker, not the branch point) alive.
+  for (const siblings of promptSiblings.values()) {
+    for (const row of siblings) {
+      if (typeof row.uuid !== 'string') {
+        continue;
+      }
+      const branchPoint = branchPointOf.get(row.uuid);
+      const anchoredAtBranch = branchPoint ? promptSiblings.get(branchPoint) : undefined;
+      const selfIndex = promptIndex.get(row.uuid);
+      if (!anchoredAtBranch || selfIndex === undefined) {
+        continue;
+      }
+      const replaced = anchoredAtBranch.some(
+        (candidate) => candidate.uuid !== row.uuid
+          && typeof candidate.uuid === 'string'
+          && (promptIndex.get(candidate.uuid) ?? -1) > selfIndex,
+      );
+      if (replaced) {
         supersededRoots.add(row.uuid);
       }
     }

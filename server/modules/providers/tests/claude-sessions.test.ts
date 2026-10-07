@@ -473,6 +473,137 @@ test('an edited prompt replaces the one it superseded instead of stacking on it'
   }
 });
 
+/**
+ * The transcript a resident-session edit leaves behind.
+ *
+ * A resident session ends every turn with its `prompt_snapshot` /
+ * `stop_hook_summary` block. The prompt sent and then abandoned parents onto
+ * that block, and the replacement — appended by the rebuilt host — resumes at
+ * the kept assistant turn, so its parent is that turn and the two prompts share
+ * an *ancestor*, never a literal parent.
+ *
+ * `followUp` switches the tail to the negative control: a fresh prompt sent
+ * after an abort, which parents onto the interrupt marker instead and must
+ * survive the prune.
+ */
+function residentEditRows(sessionId: string, followUp: boolean) {
+  const turnEnd = [
+    {
+      type: 'attachment', uuid: 'snap1', parentUuid: 'a1', sessionId, timestamp: '2026-08-23T10:00:02.000Z',
+      attachment: { type: 'prompt_snapshot' },
+    },
+    {
+      type: 'system', uuid: 'hook1', parentUuid: 'snap1', sessionId, subtype: 'stop_hook_summary',
+      timestamp: '2026-08-23T10:00:03.000Z',
+    },
+  ];
+
+  return [
+    {
+      type: 'user', uuid: 'u1', parentUuid: null, sessionId, timestamp: '2026-08-23T10:00:00.000Z',
+      message: { role: 'user', content: [{ type: 'text', text: 'first prompt' }] },
+    },
+    {
+      type: 'assistant', uuid: 'a1', parentUuid: 'u1', sessionId, timestamp: '2026-08-23T10:00:01.000Z',
+      message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'first answer' }] },
+    },
+    ...turnEnd,
+    {
+      type: 'user', uuid: 'u2', parentUuid: 'hook1', sessionId, timestamp: '2026-08-23T10:00:04.000Z',
+      message: { role: 'user', content: [{ type: 'text', text: 'abandoned prompt' }] },
+    },
+    {
+      type: 'user', uuid: 'u2i', parentUuid: 'u2', sessionId, timestamp: '2026-08-23T10:00:05.000Z',
+      message: { role: 'user', content: '[Request interrupted by user]' },
+    },
+    followUp
+      ? {
+          type: 'user', uuid: 'u3', parentUuid: 'u2i', sessionId, timestamp: '2026-08-23T10:00:06.000Z',
+          message: { role: 'user', content: [{ type: 'text', text: 'fresh question' }] },
+        }
+      : {
+          type: 'user', uuid: 'u2b', parentUuid: 'a1', sessionId, timestamp: '2026-08-23T10:00:06.000Z',
+          message: { role: 'user', content: [{ type: 'text', text: 'replacement prompt' }] },
+        },
+    followUp
+      ? {
+          type: 'assistant', uuid: 'a3', parentUuid: 'u3', sessionId, timestamp: '2026-08-23T10:00:07.000Z',
+          message: {
+            role: 'assistant', model: 'claude-opus-5',
+            content: [{ type: 'text', text: 'answer to the fresh question' }],
+          },
+        }
+      : {
+          type: 'assistant', uuid: 'a2b', parentUuid: 'u2b', sessionId, timestamp: '2026-08-23T10:00:07.000Z',
+          message: {
+            role: 'assistant', model: 'claude-opus-5',
+            content: [{ type: 'text', text: 'answer to the replacement' }],
+          },
+        },
+  ];
+}
+
+test('an edit that resumes partway prunes the prompt the turn-end block hid from the parent check', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'claude-resident-edit-history-'));
+  const sessionId = 'claude-resident-edit-session';
+
+  try {
+    const transcriptPath = path.join(tempRoot, `${sessionId}.jsonl`);
+    const rows = residentEditRows(sessionId, false);
+    await writeFile(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      const now = new Date().toISOString();
+      sessionsDb.createSession(sessionId, 'claude', tempRoot, 'Resident edit', now, now, transcriptPath);
+
+      const history = await new ClaudeSessionsProvider().fetchHistory(sessionId, {
+        providerSessionId: sessionId,
+      });
+
+      assert.deepEqual(history.messages.map((message) => message.content), [
+        'first prompt',
+        'first answer',
+        'replacement prompt',
+        'answer to the replacement',
+      ]);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('a prompt sent after an abort keeps the abandoned prompt instead of looking like an edit', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'claude-resident-abort-followup-'));
+  const sessionId = 'claude-resident-abort-session';
+
+  try {
+    const transcriptPath = path.join(tempRoot, `${sessionId}.jsonl`);
+    const rows = residentEditRows(sessionId, true);
+    await writeFile(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      const now = new Date().toISOString();
+      sessionsDb.createSession(sessionId, 'claude', tempRoot, 'Resident abort follow-up', now, now, transcriptPath);
+
+      const history = await new ClaudeSessionsProvider().fetchHistory(sessionId, {
+        providerSessionId: sessionId,
+      });
+
+      // A follow-up anchors onto the interrupt marker, not the branch point, so
+      // the aborted prompt was abandoned, not replaced — both stay.
+      assert.deepEqual(history.messages.map((message) => message.content), [
+        'first prompt',
+        'first answer',
+        'abandoned prompt',
+        'fresh question',
+        'answer to the fresh question',
+      ]);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('parallel tool calls are not mistaken for an edit', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'claude-parallel-tools-'));
   const sessionId = 'claude-parallel-session';
