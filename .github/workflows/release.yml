@@ -45,10 +45,6 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Trusted publishing needs npm >= 11.5.1; Node 22 ships an older npm.
-      - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@latest && npm --version
-
       - name: git config
         run: |
           git config user.name "${GITHUB_ACTOR}"
@@ -74,6 +70,10 @@ jobs:
           # @vscode/ripgrep downloads its binary from GitHub in postinstall; anonymous requests
           # are rate-limited (403), same reason desktop-release.yml passes a token here.
           GITHUB_TOKEN: ${{ github.token }}
+
+      # Upgraded only after `npm ci` (newer npm refuses the lockfile's mirror-resolved entries). Trusted publishing needs npm >= 11.5.1; Node 22 ships an older npm.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest && npm --version
 
       - name: Release
         id: release
