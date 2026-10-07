@@ -36,6 +36,40 @@ const quayFileReader: QuayFileReader = {
   readText: (filePath) => fs.promises.readFile(filePath, 'utf8'),
 };
 
+/**
+ * Bound on the dashboard liveness probe. It is deliberately far below the child-process
+ * bound (`QUAY_COMMAND_TIMEOUT_MS`): the probe runs in-process, concurrently with the
+ * snapshot's CLI reads, and is only ever reached after the carrier has already named a
+ * `web` address. A refused localhost connection settles immediately, so this ceiling only
+ * ever applies to a black-holed address.
+ */
+const DASHBOARD_PROBE_TIMEOUT_MS = 2_000;
+
+/**
+ * In-process liveness probe for a project's `quay serve` web face: one HTTP `GET /health`
+ * with a hard timeout, answering `true` only for a 2xx. It takes the reading quay's own
+ * `server status` used to take, without that command's six driver-kind subprocesses.
+ *
+ * It never rejects — a refused connection, a timeout, an unresolvable host and a non-2xx
+ * answer all read `false` — so an unreachable dashboard becomes a `null` link rather than
+ * an error the panel has to report.
+ */
+const probeWebService = async (host: string, port: number): Promise<boolean> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DASHBOARD_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`http://${host}:${port}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /** The single quay display service instance; also used by the projects module for Tier-1 detection. */
 export const quayService = createQuayService({
   fileExists: (filePath) => fs.existsSync(filePath),
@@ -46,6 +80,9 @@ export const quayService = createQuayService({
   // migration-period bare-PATH fallback into the server log instead of leaving it silent.
   runCommand: createQuayProcessRunner({ warn: (message) => console.warn(message) }),
   readFile: quayFileReader,
+  // The dashboard link's liveness reading: an in-process HTTP probe, so it costs no child
+  // process (the gap this task closes) while still refusing to link to a dead server.
+  probeWebService,
   now: () => Date.now(),
   snapshotTtlMs: SNAPSHOT_TTL_MS,
   commandTimeoutMs: QUAY_COMMAND_TIMEOUT_MS,
