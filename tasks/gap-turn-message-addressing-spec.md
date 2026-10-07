@@ -32,11 +32,11 @@ extra:
 
 ## AC
 
-- [ ] `docs/proposals/turn-message-addressing-SPEC.md` 文件存在，且 `grep -c "^## " docs/proposals/turn-message-addressing-SPEC.md` 的结果 ≥ 5（背景、现状盘点、Quay 复用评估、retry/fork/resume 语义、风险或待决问题，至少各占一个二级标题）。
-- [ ] `grep -n "transcriptAnchorId\|transcriptRowId\|forkAnchorId\|blockKey\|messageUuid\|forkedFromSessionId" docs/proposals/turn-message-addressing-SPEC.md` 命中数 ≥ 6（证明现状盘点真的逐一点名了现有概念，不是空泛描述）。
-- [ ] 文档里有一个二级或三级标题包含「Quay」字样，且该节落在明确结论：复用到什么程度，或列出不能复用的具体障碍（不能是模糊的「可以参考」）。
-- [ ] 文档里对 retry、fork、resume 三个操作各自有独立小节，且每节都提到"常驻会话轮次收尾块打断 parentUuid 连续性"这一已知结构性事实，并给出该事实下仍然可行的关联锚点方案（不能是"假设 parentUuid 链总是连续"的方案）。
-- [ ] 文档末尾有「修订记录」或等价的版本小节，注明初稿日期与基于的调查输入（本次 2026-10-07 的只读调查对话）。
+- [x] `docs/proposals/turn-message-addressing-SPEC.md` 文件存在，且 `grep -c "^## " docs/proposals/turn-message-addressing-SPEC.md` 的结果 ≥ 5（背景、现状盘点、Quay 复用评估、retry/fork/resume 语义、风险或待决问题，至少各占一个二级标题）。
+- [x] `grep -n "transcriptAnchorId\|transcriptRowId\|forkAnchorId\|blockKey\|messageUuid\|forkedFromSessionId" docs/proposals/turn-message-addressing-SPEC.md` 命中数 ≥ 6（证明现状盘点真的逐一点名了现有概念，不是空泛描述）。
+- [x] 文档里有一个二级或三级标题包含「Quay」字样，且该节落在明确结论：复用到什么程度，或列出不能复用的具体障碍（不能是模糊的「可以参考」）。
+- [x] 文档里对 retry、fork、resume 三个操作各自有独立小节，且每节都提到"常驻会话轮次收尾块打断 parentUuid 连续性"这一已知结构性事实，并给出该事实下仍然可行的关联锚点方案（不能是"假设 parentUuid 链总是连续"的方案）。
+- [x] 文档末尾有「修订记录」或等价的版本小节，注明初稿日期与基于的调查输入（本次 2026-10-07 的只读调查对话）。
 
 ## DoD
 
@@ -50,3 +50,10 @@ extra:
 ## Notes
 
 本任务不实现任何 retry/fork/resume 的代码，也不改动现有的 `session_read`/`messageKeys.ts` 等寻址实现；产出只是设计文档，为后续独立任务提供依据。
+
+### 完成记录（2026-10-07，worker）
+
+- 交付物：`docs/proposals/turn-message-addressing-SPEC.md`（初稿 v1）。AC 五项逐一机械核实通过：`^## ` 计数 = 7（≥5）；六概念点名命中 = 24（≥6）；`## Quay 复用评估` 落在明确结论（复用 GateEvent 的记录形状与「解析不到即显式拒绝」的失败纪律，**不复用**其运行时，且不得把 CloudCodeUI 的轮次 id 取自 Quay，列出四条具体障碍）；retry/fork/resume 三节各含同一结构性事实并给出**非 parentUuid 链**的关联锚点；`## 修订记录` 含初稿日期 2026-10-07 与只读调查输入。
+- 只读核查更正了 Proposal 的两处现状描述，已写入 SPEC：(1) 消息级 fork **已经实现**（`forkSessionById(sessionId,{upToAnchorId})`，`sessions.service.ts:432`），缺的不是 fork 本身而是分叉后新会话与原消息之间的机器可读关联字段；(2) `messageUuid` 在本仓库是**两个不同概念**——provider 的 JSONL 行 uuid（C1，`aroundId` 的来源）与 `session_cancel_queued` 的排队消息 uuid（C13，`mcp-session-cancel-queued.ts:90`，服务端铸造、只在队列存活期有效），二者不可互换。
+- **DoD 的人工评审尚未获得。** DoD 明确写着「仅文件存在、未经评审确认可执行，不算完成」，且要求评审意见以 commit message 或 Notes 留痕；本 worker 不得代写评审结论。评审人未定评前，本任务保持 `needs-human`，**不得置 done**（对照同类先例 `gap-debug-agent-synthetic-provider-adr` 的 DoD：「未获评审前不得置 done」，其评审落于 `adr/ADR-003` 的 `## Adjudication` 小节）。
+- 待评审的决策点（评审时请一并裁决）：**D-a** `forkedFromAnchorId` 的字段名与落库（DB 列 vs 事件 payload），以及它记录源会话地址还是新会话内新 id（SPEC 主张源会话地址）；**D-b** retry 的产物是新会话还是同会话新轮次（产品语义）；**D-c** `TurnAddress.index` 在 compaction/编辑下是否需 provider 侧轮次不变量。另有两条**未核实前提** U-1（Claude fork 是否逐一重铸所有 uuid，当前依据是 `claude-fork.provider.ts:13-15` 的注释，未逐份实测）、U-2（Codex fork 的 uuid 处理未核实），见文档「风险与待决问题」。
