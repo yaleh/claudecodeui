@@ -29,6 +29,10 @@ import {
   uiClientRegistry,
   type UiClientRegistry,
 } from '@/modules/websocket/services/ui-client-registry.service.js';
+import {
+  uiStateRequestService,
+  type UiStateRequestService,
+} from '@/modules/websocket/services/ui-state-request.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
   getGlobalImageAssetsDir,
@@ -334,6 +338,17 @@ type ChatWebSocketDependencies = {
    * without leaving devices behind for the next case to read.
    */
   uiClients?: UiClientRegistry;
+  /**
+   * Where a connection's `ui.state_response` is routed: the open request that
+   * asked for it.
+   *
+   * Defaults to the process-wide round trip, which is the one the MCP tools'
+   * `ui_visible_context` call goes through — one instance per server run, so an
+   * answer and the question it belongs to cannot be held by two different
+   * tables. The seam exists so a criterion can hand in its own service and read
+   * the frame the gateway actually routed.
+   */
+  uiStateRequests?: UiStateRequestService;
 };
 
 /**
@@ -1557,6 +1572,25 @@ function handleUiHello(
 }
 
 /**
+ * Handles `ui.state_response`: a tab answering "what are you showing".
+ *
+ * The frame is a reply to a broadcast the server made itself, so it is routed by
+ * `requestId` to the one call still waiting for it — the round trip's service
+ * owns that table. A frame nothing is waiting for (a duplicate, a stale answer,
+ * a `requestId` this process never minted) is dropped in silence: it is not a
+ * client error, and replying with a protocol error would let a harmless late
+ * frame from a slow browser produce noise on a connection that is otherwise
+ * fine.
+ */
+function handleUiStateResponse(
+  ws: WebSocket,
+  data: AnyRecord,
+  service: UiStateRequestService,
+): void {
+  service.handleResponse(ws, data);
+}
+
+/**
  * Handles `chat.permission-response`: forwards a tool-approval decision to the
  * pending approval resolver (Claude is the only provider with interactive
  * approvals today, but the message is intentionally provider-neutral).
@@ -1585,6 +1619,7 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * - `chat.background-task`     { sessionId, toolUseId, requestId }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
  * - `ui.hello`                 { deviceId, tabId, deviceName }
+ * - `ui.state_response`        { requestId, deviceId, tabId, deviceName, …report }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
  *
  * Outbound protocol (server to client): every frame is `kind`-based — either
@@ -1617,6 +1652,12 @@ export function handleChatConnection(
   // ends use the same resolved instance so a socket cannot be announced to one
   // listing and forgotten from another.
   const uiClients = dependencies.uiClients ?? uiClientRegistry;
+
+  // The round trip this connection's `ui.state_response` frames are routed into.
+  // Resolved the same way — the injected service or the process-wide one — so a
+  // browser's answer and the request that asked for it can never be held by two
+  // different tables.
+  const uiStateRequests = dependencies.uiStateRequests ?? uiStateRequestService;
 
   ws.on('message', async (rawMessage) => {
     try {
@@ -1655,6 +1696,9 @@ export function handleChatConnection(
           return;
         case 'ui.hello':
           handleUiHello(ws, data, uiClients);
+          return;
+        case 'ui.state_response':
+          handleUiStateResponse(ws, data, uiStateRequests);
           return;
         case 'chat.permission-response':
           handlePermissionResponse(data, resolvedDependencies);

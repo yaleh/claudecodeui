@@ -26,7 +26,7 @@ import {
     sweepOrphanClaudeSessionScopes,
     uiLastOpenedSessionService,
 } from '@/modules/providers/index.js';
-import { activityStore, BOOT_ID, broadcastHostsChanged, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
+import { activityStore, BOOT_ID, broadcastHostsChanged, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer, listUiClients, uiStateRequestService } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -625,6 +625,17 @@ const mcpGateway = mountMcpGateway(
             // READ-ONLY here on purpose — the providers module's session-read
             // routes are the only writers, so an MCP token can never move it.
             uiLastOpened: { read: () => uiLastOpenedSessionService.readLastOpened() },
+            // gap-mcp-ui-visible-context: the connected browsers, and the round
+            // trip that asks them what they are showing. Both are the websocket
+            // module's own process-wide services — the same registry `ui.hello`
+            // announces into and the same pending-request table the gateway
+            // routes `ui.state_response` frames into — so a question asked by an
+            // MCP caller and the answer arriving on a socket can never be held
+            // by two different objects.
+            uiVisibleContext: {
+                listUiClients,
+                requestUiState: (options) => uiStateRequestService.requestUiState(options),
+            },
             now: () => Date.now(),
         },
         // The stage-4 write tools (AC-249). The control service is handed in at

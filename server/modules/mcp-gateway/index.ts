@@ -221,6 +221,26 @@ export type {
 export { buildUiLastOpened, isUiLastOpenedWired, registerMcpUiTools } from './mcp-ui-tools.js';
 export type { McpUiLastOpenedDeps, McpUiLastOpenedReading, McpUiLastOpenedStore } from './mcp-ui-tools.js';
 
+// The visible-context tool (gap-mcp-ui-visible-context). `buildUiVisibleContext`
+// asks the connected browsers what they are showing — over the websocket
+// module's round trip — and returns the per-device, per-tab identifiers and
+// ranges, resolving its optional `client` reference with AC-246's rules.
+// `McpUiVisibleContextDeps` is the injected pair `server/index.ts` binds to the
+// websocket barrel's `listUiClients` and `uiStateRequestService.requestUiState`;
+// `isUiVisibleContextWired` is the branch `registerMcpReadTools` takes between
+// the real handler and the named refusal.
+export {
+  buildUiVisibleContext,
+  isUiVisibleContextWired,
+  registerMcpUiVisibleContextTool,
+} from './mcp-ui-visible-context.js';
+export type {
+  McpUiVisibleContextDeps,
+  McpUiVisibleContextInput,
+  McpUiVisibleContextRegistration,
+  UiVisibleContextPayload,
+} from './mcp-ui-visible-context.js';
+
 // The stage-4 write tools (AC-249). `MCP_STAGE4_WRITE_TOOLS` is the one
 // statement of which write tools exist and the scope each requires — the
 // self-referential guard (AC-252) reads the names from it rather than writing a

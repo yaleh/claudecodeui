@@ -109,6 +109,124 @@ export type UiClientDevice = {
 };
 
 // ---------------------------
+//----------------- UI VISIBLE CONTEXT ------------
+/**
+ * One connection the UI-state round trip can address.
+ *
+ * The registry holds the live socket behind an announced identity, which is
+ * exactly the pair the round trip needs: it must WRITE to that socket and
+ * REPORT the answering tab by the identity a caller can name. Only the round
+ * trip's own service reads this port, so the socket reached here is never
+ * published to a caller — the registry's own `listUiClients` projection stays
+ * the one read surface the MCP tools are handed.
+ */
+export type UiStateRequestTarget = {
+  /** The live connection this identity arrived on. */
+  connection: RealtimeClientConnection;
+  deviceId: string;
+  tabId: string;
+  deviceName: string;
+  /** Epoch ms when this identity reached the server. */
+  connectedAt: number;
+};
+
+/**
+ * What one tab reports about what it is showing, as the server reads it off a
+ * `ui.state_response` frame.
+ *
+ * Identifiers and ranges ONLY — message ids, counts, and the names of things.
+ * A message body, a user selection and a panel's content are deliberately not
+ * representable here: the server projects a frame down to exactly these fields,
+ * so a browser that sends more (or a fixture that injects one) cannot widen what
+ * a caller reads.
+ */
+export type UiVisibleContextReport = {
+  /** This device's own navigation policy at the moment it answered. */
+  navigationPolicy: string;
+  /** Whether the page was in the foreground. */
+  visibility: 'visible' | 'hidden';
+  /** Whether this tab held keyboard focus. */
+  hasFocus: boolean;
+  /** Epoch ms of the last moment this tab was focused; null when it never was. */
+  lastFocusedAt: number | null;
+  /** The workspace panel this tab is showing, or null when none is known. */
+  panel: string | null;
+  /** The project this tab has open, or null. */
+  selectedProject: string | null;
+  /** The session this tab has open, or null. */
+  selectedSession: string | null;
+  /** The first and last message ids currently visible in the transcript. */
+  visibleMessages: { first: string | null; last: string | null };
+  /** How many tool approvals are waiting for the user in this tab. */
+  pendingApprovals: number;
+  /** How many of this tab's messages are still waiting in the send queue. */
+  queuedMessages: number;
+};
+
+/** The frame the server broadcasts to ask every connected tab what it is showing. */
+export type UiStateRequestFrame = {
+  type: 'ui.state_request';
+  requestId: string;
+};
+
+/**
+ * The frame a tab answers a `ui.state_request` with.
+ *
+ * `requestId` is echoed verbatim so the server can match the answer to the
+ * request it belongs to and drop anything else. The identity fields are the
+ * tab's own; the remaining fields are {@link UiVisibleContextReport}, which is
+ * the whole of what may cross this boundary.
+ */
+export type UiStateResponseFrame = {
+  type: 'ui.state_response';
+  requestId: string;
+  deviceId: string;
+  tabId: string;
+  deviceName: string;
+} & UiVisibleContextReport;
+
+/**
+ * One tab as a UI-visible-context reading reports it: the identity the server
+ * addressed it by, plus the report it answered with.
+ *
+ * An unanswered tab is the same shape with `unresponsive: true` and every report
+ * field null — "this tab did not answer" is a fact about the reading, not a
+ * failure of it, so it is carried in the result rather than thrown.
+ */
+export type UiVisibleContextTab = {
+  tabId: string;
+  deviceName: string;
+  /** True when the tab was asked and did not answer inside the window. */
+  unresponsive: boolean;
+  navigationPolicy: string | null;
+  visibility: 'visible' | 'hidden' | null;
+  hasFocus: boolean | null;
+  lastFocusedAt: number | null;
+  panel: string | null;
+  selectedProject: string | null;
+  selectedSession: string | null;
+  visibleMessages: { first: string | null; last: string | null } | null;
+  pendingApprovals: number | null;
+  queuedMessages: number | null;
+};
+
+/**
+ * One device's tabs, as a UI-visible-context reading reports them.
+ *
+ * `lastFocusedAt` is the newest focus moment across this device's tabs and is
+ * what the listing is ordered by, so "which device is the user actually looking
+ * at" is the first row rather than a fact to be derived by the caller.
+ */
+export type UiVisibleContextDevice = {
+  deviceId: string;
+  deviceName: string;
+  /** The newest tab focus moment of this device; null when none of its tabs answered. */
+  lastFocusedAt: number | null;
+  /** This device's tabs, most recently focused first. */
+  tabs: UiVisibleContextTab[];
+};
+
+// ---------------------------
 //----------------- PROVIDER MESSAGE MODEL ------------
 /**
  * Providers supported by the unified server runtime.

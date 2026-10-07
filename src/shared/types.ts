@@ -558,6 +558,67 @@ export type UiHelloFrame = {
   deviceName: string;
 };
 
+/**
+ * The frame the server broadcasts when an MCP caller asks what the connected
+ * browsers are showing.
+ *
+ * It carries a `requestId` and nothing else: the question is the same for every
+ * tab, and the id is what the server matches an answer against. A tab that does
+ * not answer is simply not reported — the request asks, it does not instruct.
+ */
+export type UiStateRequestFrame = {
+  type: 'ui.state_request';
+  requestId: string;
+};
+
+/**
+ * What this tab reports about what it is showing, in answer to a
+ * `ui.state_request`.
+ *
+ * Identifiers and ranges ONLY — message ids, counts, and the names of things.
+ * A message body, a user selection and a panel's content have no field here on
+ * purpose: the server projects an answer down to exactly this shape, so a
+ * browser that sent more would only be sending what nothing can read, and a
+ * caller that wants the text behind a message id asks `session_read` for it.
+ */
+export type UiVisibleContextReport = {
+  /** This browser's stable device id, the same value `ui.hello` announced. */
+  deviceId: string;
+  /** This tab's id, distinguishing the tabs of one browser. */
+  tabId: string;
+  /** The name this device chose for itself. */
+  deviceName: string;
+  /** This device's MCP navigation policy at the moment it answered. */
+  navigationPolicy: string;
+  /** Whether this page is in the foreground. */
+  visibility: 'visible' | 'hidden';
+  /** Whether this tab holds keyboard focus. */
+  hasFocus: boolean;
+  /** Epoch ms of the last moment this tab was focused; null when it never was. */
+  lastFocusedAt: number | null;
+  /** The workspace panel this tab is showing, or null when none is known. */
+  panel: string | null;
+  /** The project this tab has open, or null. */
+  selectedProject: string | null;
+  /** The session this tab has open, or null. */
+  selectedSession: string | null;
+  /** The first and last message ids currently visible in the transcript. */
+  visibleMessages: { first: string | null; last: string | null };
+  /** How many tool approvals are waiting for the user here. */
+  pendingApprovals: number;
+  /** How many of this tab's messages are still waiting in the send queue. */
+  queuedMessages: number;
+};
+
+/**
+ * The reply to a `ui.state_request`: the request's own id, echoed verbatim so
+ * the server can match it, plus this tab's reading of what it is showing.
+ */
+export type UiStateResponseFrame = {
+  type: 'ui.state_response';
+  requestId: string;
+} & UiVisibleContextReport;
+
 //----------------- MCP-DRIVEN UI NAVIGATION ------------
 
 /**

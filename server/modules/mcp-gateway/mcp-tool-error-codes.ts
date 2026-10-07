@@ -91,6 +91,14 @@ export const MCP_TOOL_ERROR_CODES: Record<McpGatewayToolName, readonly McpErrorC
   // (no `TARGET_AMBIGUOUS`: there is no target to disambiguate). Unwired, it
   // keeps the body-table refusal, hence `MCP_TOOL_NOT_IMPLEMENTED`.
   ui_last_opened_session: [...WRAPPER_CODES, 'SESSION_NOT_FOUND', 'MCP_TOOL_NOT_IMPLEMENTED'],
+  // `ui_visible_context` resolves its one optional `client` reference against the
+  // connected devices with AC-246's rules: several matches are refused with
+  // `TARGET_AMBIGUOUS` and the candidates, and no match is refused with
+  // `INVALID_ARGUMENT` carrying the query — the wrapper's own declared-input code,
+  // because this vocabulary keeps one code per category and mints no second
+  // "not found" literal for devices (AC-284). Unwired, it keeps the body-table
+  // refusal, hence `MCP_TOOL_NOT_IMPLEMENTED`.
+  ui_visible_context: [...WRAPPER_CODES, 'TARGET_AMBIGUOUS', 'MCP_TOOL_NOT_IMPLEMENTED'],
 
   // -- stage-4 write tools ---------------------------------------------------
   // `session_send` normalizes the control service's `RUN_IN_PROGRESS` to the

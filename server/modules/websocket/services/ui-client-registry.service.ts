@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import type { RealtimeClientConnection, UiClientDevice, UiClientTab } from '@/shared/types.js';
+import type {
+  RealtimeClientConnection,
+  UiClientDevice,
+  UiClientTab,
+  UiStateRequestTarget,
+} from '@/shared/types.js';
 
 /**
  * Which browsers are connected, keyed by the identity they announced.
@@ -80,6 +85,19 @@ export type UiClientRegistry = {
    * calls against an unchanged registry return the same listing.
    */
   listUiClients(): UiClientDevice[];
+  /**
+   * The live connections behind one device's (or every device's) announced
+   * identity, for the UI-state round trip to write to.
+   *
+   * This is the one port that hands out a SOCKET, and it exists because asking
+   * a browser what it is showing is a question only its own connection can
+   * carry: `listUiClients` deliberately cannot be used for it. The socket never
+   * leaves the server side — the round trip's service writes a frame and
+   * discards it — so a caller still addresses a device or a tab, never a
+   * connection. Order is deterministic (device id, then oldest connection
+   * first) so two reads of an unchanged registry are the same list.
+   */
+  listUiClientTargets(deviceId?: string): UiStateRequestTarget[];
 };
 
 /** A trimmed identifier within its bound, or null when the value is not one. */
@@ -187,6 +205,26 @@ export function createUiClientRegistry(): UiClientRegistry {
             tabs: ordered,
           };
         });
+    },
+
+    listUiClientTargets(deviceId) {
+      const wanted = deviceId === undefined ? null : deviceId;
+      return [...entries.entries()]
+        .filter(([, entry]) => wanted === null || entry.deviceId === wanted)
+        .map(([connection, entry]) => ({
+          connection,
+          deviceId: entry.deviceId,
+          tabId: entry.tabId,
+          deviceName: entry.deviceName,
+          connectedAt: entry.connectedAt,
+        }))
+        .sort((left, right) =>
+          left.deviceId !== right.deviceId
+            ? left.deviceId < right.deviceId
+              ? -1
+              : 1
+            : compareTabs(left, right),
+        );
     },
   };
 }

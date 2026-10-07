@@ -25,6 +25,7 @@ import { useChatRealtimeHandlers } from '@/modules/chat/hooks/useChatRealtimeHan
 import { useChatComposerState } from '@/modules/chat/hooks/useChatComposerState';
 import { useSessionStore } from '@/modules/chat/hooks/useSessionStore';
 import { useUiNavigate } from '@/modules/chat/hooks/useUiNavigate';
+import { useUiStateResponder } from '@/modules/chat/hooks/useUiStateResponder';
 import UiNavigatePrompt from '@/modules/chat/components/UiNavigatePrompt';
 import { subscribeTargetFor } from '@/modules/chat/utils/replayCursor';
 import {
@@ -263,6 +264,24 @@ function ChatInterface({
     locateMessage: jumpToMessage,
     scrollToLatest: scrollToBottomAndReset,
     resolveSessionTitle: resolveUiNavigateSessionTitle,
+  });
+
+  // How many of this session's messages are still waiting to be sent, read off the
+  // transcript the chat state owns. The conversation's live state — the open
+  // project and session, the pending approvals, the queue — is what an MCP caller's
+  // `ui_visible_context` reads, so the answer to a `ui.state_request` is composed
+  // here where that state lives, alongside the navigation responder above.
+  const queuedMessageCount = useMemo(
+    () => chatMessages.filter((message) => message.commandState === 'queued').length,
+    [chatMessages],
+  );
+  useUiStateResponder({
+    subscribe,
+    sendMessage,
+    selectedProject: selectedProject?.projectId ?? null,
+    selectedSession: currentSessionId ?? selectedSession?.id ?? null,
+    pendingApprovals: pendingPermissionRequests.length,
+    queuedMessages: queuedMessageCount,
   });
 
   // Publish this conversation's export into the shared seam the workspace

@@ -88,6 +88,23 @@ export {
   uiClientRegistry,
 } from './services/ui-client-registry.service.js';
 export type { UiClientRegistry } from './services/ui-client-registry.service.js';
+// The UI-visible-context round trip (gap-mcp-ui-visible-context). `requestUiState`
+// broadcasts one `ui.state_request` to the connected browsers and resolves with
+// what they answered, grouped by device and ordered by the newest tab focus
+// first; `handleResponse` routes an inbound `ui.state_response` to the call that
+// asked for it. `uiStateRequestService` is the process-wide instance the chat
+// gateway routes frames into and `server/index.ts` binds as the MCP tool's
+// reader; `createUiStateRequestService` is the isolated seam a criterion drives.
+export {
+  createUiStateRequestService,
+  uiStateRequestService,
+  UI_STATE_REQUEST_DEFAULT_TIMEOUT_MS,
+} from './services/ui-state-request.service.js';
+export type {
+  UiStateRequestDeps,
+  UiStateRequestOptions,
+  UiStateRequestService,
+} from './services/ui-state-request.service.js';
 // handleShellConnection: driven by the passthrough-parity test to prove the pty
 // env stays byte-identical when no configured model is selected.
 export { handleShellConnection } from './services/shell-websocket.service.js';

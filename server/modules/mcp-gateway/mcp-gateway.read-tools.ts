@@ -48,6 +48,11 @@ import { isOverviewWired, registerMcpOverviewTools } from './mcp-overview-tools.
 import type { McpActivityReader, McpOverviewDeps, McpOverviewRegistration, McpQuayRunner } from './mcp-overview-tools.js';
 import { isRunGetWired, registerMcpRunGetTool } from './mcp-run-get.js';
 import type { McpRunGetDeps, McpRunGetRegistration } from './mcp-run-get.js';
+import {
+  isUiVisibleContextWired,
+  registerMcpUiVisibleContextTool,
+} from './mcp-ui-visible-context.js';
+import type { McpUiVisibleContextDeps } from './mcp-ui-visible-context.js';
 import { isUiLastOpenedWired, registerMcpUiTools } from './mcp-ui-tools.js';
 import type { McpUiLastOpenedDeps, McpUiLastOpenedStore } from './mcp-ui-tools.js';
 
@@ -104,6 +109,12 @@ export const MCP_STAGE3_READ_TOOLS = [
     requiredScope: READ_SCOPE,
     description:
       'Read the session the user last opened in the browser UI: its summary, host and current run, plus when it was opened.',
+  },
+  {
+    name: 'ui_visible_context',
+    requiredScope: READ_SCOPE,
+    description:
+      'Ask the connected browsers what they are showing right now: per device and tab, the open project and session, the visible message id range, the panel, and the pending approval and queued message counts. Identifiers and ranges only — read message text with session_read.',
   },
 ] as const;
 
@@ -216,6 +227,17 @@ export type McpReadToolDeps = {
    * `uiLastOpenedSessionService.readLastOpened`.
    */
   uiLastOpened?: McpUiLastOpenedStore;
+  /**
+   * The UI-visible-context reader (gap-mcp-ui-visible-context): the connected
+   * devices a `client` reference resolves against, and the round trip that asks
+   * them what they are showing. Optional so a mount that predates this task —
+   * or a criterion that exercises the other read tools — is still a valid
+   * `McpReadToolDeps`; when absent `ui_visible_context` keeps its named
+   * `MCP_TOOL_NOT_IMPLEMENTED` refusal, when present `registerMcpReadTools`
+   * routes the name to {@link registerMcpUiVisibleContextTool}. `server/index.ts`
+   * binds both members to the websocket module's own process-wide services.
+   */
+  uiVisibleContext?: McpUiVisibleContextDeps;
   /** Clock seam, so every relative time is reproducible in a criterion. */
   now: () => number;
 };
@@ -775,6 +797,45 @@ const TOOL_BODIES = {
     // placeholders before their tasks landed.
     handle: () => notImplemented('ui_last_opened_session', 'gap-mcp-ui-last-opened-session'),
   },
+  ui_visible_context: {
+    inputSchema: { client: z.string().optional() },
+    // The reading, one entry per addressed device. Every field is nullable
+    // because a tab that did not answer reports none of them — the shape has to
+    // admit "asked, asleep" as readily as it admits a full reading.
+    outputSchema: {
+      devices: z.array(
+        z.object({
+          deviceId: z.string(),
+          deviceName: z.string(),
+          lastFocusedAt: z.number().nullable(),
+          tabs: z.array(
+            z.object({
+              tabId: z.string(),
+              deviceName: z.string(),
+              unresponsive: z.boolean(),
+              navigationPolicy: z.string().nullable(),
+              visibility: z.enum(['visible', 'hidden']).nullable(),
+              hasFocus: z.boolean().nullable(),
+              lastFocusedAt: z.number().nullable(),
+              panel: z.string().nullable(),
+              selectedProject: z.string().nullable(),
+              selectedSession: z.string().nullable(),
+              visibleMessages: z
+                .object({ first: z.string().nullable(), last: z.string().nullable() })
+                .nullable(),
+              pendingApprovals: z.number().nullable(),
+              queuedMessages: z.number().nullable(),
+            }),
+          ),
+        }),
+      ),
+    },
+    // The real handler lives in `mcp-ui-visible-context.js` and is installed by
+    // `registerMcpReadTools` when the deps carry the round trip. A mount without
+    // it reads this named refusal, exactly like the overview/run_get placeholders
+    // before their tasks landed.
+    handle: () => notImplemented('ui_visible_context', 'gap-mcp-ui-visible-context'),
+  },
   session_read: {
     inputSchema: sessionReadInputSchema,
     outputSchema: {
@@ -887,13 +948,17 @@ export type McpReadToolSeam = (registration: McpReadToolRegistration) => void;
  * supplied it is registered by `mcp-run-get.js`'s real handler, otherwise it
  * keeps the body-table refusal. `ui_last_opened_session` follows it too: when
  * `deps.uiLastOpened` is supplied it is registered by `mcp-ui-tools.js`, and
- * otherwise it keeps the body-table refusal. The registered NAME SET is the
- * table either way.
+ * otherwise it keeps the body-table refusal. `ui_visible_context` follows the
+ * same routing through `mcp-ui-visible-context.js` and `deps.uiVisibleContext`.
+ * The registered NAME SET is the table either way.
  */
 export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDeps): void {
   const overviewDeps: McpOverviewDeps | null = isOverviewWired(deps) ? deps : null;
   const runGetDeps: McpRunGetDeps | null = isRunGetWired(deps) ? deps.runGet : null;
   const uiDeps: McpUiLastOpenedDeps | null = isUiLastOpenedWired(deps) ? deps : null;
+  const visibleContextDeps: McpUiVisibleContextDeps | null = isUiVisibleContextWired(deps)
+    ? deps.uiVisibleContext
+    : null;
   const table = new Map<string, (typeof MCP_STAGE3_READ_TOOLS)[number]>(
     MCP_STAGE3_READ_TOOLS.map((tool) => [tool.name, tool]),
   );
@@ -924,6 +989,9 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
     if (uiDeps !== null && tool.name === 'ui_last_opened_session') {
       continue;
     }
+    if (visibleContextDeps !== null && tool.name === 'ui_visible_context') {
+      continue;
+    }
     const body = TOOL_BODIES[tool.name];
     seam({
       name: tool.name,
@@ -949,5 +1017,9 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
 
   if (uiDeps !== null) {
     registerMcpUiTools(seam, uiDeps, registration('ui_last_opened_session'));
+  }
+
+  if (visibleContextDeps !== null) {
+    registerMcpUiVisibleContextTool(seam, visibleContextDeps, registration('ui_visible_context'));
   }
 }
