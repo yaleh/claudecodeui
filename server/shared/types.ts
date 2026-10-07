@@ -70,6 +70,45 @@ export type AuthenticatedWebSocketRequest = IncomingMessage & {
 };
 
 // ---------------------------
+
+//----------------- UI CLIENT IDENTITY ------------
+/**
+ * One browser tab currently connected and identified, as published by the UI
+ * client registry's read port (`listUiClients`).
+ *
+ * A tab is the unit the registry stores; a device is the grouping it derives.
+ * `connectedAt` is the server's clock at the moment this tab's `ui.hello`
+ * arrived, so a caller can tell a long-lived tab from one that just opened.
+ */
+export type UiClientTab = {
+  /** This tab's own id (sessionStorage-scoped in the browser). */
+  tabId: string;
+  /** The name this tab announced; devices group tabs that may carry different names. */
+  deviceName: string;
+  /** Epoch milliseconds when this tab's identity reached the server. */
+  connectedAt: number;
+};
+
+/**
+ * One device (one browser) currently connected, with every identified tab of it.
+ *
+ * `deviceId` is the browser's stable id and is what a caller addresses a device
+ * by. `deviceName` is the name of this device's most recently connected tab, so
+ * a rename announced by the newest tab is what a listing shows.
+ *
+ * The connection a tab arrived on is deliberately absent: identity is addressed
+ * by device and tab, never by a socket, whose id changes on every reconnect.
+ */
+export type UiClientDevice = {
+  /** The browser's stable id; survives reloads, changes only when site data is cleared. */
+  deviceId: string;
+  /** The device's display name, taken from its most recently connected tab. */
+  deviceName: string;
+  /** Every identified tab of this device, oldest connection first. */
+  tabs: UiClientTab[];
+};
+
+// ---------------------------
 //----------------- PROVIDER MESSAGE MODEL ------------
 /**
  * Providers supported by the unified server runtime.

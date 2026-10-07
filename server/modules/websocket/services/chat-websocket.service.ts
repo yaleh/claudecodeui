@@ -25,6 +25,10 @@ import {
 import { activityStore } from '@/modules/websocket/services/activity-protocol.service.js';
 import { createChatControlService } from '@/modules/websocket/services/chat-control.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
+import {
+  uiClientRegistry,
+  type UiClientRegistry,
+} from '@/modules/websocket/services/ui-client-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
   getGlobalImageAssetsDir,
@@ -320,6 +324,16 @@ type ChatWebSocketDependencies = {
    */
   stopTaskConfirmTimeoutMs?: number;
   stopTaskConfirmPollMs?: number;
+  /**
+   * Where a connection's `ui.hello` identity is recorded and forgotten.
+   *
+   * Defaults to the process-wide registry, which is the listing the MCP tools
+   * read — one registry per server run, so a device's tabs and the identity the
+   * gateway stored for them cannot be two different sets. The seam exists so a
+   * criterion can drive registrations and closes against a registry of its own
+   * without leaving devices behind for the next case to read.
+   */
+  uiClients?: UiClientRegistry;
 };
 
 /**
@@ -1524,6 +1538,25 @@ function handleChatSubscribe(
 }
 
 /**
+ * Handles `ui.hello`: records which browser and tab this connection belongs to.
+ *
+ * The identity is per connection and lives no longer than it does — the close
+ * handler below forgets it — so a reconnect simply announces itself again. The
+ * frame is validated inside the registry (both ids must be bounded non-empty
+ * strings); an unusable one is dropped with **no** reply and no other effect on
+ * the connection, because a client whose announcement the server could not read
+ * still has a perfectly good socket, and refusing its frames would turn a
+ * display-detail mismatch into a broken session.
+ */
+function handleUiHello(
+  ws: WebSocket,
+  data: AnyRecord,
+  registry: UiClientRegistry,
+): void {
+  registry.register(ws, data);
+}
+
+/**
  * Handles `chat.permission-response`: forwards a tool-approval decision to the
  * pending approval resolver (Claude is the only provider with interactive
  * approvals today, but the message is intentionally provider-neutral).
@@ -1551,6 +1584,7 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * - `chat.stop-task`           { sessionId, taskId, requestId }
  * - `chat.background-task`     { sessionId, toolUseId, requestId }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
+ * - `ui.hello`                 { deviceId, tabId, deviceName }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
  *
  * Outbound protocol (server to client): every frame is `kind`-based — either
@@ -1578,6 +1612,11 @@ export function handleChatConnection(
     ...dependencies,
     control: resolveChatControl(dependencies),
   };
+
+  // The registry this connection's identity goes into and is removed from. Both
+  // ends use the same resolved instance so a socket cannot be announced to one
+  // listing and forgotten from another.
+  const uiClients = dependencies.uiClients ?? uiClientRegistry;
 
   ws.on('message', async (rawMessage) => {
     try {
@@ -1614,6 +1653,9 @@ export function handleChatConnection(
         case 'activity.subscribe':
           handleActivitySubscribe(ws, data);
           return;
+        case 'ui.hello':
+          handleUiHello(ws, data, uiClients);
+          return;
         case 'chat.permission-response':
           handlePermissionResponse(data, resolvedDependencies);
           return;
@@ -1631,5 +1673,8 @@ export function handleChatConnection(
   ws.on('close', () => {
     console.log('[INFO] Chat client disconnected');
     connectedClients.delete(ws);
+    // Identity is a fact about a live connection, so it leaves with the socket.
+    // A browser that reconnects announces itself again on the new one.
+    uiClients.unregister(ws);
   });
 }
