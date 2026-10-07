@@ -199,6 +199,7 @@ function makeSnapshot(projectId: string, projectPath: string): QuaySnapshot {
     configIssues: { total: 0, errors: 0 },
     tests: { current: null, recentRounds: [] },
     fanIn: { recent: [] },
+    inFlight: null,
     dashboardUrl: null,
     warnings: [],
   };

@@ -3,7 +3,7 @@ id: gap-cloudcli-quay-snapshot-inflight-tasks
 title: CloudCLI 的 quay_snapshot 暴露不到正在执行的具体 task：复用 .quay/worker-round.jsonl 载体补
   in-flight 读数（taskId/phase/startedAt/lastHeartbeat/可用时的 workerPid），不改
   sessions_list 的既有 running 语义
-status: ready
+status: done
 labels:
   - gap
 parent: null

@@ -317,6 +317,8 @@ export type McpQuaySnapshotReading = {
   driver: QuaySnapshot['driver'];
   suite: QuaySnapshot['tests'];
   fanIn: QuaySnapshot['fanIn'];
+  /** Tasks the quay worker driver reports in flight (taskId/phase/startedAt/lastHeartbeat/workerPid), read from `.quay/worker-round.jsonl`. */
+  inFlight: QuaySnapshot['inFlight'];
   dashboardUrl: string | null;
   warnings: string[];
 };
@@ -341,6 +343,7 @@ function summarizeSnapshot(snapshot: QuaySnapshot): McpQuaySnapshotReading {
     driver: snapshot.driver,
     suite: snapshot.tests,
     fanIn: snapshot.fanIn,
+    inFlight: snapshot.inFlight,
     dashboardUrl: snapshot.dashboardUrl,
     warnings: snapshot.warnings,
   };
