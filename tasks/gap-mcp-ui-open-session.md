@@ -2,7 +2,7 @@
 id: gap-mcp-ui-open-session
 title: MCP 工具 ui_open_session：在指定浏览器设备中打开会话并定位（latest/messageId），不等用户确认，结果经
   ui_visible_context 查询；新 scope、限速常量、审计
-status: todo
+status: ready
 labels:
   - gap
 parent: null

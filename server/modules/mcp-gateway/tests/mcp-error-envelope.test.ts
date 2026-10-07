@@ -12,7 +12,7 @@
  * `resolveDeps` list.
  *
  * Readings, one leg each:
- *   (a) `tools/list` names 19 tools; each has an error probe in the table and
+ *   (a) `tools/list` names 20 tools; each has an error probe in the table and
  *       each of those probes answers `isError === true` with a `structuredContent`
  *       envelope whose `code` matches `^[A-Z][A-Z0-9_]*$` and is a member of the
  *       gateway's one code vocabulary, whose `message` is non-empty English, and
@@ -454,11 +454,13 @@ const PROBE_TABLE: Record<string, ToolProbe> = {
 };
 
 /**
- * The explicit-exemption bucket (d) requires. It is EMPTY by design: every tool
- * the registry lists has a real error probe above, so no name needs exempting.
- * The bucket exists so that if a future tool genuinely cannot be probed, the way
- * to say so is a reasoned entry here rather than deleting it from the table —
- * and so (d)'s coverage check covers BOTH buckets, not just the probe table.
+ * The explicit-exemption bucket (d) requires. It holds a reasoned entry for each
+ * tool the registry lists that cannot be probed for a shallow failure: every such
+ * tool declares no input, so the wrapper's validation branch has nothing to
+ * reject, and every OTHER tool has a real error probe above. The bucket exists so
+ * that saying "this tool cannot be probed" means a reasoned entry here rather
+ * than deleting it from the table — and so (d)'s coverage check covers BOTH
+ * buckets, not just the probe table.
  */
 const EXEMPT_TOOLS: Record<string, string> = {
   // `ui_last_opened_session` takes NO arguments (it reads the browser's
@@ -468,6 +470,13 @@ const EXEMPT_TOOLS: Record<string, string> = {
   // own criterion (`mcp-ui-last-opened.test.ts`), not by this table.
   ui_last_opened_session:
     'declares no input arguments, so there is no INVALID_ARGUMENT probe to drive through the wrapper; its SESSION_NOT_FOUND envelope is covered by mcp-ui-last-opened.test.ts',
+  // `ui_clients_list` likewise takes NO arguments (it lists every connected
+  // device), so there is no shallow validation failure to drive, and with no
+  // target reference either no AC-246 refusal is reachable. Its success payload
+  // and its unresponsive-device reading are exercised by its own criterion
+  // (`mcp-ui-clients-list.test.ts`).
+  ui_clients_list:
+    'declares no input arguments, so there is no INVALID_ARGUMENT probe to drive through the wrapper; with no target reference either, no AC-246 refusal is reachable, and its success payload is the criterion tests/mcp-ui-clients-list.test.ts',
 };
 
 /** A class probe: either a real envelope reading, or a reasoned exemption. */
@@ -653,7 +662,7 @@ test('(d) the probe table covers exactly the tools the registry lists', async ()
   // Non-vacuity: the registry really answered, and answered with the full set —
   // nine read + five write + five resident tools. A mount that registered
   // nothing would fail the equality below, not pass it.
-  assert.equal(registryNames.length, 19, `tools/list must return the full 19-tool set, got ${registryNames.join(', ')}`);
+  assert.equal(registryNames.length, 20, `tools/list must return the full 20-tool set, got ${registryNames.join(', ')}`);
   say(`(d) registry names: ${registryNames.join(', ')}`);
 
   assert.deepEqual(

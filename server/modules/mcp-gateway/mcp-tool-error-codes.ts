@@ -99,6 +99,10 @@ export const MCP_TOOL_ERROR_CODES: Record<McpGatewayToolName, readonly McpErrorC
   // "not found" literal for devices (AC-284). Unwired, it keeps the body-table
   // refusal, hence `MCP_TOOL_NOT_IMPLEMENTED`.
   ui_visible_context: [...WRAPPER_CODES, 'TARGET_AMBIGUOUS', 'MCP_TOOL_NOT_IMPLEMENTED'],
+  // `ui_clients_list` takes NO arguments — it lists every connected device — so
+  // AC-246's target gate adds nothing and no resolution can be refused. Unwired,
+  // it keeps the body-table refusal, hence `MCP_TOOL_NOT_IMPLEMENTED`.
+  ui_clients_list: [...WRAPPER_CODES, 'MCP_TOOL_NOT_IMPLEMENTED'],
 
   // -- stage-4 write tools ---------------------------------------------------
   // `session_send` normalizes the control service's `RUN_IN_PROGRESS` to the

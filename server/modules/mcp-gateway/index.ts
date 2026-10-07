@@ -241,6 +241,28 @@ export type {
   UiVisibleContextPayload,
 } from './mcp-ui-visible-context.js';
 
+// The connected-clients listing tool (gap-mcp-ui-clients-list). `buildUiClientsList`
+// enumerates the connected browsers with each device's tabs, navigation policy and
+// current visibility/focus, disambiguating duplicate names with a stable short
+// suffix, and marks a device whose tabs all stayed silent `unresponsive`.
+// `McpUiClientsListDeps` is the injected pair `server/index.ts` binds to the
+// websocket barrel's `listUiClients` and `uiStateRequestService.requestUiState` — the
+// SAME two services `ui_visible_context` binds, so discovery and observation read
+// one registry and one round trip; `isUiClientsListWired` is the branch
+// `registerMcpReadTools` takes between the real handler and the named refusal.
+export {
+  buildUiClientsList,
+  isUiClientsListWired,
+  registerMcpUiClientsListTool,
+} from './mcp-ui-clients-list.js';
+export type {
+  McpUiClientsListDeps,
+  McpUiClientsListRegistration,
+  UiClientsListDevice,
+  UiClientsListPayload,
+  UiClientsListTab,
+} from './mcp-ui-clients-list.js';
+
 // The stage-4 write tools (AC-249). `MCP_STAGE4_WRITE_TOOLS` is the one
 // statement of which write tools exist and the scope each requires — the
 // self-referential guard (AC-252) reads the names from it rather than writing a

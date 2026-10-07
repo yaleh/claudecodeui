@@ -636,6 +636,16 @@ const mcpGateway = mountMcpGateway(
                 listUiClients,
                 requestUiState: (options) => uiStateRequestService.requestUiState(options),
             },
+            // gap-mcp-ui-clients-list: the discovery half of the same pair. It
+            // binds the SAME two process-wide services `uiVisibleContext` binds
+            // above — one registry and one round trip — so a device listed here
+            // and a device observed there are the same device answering the same
+            // question, and a listing followed by an observation can never drift
+            // onto two registries.
+            uiClientsList: {
+                listUiClients,
+                requestUiState: (options) => uiStateRequestService.requestUiState(options),
+            },
             now: () => Date.now(),
         },
         // The stage-4 write tools (AC-249). The control service is handed in at
