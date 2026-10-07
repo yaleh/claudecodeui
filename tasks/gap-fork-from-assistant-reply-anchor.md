@@ -2,7 +2,7 @@
 id: gap-fork-from-assistant-reply-anchor
 title: fork 按钮从用户气泡挪到 assistant 回复：新增 forkAnchorId（回合末尾 assistant 行），Claude 与
   Codex 同语义
-status: ready
+status: done
 labels:
   - gap
 parent: null
