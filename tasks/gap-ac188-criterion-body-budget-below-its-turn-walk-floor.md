@@ -1,7 +1,7 @@
 ---
 id: gap-ac188-criterion-body-budget-below-its-turn-walk-floor
 title: AC-188 的用例体预算 20s 低于它自身回合行走的实测地板，负载下假红
-status: todo
+status: ready
 labels:
   - gap
   - defect
