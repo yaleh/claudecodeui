@@ -2,7 +2,7 @@
 id: gap-mcp-ui-visible-context
 title: MCP 只读工具 ui_visible_context：调用时服务端向已连接浏览器广播 ui.state_request 并发收集应答（1.5s
   超时），返回各窗口可见上下文的标识符与范围
-status: ready
+status: done
 labels:
   - gap
 parent: null
