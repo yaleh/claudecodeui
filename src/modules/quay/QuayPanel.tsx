@@ -1,7 +1,7 @@
 import { Activity, AlertTriangle, ExternalLink, Info, Loader2, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import type { QuayDriverState, QuayListItem, QuaySnapshot } from '@/shared/types';
+import type { QuayDriverState, QuayInFlightTask, QuayListItem, QuaySnapshot } from '@/shared/types';
 import { cn } from '@/shared/utils';
 import type { QuayPanelView } from '@/modules/quay/hooks/useQuayStatus';
 import TimelineBar from '@/modules/quay/TimelineBar';
@@ -59,6 +59,17 @@ const GOAL_STATUS_PERCENT: Record<string, number> = {
   active: 50,
 };
 
+/**
+ * Visible label and colour per in-flight `phase`. The two phases must render as
+ * *different* markers (text, colour and `data-testid`), so a reader — and the
+ * test that guards it — can never mistake a task parked in fan-in for one still
+ * being implemented.
+ */
+const IN_FLIGHT_PHASE_META: Record<QuayInFlightTask['phase'], { label: string; className: string }> = {
+  implementing: { label: 'implementing', className: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
+  'fan-in': { label: 'fan-in', className: 'bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300' },
+};
+
 function formatTimestamp(value: string | null): string {
   if (!value) {
     return 'never';
@@ -109,6 +120,22 @@ function toEpochMs(value: string | null): number | null {
 
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Milliseconds from an ISO instant to the snapshot's own `generatedAt` instant,
+ * or `null` when either is absent/unparseable. Measured against the snapshot's
+ * timestamp rather than the wall clock so the reading is a property of the
+ * snapshot: it does not creep forward while the panel sits open unrefreshed.
+ */
+function elapsedSince(startAt: string | null, nowIso: string): number | null {
+  const start = toEpochMs(startAt);
+  const now = toEpochMs(nowIso);
+  if (start === null || now === null) {
+    return null;
+  }
+
+  return Math.max(0, now - start);
 }
 
 /**
@@ -325,8 +352,19 @@ function TestsCard({ tests }: { tests: QuaySnapshot['tests'] }) {
             </span>
           )}
           {current.taskId && (
-            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={current.taskId}>
-              {current.taskId}
+            <span className="flex min-w-0 items-center gap-1 text-[11px]" data-testid="quay-panel-tests-current-task">
+              {/* The suite reading is a *historical* record of the last run, not a live
+                  task pointer — it can name a task that finished long ago. The label
+                  says so, so the bare id cannot be read as "what is running now". */}
+              <span
+                className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground"
+                data-testid="quay-panel-tests-current-task-label"
+              >
+                last suite
+              </span>
+              <span className="min-w-0 truncate font-mono text-muted-foreground" title={current.taskId}>
+                {current.taskId}
+              </span>
             </span>
           )}
         </div>
@@ -383,6 +421,59 @@ function FanInCard({ fanIn }: { fanIn: QuaySnapshot['fanIn'] }) {
               <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{attempt.outcome}</span>
             </li>
           ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * In-flight card: the tasks the worker reports as running *right now*, each with
+ * its phase and elapsed run time, from `snapshot.inFlight`.
+ *
+ * `null` means the heartbeat carrier could not be read, `[]` means it was read
+ * and nothing is running — the two render *different* messages, so an unread
+ * carrier is never shown as "nothing is running". This is the panel's only
+ * signal that names the specific task in flight; the Driver badge only says a
+ * worker process is busy, and the Tests card names the last *finished* suite.
+ */
+function InFlightCard({ inFlight, generatedAt }: { inFlight: QuaySnapshot['inFlight']; generatedAt: string }) {
+  return (
+    <section data-testid="quay-panel-inflight">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">In flight</h3>
+      {inFlight === null ? (
+        <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="quay-panel-inflight-unavailable">
+          In-flight tasks unavailable — the worker activity carrier could not be read.
+        </p>
+      ) : inFlight.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="quay-panel-inflight-empty">
+          No tasks currently in flight.
+        </p>
+      ) : (
+        <ul className="space-y-1" data-testid="quay-panel-inflight-list">
+          {inFlight.map((task) => {
+            const phase = IN_FLIGHT_PHASE_META[task.phase];
+            return (
+              <li
+                key={task.taskId}
+                className="flex items-center gap-2 rounded border border-border/40 px-2 py-1 text-xs"
+                data-testid="quay-panel-inflight-row"
+              >
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground" title={task.taskId}>
+                  {task.taskId}
+                </span>
+                <span
+                  className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium', phase.className)}
+                  data-testid={`quay-panel-inflight-phase-${task.phase}`}
+                >
+                  {phase.label}
+                </span>
+                <span className="shrink-0 text-[10px] text-muted-foreground" data-testid="quay-panel-inflight-elapsed">
+                  {formatDuration(elapsedSince(task.startedAt, generatedAt))}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -500,6 +591,7 @@ function LoadedQuayPanel({
         <TaskLedger tasks={snapshot.tasks} />
         <StageGoals goals={snapshot.goals} />
         <TestsCard tests={snapshot.tests} />
+        <InFlightCard inFlight={snapshot.inFlight} generatedAt={snapshot.generatedAt} />
         <FanInCard fanIn={snapshot.fanIn} />
 
         <section>

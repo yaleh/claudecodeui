@@ -265,6 +265,25 @@ export type QuayFanInSummary = {
   recent: QuayFanInAttemptSummary[];
 };
 
+/**
+ * One task a project's quay worker reports as being in flight right now, read
+ * from the project's `.quay/worker-round.jsonl` heartbeat carrier. Projected by
+ * the backend (`server/modules/quay/quay.service.ts`) and already present in the
+ * `GET /:projectId/snapshot` response body; `QuayPanel`'s "In flight" card is the
+ * consumer. Field names and units mirror the backend `QuayInFlightTask` verbatim.
+ */
+export type QuayInFlightTask = {
+  taskId: string;
+  /** `fan-in` while the task holds the fan-in lock; `implementing` otherwise. */
+  phase: 'implementing' | 'fan-in';
+  /** The task's dispatch instant (ISO), or `null` when the round record carries none. */
+  startedAt: string | null;
+  /** The round record's own heartbeat instant (ISO) — when this reading was written. */
+  lastHeartbeat: string;
+  /** The worker-driver loop's process id, or `null` when the record carries none. */
+  workerPid: number | null;
+};
+
 /** Tier-2 read-only snapshot of one project's quay state, rendered by `QuayPanel`. */
 export type QuaySnapshot = {
   projectId: string;
@@ -281,6 +300,13 @@ export type QuaySnapshot = {
   tests: QuayTestsSummary;
   /** Fan-in card: recent mechanical fan-in attempts, read from `.quay/worker-outcome.jsonl`. */
   fanIn: QuayFanInSummary;
+  /**
+   * In-flight card: the tasks the worker currently reports as running, read from
+   * `.quay/worker-round.jsonl`. `null` means the carrier could not be read (no
+   * reading), `[]` means it was read and nothing is running — the two must never
+   * be collapsed into one another.
+   */
+  inFlight: QuayInFlightTask[] | null;
   /**
    * Link to quay's own `quay serve` dashboard when a live web service is
    * reported; `null` when no dashboard is running (a normal state, not an error).
