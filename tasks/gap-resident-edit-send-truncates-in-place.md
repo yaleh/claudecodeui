@@ -46,7 +46,7 @@ extra:
 
 ## AC
 
-- [ ] 前置读数已取得并写进完成记录：真 claude 进程上 resident 形态的 `resume` + `resumeSessionAt` 实测，打印 `residentResumeAt=accepted sameFile=true sharedParent=true`；任一项不是该值则不动产品代码，park needs-human。— **未过**：实测 `residentResumeAt=accepted sameFile=true sharedParent=false`，见完成记录。按本行自带的逃生条款 park needs-human。
+- [x] 前置读数已取得并写进完成记录：真 claude 进程上 resident 形态的 `resume` + `resumeSessionAt` 实测，打印 `residentResumeAt=accepted sameFile=true sameBranchPoint=true`；任一项不是该值则不动产品代码，park needs-human。（2026-10-07 人类裁定：期望读数由 `sharedParent=true` 改为 `sameBranchPoint=true`；实测 `sharedParent=false`——回合结束块 prompt_snapshot+stop_hook_summary 夹在 assistant 截断点与被 abort 的 prompt 之间——保留在完成记录中。）— 已过：实测 `residentResumeAt=accepted sameFile=true sameBranchPoint=true`，见完成记录第 1–2 节。
 - [x] host 驱动透传：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-process.test.ts` 退出码 0，且新增用例断言——带 `resumeAnchorId=X` 启动 resident host 时，交给 SDK 的启动选项含 `resumeSessionAt===X` 且含 `resume===provider_session_id`；带 `resumeFromScratch` 时**不含** `resume` 也不含 `resumeSessionAt`；不带这两个选项时启动选项与改前逐字相同（不回归普通 resident 启动）。— 10/10 exit 0（用例 (h)(i)(j)）。
 - [x] 编辑重建（resident）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-edit-send.test.ts` 退出码 0，且新增用例在一个 `lifecycle_mode='resident'` 且 host 存活的会话上发 `chat.edit-send`，断言——旧 host 先被 `rewind` 关闭（`closeReason==='rewind'`）、关闭完成**之后**才起新 host；新 host 的启动选项带编辑目标之前最近 assistant 行的 uuid 作为 `resumeAnchorId`；会话的 app id、`provider_session_id`、`lifecycle_mode` 在重建前后逐字相同；`sessionsDb` 里没有新增会话行；`history_truncated` 帧先于重建发出。— 13/13 exit 0。
 - [x] 同一用例的正控制：对 per-run 会话发 `chat.edit-send`，走原路径、**不**调用 `rewind`，`extraRuntimeOptions` 与改前逐字相同（防「所有会话一律走重建」）。— 同文件正控制用例通过。
@@ -54,15 +54,18 @@ extra:
 - [x] 读取侧不回归：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0（该文件已有 `dropSupersededPromptBranches` 的用例，不得被本任务改红；仅在该文件里新增「resident 重建产生的同父双 prompt 夹具读出后只剩替换那条」用例，如需新增则声明在 Touches）。— 28/28 exit 0；本任务未改读取侧，故未新增该夹具（原因见完成记录）。
 - [x] 假形态承重（实测红文案写进完成记录）：临时把 `handleChatEditSend` 里 resident 分支改回「直接追加、不 rewind」后，重建用例**必须变红**，还原后转绿；临时去掉 host 驱动对 `resumeSessionAt` 的映射后，透传用例**必须变红**，还原后转绿。— 两条红文案见完成记录。
 - [x] 工具链：`npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 均退出码 0。— 三者 exit 0。
+- [ ] 读取侧剪枝扩展（人类裁定 2026-10-07 新增）：`dropSupersededPromptBranches`（`server/modules/providers/list/claude/claude-sessions.provider.ts`）在原有「字面同 `parentUuid`」规则之外，额外丢弃一条更早的 user prompt 分支（连同其处理痕迹），当存在一条**更晚**的 user prompt **直接锚在**该早 prompt 的最近 assistant 祖先（分支点）上——即使该早 prompt 挂在回合结束块（prompt_snapshot / stop_hook_summary）之下。在 `server/modules/providers/tests/claude-sessions.test.ts` 验证：(a) run-4 链夹具（assistant 563a602f → 回合结束块 → 被 abort 的 user → `[Request interrupted by user]`；替换 user 锚在 563a602f）读出后只剩替换那条；(b) 负控制「abort 后另发新消息」（新 prompt 锚在被 abort 的 prompt 或其 interrupt 标记上，而非分支点）读出后**两条 prompt 都保留**；(c) 既有字面同 `parentUuid` 用例行为不变。单文件运行 `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0；另加假形态：撤销该扩展后用例必须变红，红文案写进完成记录。
+- [ ] 语料回归（人类裁定 2026-10-07 新增）：离线遍历 `~/.claude/projects` 下全部 transcript（上次计数 6143 份），对比旧规则与收窄后新规则；打印结果改变的 transcript 数量，并对**每一份**改变的 transcript 断言：额外被丢弃的 prompt 符合收窄后的形态（存在更晚的 prompt 直接锚在其分支点上）；任何「按收窄定义本不被替换、读出结果却变了」的 prompt 即为失败。各计数写进完成记录。
 
 ## DoD
 
-真实落地：在真实服务实例（临时 `HOME` + 临时 `DATABASE_PATH`，真 claude 进程，非替身）里，对一个 `lifecycle_mode='resident'` 的会话走完整故事：(1) 发一条消息，等其回合结束；(2) 再发第二条消息并在其处理中途暂停（abort）；(3) 点编辑那条被暂停的消息，改写后发出（真实 `chat.edit-send` 帧）。读数三处写进完成记录：(a) 读库——该会话仍是同一行、`lifecycle_mode` 仍是 `resident`、会话总数未增加；(b) 读该会话 jsonl——被暂停的那条 prompt 与替换 prompt 共享同一个 `parentUuid`，且经 `GET /api/providers/sessions/:id/messages` 读出的消息序列里**只有替换那条**，被暂停的 prompt 及其处理痕迹（assistant/tool 行）都不在；(c) 向该会话再发一问「我之前说过什么」，模型的回答里**没有**被暂停那条的内容（证明进程上下文也被截断，而不只是界面藏起来）。若本环境无可用的在线模型端点，如实写明取不到 (c)，不得以替身代写；此时 (a)(b) 仍须以真实服务实例取得。
+真实落地：在真实服务实例（临时 `HOME` + 临时 `DATABASE_PATH`，真 claude 进程，非替身）里，对一个 `lifecycle_mode='resident'` 的会话走完整故事：(1) 发一条消息，等其回合结束；(2) 再发第二条消息并在其处理中途暂停（abort）；(3) 点编辑那条被暂停的消息，改写后发出（真实 `chat.edit-send` 帧）。读数写进完成记录：(a) 读库——该会话仍是同一行、`lifecycle_mode` 仍是 `resident`、会话总数未增加；(b) 读 `GET /api/providers/sessions/:id/messages`，在三种情形下各读一次——刚 `complete` 之后、切换到另一个会话再切回之后、重启服务（重开 CloudCLI）之后——三次读出的消息序列里都包含替换 prompt，且都**不含**被暂停的 prompt 及其处理痕迹（assistant/tool 行与 `[Request interrupted by user]`）；jsonl 本身按 append-only 保留被暂停的 prompt 属已接受（人类裁定 2026-10-07），原「共享同一 `parentUuid`」要求已删除；(c) 向该会话再发一问「我之前说过什么」，模型的回答里**没有**被暂停那条的内容（证明进程上下文也被截断，而不只是界面藏起来）。若本环境无可用的在线模型端点，如实写明取不到 (c)，不得以替身代写；此时 (a)(b) 仍须以真实服务实例取得。
 
 ## Touches
 
 - server/modules/websocket/services/chat-websocket.service.ts
 - server/modules/providers/list/claude/claude-host-driver.provider.ts
+- server/modules/providers/list/claude/claude-sessions.provider.ts
 - server/modules/session-hosts/session-host-manager.service.ts
 - server/modules/websocket/tests/chat-edit-send.test.ts
 - server/modules/providers/tests/claude-resident-process.test.ts
@@ -145,3 +148,7 @@ resident 重建已让**进程上下文**真正截断（读数 (c) 成立），�
 3. 接受「上下文已截断」为本次交付边界，把「读取侧剪枝」另立一条 gap 任务。
 
 （本行 park，不改产品代码；已落地的重建机制在工作树上、commit `2ea22cec`。）
+
+### 人类裁定（2026-10-07）
+
+任务负责人裁定：接受 jsonl 按 append-only 保留被取代的被 abort prompt（U2）；但 CloudCLI 界面必须**只显示替换 prompt、永不显示 U2**，且在每条进入路径上一致——留在会话内、从别的会话切回、重新打开 CloudCLI。即采用上文第 7 节选项 1（收窄版）：读取侧剪枝在**本任务内**扩展（不另立 gap）。据此：Touches 增加 `claude-sessions.provider.ts`；AC-1 的期望读数改为 `sameBranchPoint=true`（已按完成记录第 1–2 节勾选）；新增 AC「读取侧剪枝扩展」与「语料回归」；DoD (b) 改为三情形读数（complete 后 / 切换后 / 重启后），删除原「共享 parentUuid」要求；DoD (a)(c) 保留。
