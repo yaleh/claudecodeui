@@ -648,7 +648,9 @@ test('(e) legal calls stay legal and the advertised schema is the enforced one',
 
   // The accepted parameter NAMES are unchanged by adding validation (AC-288 (e)).
   const declaredKeys: Record<string, readonly string[]> = {
-    sessions_list: ['project', 'state'],
+    // `limit` joined the set in gap-mcp-sessions-list-limit-ignored, which
+    // declared the bound this table reads back from `tools/list`.
+    sessions_list: ['project', 'state', 'limit'],
     session_read: ['session', 'mode', 'limit', 'aroundId', 'before', 'after', 'cursor'],
     session_send: ['session', 'message', 'waitSeconds'],
     session_get: ['session'],
