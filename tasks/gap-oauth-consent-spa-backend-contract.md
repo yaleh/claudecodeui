@@ -2,7 +2,7 @@
 id: gap-oauth-consent-spa-backend-contract
 title: OAuth 授权页改为 SPA（后端半）：/oauth/authorize 先校验后跳转到 SPA 路由，新增已登录会话鉴权的
   context/decision JSON 接口，替换服务端 HTML 表单与其判据
-status: todo
+status: ready
 labels:
   - gap
 parent: null
