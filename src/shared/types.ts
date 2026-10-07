@@ -2457,6 +2457,8 @@ export type OAuthConsentDecisionRequest = {
   code_challenge_method: string | null;
   scopes: string[];
   action: 'allow' | 'deny';
+  /** The signed-in user's password, re-entered to confirm an Allow. The server verifies it (behind a per-source rate limit) when it has a credential verifier; an empty value is a failed confirmation, never a bypass. */
+  password: string;
 };
 
 /** The decision's answer, as `POST /api/oauth/authorize/decision` returns it: the client callback URL the browser must be sent to — carrying `code` and `state` on allow, or `error=access_denied` and `state` on deny. The page performs the navigation itself with `window.location.assign`. */

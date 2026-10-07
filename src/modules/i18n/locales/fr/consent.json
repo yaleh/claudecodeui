@@ -19,6 +19,8 @@
   },
   "writeWarning": "Cette application pourra envoyer, créer et contrôler des sessions. Ne l'autorisez que si vous lui faites confiance.",
   "revokeHint": "Vous pouvez révoquer cet accès à tout moment dans Paramètres → Applications connectées.",
+  "passwordLabel": "Confirmez votre mot de passe",
+  "passwordHint": "Saisissez à nouveau votre mot de passe pour confirmer cette autorisation.",
   "allow": "Autoriser",
   "deny": "Refuser",
   "submitting": "Autorisation en cours…",
@@ -26,6 +28,8 @@
     "missingRequest": "Ce lien ne contient pas les paramètres requis. Relancez la connexion depuis l'application.",
     "invalidRequest": "Cette demande d'autorisation n'est pas valide. Elle a peut-être expiré ou provient d'une application non enregistrée.",
     "unauthorized": "Votre session a expiré. Reconnectez-vous pour continuer.",
-    "network": "Le serveur est injoignable. Vérifiez votre connexion et réessayez."
+    "network": "Le serveur est injoignable. Vérifiez votre connexion et réessayez.",
+    "invalidCredentials": "Mot de passe incorrect. Réessayez.",
+    "rateLimited": "Trop de tentatives de mot de passe. Patientez quelques minutes et réessayez."
   }
 }

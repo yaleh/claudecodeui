@@ -19,6 +19,8 @@
   },
   "writeWarning": "Diese Anwendung kann Sitzungen senden, erstellen und steuern. Erlaube es nur, wenn du ihr vertraust.",
   "revokeHint": "Du kannst diesen Zugriff jederzeit unter Einstellungen → Verbundene Apps widerrufen.",
+  "passwordLabel": "Passwort bestätigen",
+  "passwordHint": "Gib dein Passwort erneut ein, um diese Autorisierung zu bestätigen.",
   "allow": "Erlauben",
   "deny": "Ablehnen",
   "submitting": "Wird autorisiert…",
@@ -26,6 +28,8 @@
     "missingRequest": "In diesem Link fehlen erforderliche Parameter. Starte die Verbindung in der Anwendung erneut.",
     "invalidRequest": "Diese Autorisierungsanfrage ist ungültig. Sie ist möglicherweise abgelaufen oder stammt von einer nicht registrierten Anwendung.",
     "unauthorized": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um fortzufahren.",
-    "network": "Der Server konnte nicht erreicht werden. Prüfe deine Verbindung und versuche es erneut."
+    "network": "Der Server konnte nicht erreicht werden. Prüfe deine Verbindung und versuche es erneut.",
+    "invalidCredentials": "Falsches Passwort. Versuche es erneut.",
+    "rateLimited": "Zu viele Passwortversuche. Warte einige Minuten und versuche es erneut."
   }
 }

@@ -19,6 +19,8 @@
   },
   "writeWarning": "此應用程式將能夠傳送、建立與控制工作階段。只有信任它時才允許。",
   "revokeHint": "你可以隨時在「設定 → 已連接的應用程式」中撤銷此存取權。",
+  "passwordLabel": "確認密碼",
+  "passwordHint": "請再次輸入密碼以確認此授權。",
   "allow": "允許",
   "deny": "拒絕",
   "submitting": "正在授權…",
@@ -26,6 +28,8 @@
     "missingRequest": "此連結缺少必要參數。請從應用程式重新發起連線。",
     "invalidRequest": "此授權請求無效。它可能已過期，或來自未註冊的應用程式。",
     "unauthorized": "你的工作階段已過期。請重新登入後繼續。",
-    "network": "無法連線至伺服器。請檢查網路後重試。"
+    "network": "無法連線至伺服器。請檢查網路後重試。",
+    "invalidCredentials": "密碼不正確，請重試。",
+    "rateLimited": "密碼嘗試次數過多。請稍後再試。"
   }
 }

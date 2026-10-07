@@ -26,16 +26,28 @@
  * policy — vocabulary, pinned scope, granted-set computation — is in
  * `oauth-consent.service.ts`; this file is transport.
  *
+ * PASSWORD CONFIRMATION (AC-261, restored on the SPA data plane by
+ * gap-ac261-consent-password-ratelimit-restore): when the composition root
+ * injects a `verifyCredentials`, the `allow` branch requires the signed-in
+ * user's password once more before it mints a code, so a stolen session JWT
+ * cannot silently authorize a third-party client. The check is bounded by the
+ * injected {@link ConsentPasswordRateLimiter}: ten failures per source per
+ * fifteen minutes, with the source resolved from `CF-Connecting-IP` only when
+ * the deployment declares a trusted proxy. A mount that injects no verifier
+ * keeps the session-only behavior, which is why AC-260's criterion — which
+ * mounts without one — is unchanged.
+ *
  * Consumers: `oauth-server.mount.ts` (mounts both factories; the entrypoint
  * mounts the document-header middleware at {@link OAUTH_CONSENT_SPA_PATH} ahead
  * of the static layer), the server entrypoint, and this module's criteria
- * `tests/oauth-consent-page.test.ts` and
- * `../mcp-gateway/tests/oauth-flow.e2e.test.ts`.
+ * `tests/oauth-consent-page.test.ts`, `tests/oauth-consent-ratelimit.test.ts`
+ * and `../mcp-gateway/tests/oauth-flow.e2e.test.ts`.
  */
 
 import express from 'express';
 import type { RequestHandler } from 'express';
 
+import type { CredentialVerifier } from '@/modules/auth/index.js';
 import type { OAuthClientRow } from '@/modules/database/index.js';
 import {
   consentScopeOptions,
@@ -43,16 +55,24 @@ import {
   readConsentRequest,
 } from '@/modules/oauth/oauth-consent.service.js';
 import type { OAuthConsentClients } from '@/modules/oauth/oauth-consent.service.js';
+import { createConsentPasswordRateLimiter } from '@/modules/oauth/oauth-consent-ratelimit.service.js';
+import type { ConsentPasswordRateLimiter } from '@/modules/oauth/oauth-consent-ratelimit.service.js';
 import type { OAuthProvider } from '@/modules/oauth/oauth-provider.service.js';
 
 import { OAUTH_CONSENT_SPA_PATH } from '../../../shared/oauthConsent.js';
 
 /** `authenticateToken` attaches the DB user row; this is the shape both JSON routes read. */
-type AuthenticatedRequest = express.Request & { user?: { id?: number | string } };
+type AuthenticatedRequest = express.Request & { user?: { id?: number | string; username?: string } };
 
 /** The one field the JSON routes read off the authenticated principal. */
 function authenticatedUserId(req: express.Request): number {
   return Number((req as AuthenticatedRequest).user?.id);
+}
+
+/** The signed-in user's own login name, the fallback identity for a password confirmation. */
+function authenticatedUsername(req: express.Request): string {
+  const username = (req as AuthenticatedRequest).user?.username;
+  return typeof username === 'string' ? username : '';
 }
 
 /** A query/body value only when it is a single string (an array or object is not a usable scalar). */
@@ -194,6 +214,17 @@ export type OAuthAuthorizeApiOptions = {
   provider: OAuthProvider;
   /** Client lookup, the same one the browser-facing route uses. */
   clients: OAuthConsentClients;
+  /**
+   * The non-throwing password check (the auth module's `credentialVerifier` in
+   * production). When supplied, the `allow` branch requires the signed-in user's
+   * password and rate-limits the attempt; when omitted the branch is the plain
+   * session-only decision AC-260 pinned.
+   */
+  verifyCredentials?: CredentialVerifier;
+  /** Whether `CF-Connecting-IP` may name the rate-limit source; defaults to the `TRUST_PROXY` env. */
+  trustProxy?: boolean;
+  /** Injectable password limiter; defaults to one built from `trustProxy`. */
+  rateLimiter?: ConsentPasswordRateLimiter;
 };
 
 /**
@@ -208,6 +239,8 @@ export type OAuthAuthorizeApiOptions = {
  */
 export function createOAuthAuthorizeApiRouter(options: OAuthAuthorizeApiOptions): express.Router {
   const router = express.Router();
+  const rateLimiter =
+    options.rateLimiter ?? createConsentPasswordRateLimiter({ trustProxy: options.trustProxy });
 
   router.get('/context', (req, res) => {
     const clientId = firstString(req.query.client_id);
@@ -226,7 +259,7 @@ export function createOAuthAuthorizeApiRouter(options: OAuthAuthorizeApiOptions)
     });
   });
 
-  router.post('/decision', express.json(), (req, res) => {
+  router.post('/decision', express.json(), async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const clientId = firstString(body.client_id);
     const redirectUri = firstString(body.redirect_uri);
@@ -253,6 +286,33 @@ export function createOAuthAuthorizeApiRouter(options: OAuthAuthorizeApiOptions)
       }
       sendJson(res, 200, { redirectTo: target.toString() });
       return;
+    }
+
+    // Password confirmation (AC-261): only when a verifier is injected, and only
+    // on the allow branch — a denial grants nothing, so it needs no re-auth and
+    // no rate limiting. A blocked source is refused BEFORE the password is even
+    // looked at, so the eleventh attempt learns nothing from a correct password
+    // and no code is minted.
+    if (options.verifyCredentials !== undefined) {
+      const source = rateLimiter.source(req);
+      if (rateLimiter.isBlocked(source)) {
+        res.setHeader('Retry-After', String(Math.ceil(rateLimiter.retryAfterMs(source) / 1000)));
+        sendJsonError(res, 429, 'too_many_requests', 'Too many password attempts; try again later');
+        return;
+      }
+      const password = firstString(body.password) ?? '';
+      const username = firstString(body.username) ?? authenticatedUsername(req);
+      // An absent password is a failed confirmation, not a bypass: record it so it
+      // counts toward the source's budget like any other wrong credential.
+      const verified = password === '' ? { ok: false as const } : await options.verifyCredentials(username, password);
+      if (!verified.ok) {
+        rateLimiter.recordFailure(source);
+        sendJsonError(res, 401, 'invalid_credentials', 'Incorrect username or password');
+        return;
+      }
+      // A confirmed password clears only this source's bucket: another client
+      // (or another proxy-forwarded address) must keep its own failure count.
+      rateLimiter.resetSource(source);
     }
 
     const authorized = options.provider.authorize({

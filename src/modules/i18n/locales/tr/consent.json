@@ -19,6 +19,8 @@
   },
   "writeWarning": "Bu uygulama oturumları gönderebilecek, oluşturabilecek ve kontrol edebilecek. Yalnızca güveniyorsanız izin verin.",
   "revokeHint": "Bu erişimi istediğiniz zaman Ayarlar → Bağlı Uygulamalar bölümünden iptal edebilirsiniz.",
+  "passwordLabel": "Parolanızı onaylayın",
+  "passwordHint": "Bu yetkilendirmeyi onaylamak için parolanızı yeniden girin.",
   "allow": "İzin ver",
   "deny": "Reddet",
   "submitting": "Yetkilendiriliyor…",
@@ -26,6 +28,8 @@
     "missingRequest": "Bu bağlantıda gerekli parametreler eksik. Bağlantıyı uygulamadan yeniden başlatın.",
     "invalidRequest": "Bu yetkilendirme isteği geçerli değil. Süresi dolmuş veya kayıtsız bir uygulamadan gelmiş olabilir.",
     "unauthorized": "Oturumunuzun süresi doldu. Devam etmek için yeniden oturum açın.",
-    "network": "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip yeniden deneyin."
+    "network": "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip yeniden deneyin.",
+    "invalidCredentials": "Parola yanlış. Yeniden deneyin.",
+    "rateLimited": "Çok fazla parola denemesi. Birkaç dakika bekleyip yeniden deneyin."
   }
 }

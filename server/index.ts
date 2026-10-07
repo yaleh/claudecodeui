@@ -37,6 +37,7 @@ import {
     authenticateToken,
     authenticateWebSocket,
     authRoutes,
+    credentialVerifier,
     validateApiKey,
 } from './modules/auth/index.js';
 import { taskmasterRoutes } from './modules/taskmaster/index.js';
@@ -834,6 +835,11 @@ if (oauthMetadata.mounted && oauthProvider !== undefined) {
         store: oauthStore,
         clients: oauthClientsDb,
         authenticateToken,
+        // AC-261: the consent `allow` decision re-confirms the signed-in user's
+        // password through the SAME `authService.login` every other login uses,
+        // behind a per-source rate limiter. The verifier is the auth barrel's
+        // assembled instance — there is no second credential implementation.
+        credentialVerifier,
     });
     console.log(
         `[MCP] oauth server ${oauthServer.mounted ? 'mounted' : 'not mounted'} at /oauth/authorize|api/oauth/authorize|token|revoke (${oauthServer.reason})`,

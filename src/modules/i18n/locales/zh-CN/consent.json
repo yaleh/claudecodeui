@@ -19,6 +19,8 @@
   },
   "writeWarning": "此应用将能够发送、创建和控制会话。只有信任它时才允许。",
   "revokeHint": "你可以随时在「设置 → 已连接的应用」中吊销此访问权限。",
+  "passwordLabel": "确认密码",
+  "passwordHint": "请再次输入密码以确认此授权。",
   "allow": "允许",
   "deny": "拒绝",
   "submitting": "正在授权…",
@@ -26,6 +28,8 @@
     "missingRequest": "此链接缺少必需参数。请从应用中重新发起连接。",
     "invalidRequest": "此授权请求无效。它可能已过期，或来自未注册的应用。",
     "unauthorized": "你的会话已过期。请重新登录后继续。",
-    "network": "无法连接到服务器。请检查网络后重试。"
+    "network": "无法连接到服务器。请检查网络后重试。",
+    "invalidCredentials": "密码不正确，请重试。",
+    "rateLimited": "密码尝试次数过多。请稍后再试。"
   }
 }

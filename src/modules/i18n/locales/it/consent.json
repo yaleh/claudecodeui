@@ -19,6 +19,8 @@
   },
   "writeWarning": "Questa applicazione potrà inviare, creare e controllare sessioni. Consentilo solo se ti fidi.",
   "revokeHint": "Puoi revocare questo accesso in qualsiasi momento in Impostazioni → App connesse.",
+  "passwordLabel": "Conferma la tua password",
+  "passwordHint": "Reinserisci la password per confermare questa autorizzazione.",
   "allow": "Consenti",
   "deny": "Nega",
   "submitting": "Autorizzazione in corso…",
@@ -26,6 +28,8 @@
     "missingRequest": "Questo link non contiene i parametri richiesti. Riavvia la connessione dall'applicazione.",
     "invalidRequest": "Questa richiesta di autorizzazione non è valida. Potrebbe essere scaduta o provenire da un'applicazione non registrata.",
     "unauthorized": "La tua sessione è scaduta. Accedi di nuovo per continuare.",
-    "network": "Impossibile raggiungere il server. Controlla la connessione e riprova."
+    "network": "Impossibile raggiungere il server. Controlla la connessione e riprova.",
+    "invalidCredentials": "Password errata. Riprova.",
+    "rateLimited": "Troppi tentativi di password. Attendi qualche minuto e riprova."
   }
 }

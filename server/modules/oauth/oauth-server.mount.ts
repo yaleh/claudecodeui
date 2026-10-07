@@ -38,6 +38,7 @@
 import type { Express, Request, Response, RequestHandler } from 'express';
 import express from 'express';
 
+import type { CredentialVerifier } from '@/modules/auth/index.js';
 import type { OAuthClientRow } from '@/modules/database/index.js';
 
 import { createOAuthAuthorizeApiRouter, createOAuthConsentRouter } from './oauth-consent.routes.js';
@@ -59,6 +60,13 @@ export type MountOAuthServerDeps = {
   store: OAuthStore;
   clients: { findById(clientId: string): OAuthClientRow | undefined };
   authenticateToken: RequestHandler;
+  /**
+   * The auth module's non-throwing password check. When the composition root
+   * injects it (AC-261), the consent `allow` branch re-confirms the signed-in
+   * user's password behind a per-source rate limiter; a mount that omits it —
+   * like AC-260's criterion — keeps the session-only decision.
+   */
+  credentialVerifier?: CredentialVerifier;
 };
 
 /**
@@ -117,7 +125,7 @@ function sendExchangeResult(res: Response, result: ExchangeResult): void {
  * makes the presented access token fail the very next `/mcp` request.
  */
 export function mountOAuthServer(app: Express, deps: MountOAuthServerDeps): OAuthServerMountReading {
-  const { provider, store, clients, authenticateToken } = deps;
+  const { provider, store, clients, authenticateToken, credentialVerifier } = deps;
 
   const router = express.Router();
 
@@ -196,7 +204,11 @@ export function mountOAuthServer(app: Express, deps: MountOAuthServerDeps): OAut
   // The consent JSON API, behind the application's own bearer-JWT middleware.
   // Mounted AFTER `/api/oauth`'s token-info route and BEFORE the static layer so
   // it answers JSON rather than the SPA.
-  app.use('/api/oauth/authorize', authenticateToken, createOAuthAuthorizeApiRouter({ provider, clients }));
+  app.use(
+    '/api/oauth/authorize',
+    authenticateToken,
+    createOAuthAuthorizeApiRouter({ provider, clients, verifyCredentials: credentialVerifier })
+  );
 
   return { mounted: true, reason: 'MCP OAuth is on' };
 }

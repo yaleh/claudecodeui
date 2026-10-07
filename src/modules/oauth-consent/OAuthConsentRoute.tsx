@@ -14,6 +14,14 @@
  * read scope is checked and disabled, and every write scope starts unchecked
  * behind a risk warning, so a decision is always something the user opted into.
  *
+ * An Allow carries one confirmation more (AC-261): the signed-in user re-enters
+ * their password, exactly as the server-rendered form used to ask, so holding a
+ * session JWT is not by itself enough to authorize a third-party client. The
+ * server rate-limits that submission per source; a refusal (wrong password, or a
+ * rate-limited source) is shown in place with the decision still on screen, so
+ * the user can correct the password or come back later instead of losing the
+ * request.
+ *
  * Consumers: the `/oauth/consent` route in `src/App.tsx`.
  */
 
@@ -21,7 +29,7 @@ import { AlertTriangle, ArrowRight, Loader2, RotateCw, ShieldAlert } from 'lucid
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 
-import { Button } from '@/shared/ui';
+import { Button, Input } from '@/shared/ui';
 import { useAuth } from '@/modules/auth';
 import { useOAuthConsent } from '@/modules/oauth-consent/hooks/useOAuthConsent';
 import type { OAuthConsentError } from '@/modules/oauth-consent/hooks/useOAuthConsent';
@@ -51,6 +59,8 @@ const ERROR_MESSAGE_KEYS: Record<OAuthConsentError['kind'], string> = {
   'invalid-request': 'errors.invalidRequest',
   unauthorized: 'errors.unauthorized',
   network: 'errors.network',
+  'invalid-credentials': 'errors.invalidCredentials',
+  'rate-limited': 'errors.rateLimited',
 };
 
 /**
@@ -115,6 +125,9 @@ export default function OAuthConsentRoute() {
     context,
     selectedScopes,
     hasWriteSelection,
+    password,
+    setPassword,
+    submitError,
     error,
     toggleScope,
     decide,
@@ -226,11 +239,43 @@ export default function OAuthConsentRoute() {
         {t('revokeHint')}
       </p>
 
+      {/* The confirmation step: an Allow asks for the password again, so a
+          session token alone can no longer hand a third-party client access. */}
+      <div className="mt-5 text-left">
+        <label htmlFor="consent-password" className="text-sm font-medium text-foreground">
+          {t('passwordLabel')}
+        </label>
+        <Input
+          id="consent-password"
+          data-testid="consent-password"
+          type="password"
+          autoComplete="current-password"
+          className="mt-2"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          disabled={submitting}
+          aria-describedby="consent-password-hint"
+        />
+        <p id="consent-password-hint" className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+          {t('passwordHint')}
+        </p>
+      </div>
+
+      {submitError && (
+        <p
+          data-testid="consent-submit-error"
+          className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-left text-sm text-destructive"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>{t(ERROR_MESSAGE_KEYS[submitError.kind])}</span>
+        </p>
+      )}
+
       <div className="mt-5 flex flex-col gap-2 sm:flex-row">
         <Button
           data-testid="consent-allow"
           className="w-full sm:flex-1"
-          disabled={submitting}
+          disabled={submitting || password.length === 0}
           onClick={() => decide('allow')}
         >
           {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}

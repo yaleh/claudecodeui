@@ -19,6 +19,8 @@
   },
   "writeWarning": "Aplikasi ini dapat mengirim, membuat, dan mengendalikan sesi. Izinkan hanya jika Anda memercayainya.",
   "revokeHint": "Anda dapat mencabut akses ini kapan saja di Pengaturan → Aplikasi Terhubung.",
+  "passwordLabel": "Konfirmasi kata sandi Anda",
+  "passwordHint": "Masukkan kembali kata sandi Anda untuk mengonfirmasi otorisasi ini.",
   "allow": "Izinkan",
   "deny": "Tolak",
   "submitting": "Mengotorisasi…",
@@ -26,6 +28,8 @@
     "missingRequest": "Tautan ini kehilangan parameter yang diperlukan. Mulai ulang koneksi dari aplikasi.",
     "invalidRequest": "Permintaan otorisasi ini tidak valid. Mungkin sudah kedaluwarsa atau berasal dari aplikasi yang tidak terdaftar.",
     "unauthorized": "Sesi Anda telah berakhir. Masuk lagi untuk melanjutkan.",
-    "network": "Server tidak dapat dijangkau. Periksa koneksi Anda dan coba lagi."
+    "network": "Server tidak dapat dijangkau. Periksa koneksi Anda dan coba lagi.",
+    "invalidCredentials": "Kata sandi salah. Coba lagi.",
+    "rateLimited": "Terlalu banyak percobaan kata sandi. Tunggu beberapa menit lalu coba lagi."
   }
 }

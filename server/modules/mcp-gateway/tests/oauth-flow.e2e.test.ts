@@ -16,15 +16,18 @@
  * One run reads:
  *   (a) discovery (both `/.well-known/*` answer JSON) -> DCR registration ->
  *       `GET /oauth/authorize` 302s to the relative SPA route -> the JWT-guarded
- *       `/api/oauth/authorize/context` and `/decision` round trip -> the
+ *       `/api/oauth/authorize/context` and `/decision` round trip — the decision
+ *       re-confirms the seeded account's password, which AC-261 restored — -> the
  *       `redirectTo` carries a code -> `/oauth/token` exchanges it for
  *       access+refresh;
  *   (b) `/mcp` `tools/list` and `overview` with the access token;
  *   (c) refresh rotation (new pair) and the OLD refresh token's rejection;
  *   (d) the SAME access token: 200 before the settings revoke, 401 after;
- *   (e) three counterexamples in the same run: a consent decision with NO bearer
- *       JWT gets 401 (the session gate), a wrong `code_verifier` gets no token, a
- *       replayed code is refused;
+ *   (e) four counterexamples in the same run: a consent decision with NO bearer
+ *       JWT gets 401 (the session gate), a decision that carries a valid session
+ *       but the WRONG confirmation password gets 401 `invalid_credentials` and no
+ *       `redirectTo`, a wrong `code_verifier` gets no token, a replayed code is
+ *       refused;
  *   (R) `/oauth/revoke` genuinely revokes a token (its next `/mcp` is 401).
  *
  * The mount under test is the production one: `/oauth/authorize`, the
@@ -40,6 +43,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import http from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import net from 'node:net';
 import os from 'node:os';
@@ -56,8 +60,23 @@ const READY_LINE = 'CloudCLI Server - Ready';
 
 const TEST_JWT_SECRET = 'oauth-flow-e2e-secret';
 const USERNAME = 'oauth-e2e-user';
+/**
+ * The seeded account's real password: since AC-261 the consent `allow` branch
+ * re-verifies the signed-in user's credentials, so the seed below must carry a
+ * hash the server's own bcrypt check accepts — and every decision posts it.
+ */
+const ACCOUNT_PASSWORD = 'oauth-e2e-password';
 const REDIRECT_URI = 'https://app.example/cb';
 const READ_SCOPE = 'cloudcli:read';
+
+/**
+ * The same native module the auth module hashes with (`bcrypt.hash(pw, 12)` in
+ * `auth.module.ts`), loaded directly because the hash is minted on the criterion
+ * side, before any server process exists. Only `hashSync` is consumed.
+ */
+const bcrypt = createRequire(import.meta.url)('bcrypt') as {
+  hashSync(data: string, saltRounds: number): string;
+};
 /** The route the authorization endpoint hands the browser to (mirrors `shared/oauthConsent.ts`). */
 const SPA_CONSENT_PATH = '/oauth/consent';
 /** The Accept a Streamable HTTP client must send; without it the transport answers 406. */
@@ -226,9 +245,11 @@ type ServerContext = {
  * Seeds a temp database with ONE CloudCLI user, boots a real `server/index.ts`
  * process against it on a temp port, waits for the ready line, and hands the
  * context to `run`. The user row is what `oauth_grants.user_id` references and
- * what `authenticateToken` loads for the minted JWT — the consent API no longer
- * verifies a password, so the hash is an unused placeholder. The process group is
- * SIGKILLed and the temp tree removed on every exit path.
+ * what `authenticateToken` loads for the minted JWT; since AC-261 it is also what
+ * the consent `allow` branch re-verifies against, so the seeded hash is a real
+ * bcrypt hash of a known password (the placeholder the SPA migration left is no
+ * longer usable). The process group is SIGKILLed and the temp tree removed on
+ * every exit path.
  */
 async function withRealServer(run: (context: ServerContext) => Promise<void>): Promise<void> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'oauth-flow-e2e-'));
@@ -244,7 +265,7 @@ async function withRealServer(run: (context: ServerContext) => Promise<void>): P
   process.env.DATABASE_PATH = dbPath;
   const { closeConnection, initializeDatabase, userDb } = await import('@/modules/database/index.js');
   await initializeDatabase();
-  const created = userDb.createUser(USERNAME, 'placeholder-hash');
+  const created = userDb.createUser(USERNAME, bcrypt.hashSync(ACCOUNT_PASSWORD, 10));
   const userId = Number(created.id);
   closeConnection();
   if (previousDatabasePath === undefined) {
@@ -504,6 +525,9 @@ test('AC-268: the OAuth flow completes end to end on a real server process', { c
           code_challenge_method: 'S256',
           scopes: [READ_SCOPE],
           action: 'allow',
+          // AC-261: the allow branch re-confirms the signed-in user's password
+          // against the real hash, behind the per-source rate limiter.
+          password: ACCOUNT_PASSWORD,
         }),
       });
       const redirectTo = redirectToOf(decision);
@@ -664,6 +688,40 @@ test('AC-268: the OAuth flow completes end to end on a real server process', { c
     console.log(`[e1] POST /api/oauth/authorize/decision (no JWT) -> ${decisionNoJwt.status} ${decisionNoJwt.text}`);
     assert.equal(decisionNoJwt.status, 401, 'the decision API must refuse a request with no bearer JWT');
     assert.equal(redirectToOf(decisionNoJwt), undefined, 'an unauthenticated decision must not hand back a redirectTo');
+
+    // (e4, AC-261) the right session but the WRONG confirmation password: the
+    // real server re-verifies against the seeded bcrypt hash, refuses, and mints
+    // no code — so holding a session JWT is not by itself enough to authorize.
+    const decisionWrongPassword = await httpCall(ctx.port, {
+      method: 'POST',
+      path: '/api/oauth/authorize/decision',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${ctx.jwt}` },
+      body: JSON.stringify({
+        client_id: clientId as string,
+        redirect_uri: REDIRECT_URI,
+        state: 'wrong-password',
+        code_challenge: pkcePair().challenge,
+        code_challenge_method: 'S256',
+        scopes: [READ_SCOPE],
+        action: 'allow',
+        password: `${ACCOUNT_PASSWORD}-wrong`,
+      }),
+    });
+    console.log(
+      `[e4] POST /api/oauth/authorize/decision (wrong confirmation password) -> `
+      + `${decisionWrongPassword.status} ${decisionWrongPassword.text}`
+    );
+    assert.equal(decisionWrongPassword.status, 401, 'a wrong confirmation password must be refused');
+    assert.equal(
+      decisionWrongPassword.json?.error,
+      'invalid_credentials',
+      'the refusal must name the credential check, not the session gate'
+    );
+    assert.equal(
+      redirectToOf(decisionWrongPassword),
+      undefined,
+      'a refused confirmation must not hand back a redirectTo'
+    );
 
     // (e2) wrong code_verifier: no token.
     const grantC = await obtainCode();

@@ -19,6 +19,8 @@
   },
   "writeWarning": "Esta aplicación podrá enviar, crear y controlar sesiones. Concédelo solo si confías en ella.",
   "revokeHint": "Puedes revocar este acceso en cualquier momento en Ajustes → Aplicaciones conectadas.",
+  "passwordLabel": "Confirma tu contraseña",
+  "passwordHint": "Vuelve a introducir tu contraseña para confirmar esta autorización.",
   "allow": "Permitir",
   "deny": "Denegar",
   "submitting": "Autorizando…",
@@ -26,6 +28,8 @@
     "missingRequest": "A este enlace le faltan parámetros obligatorios. Inicia la conexión de nuevo desde la aplicación.",
     "invalidRequest": "Esta solicitud de autorización no es válida. Puede haber caducado o provenir de una aplicación no registrada.",
     "unauthorized": "Tu sesión ha caducado. Inicia sesión de nuevo para continuar.",
-    "network": "No se pudo contactar con el servidor. Comprueba tu conexión e inténtalo de nuevo."
+    "network": "No se pudo contactar con el servidor. Comprueba tu conexión e inténtalo de nuevo.",
+    "invalidCredentials": "Contraseña incorrecta. Inténtalo de nuevo.",
+    "rateLimited": "Demasiados intentos de contraseña. Espera unos minutos e inténtalo de nuevo."
   }
 }

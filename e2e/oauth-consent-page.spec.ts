@@ -38,6 +38,9 @@ const WRITE_SCOPE = 'cloudcli:navigate';
 const PROTOCOL_VERSION = '2025-06-18';
 /** The phone the consent screen is really used on; the mobile leg's viewport. */
 const MOBILE_VIEWPORT = { width: 375, height: 812 } as const;
+/** The single account this run creates; the consent confirmation re-enters this password (AC-261). */
+const ACCOUNT_USERNAME = 'e2euser';
+const ACCOUNT_PASSWORD = 'e2epassword';
 
 /** A dependency the optimizer serves out of this run's private cache, already rewritten to its url. */
 const OPTIMIZED_DEP_IN_TEXT = /["'](\/@fs\/[^"']*\/deps\/[^"']+\.js\?v=[0-9a-f]+)["']/;
@@ -350,9 +353,9 @@ test.describe('the OAuth consent SPA', () => {
     // click is followed by a state-driven assertion, so no bare click rides a mid-run Vite reload.
     await navigateBounded('/', FIRST_LANDING);
     if (await page.locator('#username').count()) {
-      await page.locator('#username').fill('e2euser');
-      await page.locator('input[type=password]').nth(0).fill('e2epassword');
-      await page.locator('input[type=password]').nth(1).fill('e2epassword');
+      await page.locator('#username').fill(ACCOUNT_USERNAME);
+      await page.locator('input[type=password]').nth(0).fill(ACCOUNT_PASSWORD);
+      await page.locator('input[type=password]').nth(1).fill(ACCOUNT_PASSWORD);
       await page.getByRole('button', { name: 'Create Account' }).click();
       await page.getByPlaceholder('John Doe').fill('E2E User');
       await page.getByPlaceholder('john@example.com').fill('e2e@example.com');
@@ -427,7 +430,7 @@ test.describe('the OAuth consent SPA', () => {
     );
     expect(clientNameShown).toBe(clientName);
     expect(callbackHostShown).toBe(`127.0.0.1:${callbackPort}`);
-    expect(identityShown).toContain('e2euser');
+    expect(identityShown).toContain(ACCOUNT_USERNAME);
     expect(scopeCount).toBe(6);
     expect(checkedScopes).toEqual([READ_SCOPE]);
     expect(disabledScopes).toEqual([READ_SCOPE]);
@@ -441,6 +444,20 @@ test.describe('the OAuth consent SPA', () => {
     await expect(writeWarning()).toBeVisible({ timeout: 5_000 });
     const warningText = await writeWarning().innerText();
     console.log(`(b) ticking ${WRITE_SCOPE} showed the risk warning: ${JSON.stringify(warningText)}`);
+
+    // (AC-261) An Allow is a confirmation, not just a click: the button stays disabled until the
+    // signed-in user re-enters their password, and the real `/decision` verifies it against the
+    // account's real hash — a correct password is what lets the code be minted at all.
+    const consentPassword = page.getByTestId('consent-password');
+    await expect(consentPassword).toBeVisible({ timeout: 5_000 });
+    await expect(allowButton()).toBeDisabled();
+    const disabledWithoutPassword = await allowButton().isDisabled();
+    await consentPassword.fill(ACCOUNT_PASSWORD);
+    await expect(allowButton()).toBeEnabled();
+    console.log(
+      `(b) the confirmation field gated Allow: disabled before the password was re-entered=${disabledWithoutPassword}, `
+      + `enabled after=${!(await allowButton().isDisabled())}`,
+    );
 
     armCallback();
     await allowButton().click();
@@ -520,8 +537,8 @@ test.describe('the OAuth consent SPA', () => {
     await expect(page.locator('#username')).toBeVisible({ timeout: 20_000 });
     const signedOutUrl = page.url();
     console.log(`(d) signed out, the URL is ${new URL(signedOutUrl).pathname}${new URL(signedOutUrl).search}`);
-    await page.locator('#username').fill('e2euser');
-    await page.locator('input[type=password]').first().fill('e2epassword');
+    await page.locator('#username').fill(ACCOUNT_USERNAME);
+    await page.locator('input[type=password]').first().fill(ACCOUNT_PASSWORD);
     await page.locator('button[type=submit]').click();
     await expect(page.getByTestId('consent-client-name')).toBeVisible({ timeout: 20_000 });
 

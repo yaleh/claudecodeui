@@ -8,9 +8,15 @@
  * navigate to. The server, not this hook, decides what a decision grants: the
  * selection submitted here is intersected with the scope vocabulary there.
  *
- * The session is a bearer JWT carried by `authenticatedFetch`; a 401 therefore
- * means the session lapsed between page load and submit, which the page resolves
- * through the ordinary login gate rather than by rendering its own form.
+ * The session is a bearer JWT carried by `authenticatedFetch`. An Allow carries
+ * one more thing: the signed-in user's password, re-entered on the page as the
+ * confirmation step AC-261 restores, so a stolen session token cannot silently
+ * authorize a third-party client. The server rate-limits that confirmation per
+ * source, so a refused decision (401 `invalid_credentials`, 429
+ * `too_many_requests`) is a recoverable in-place state — `submitError` — rather
+ * than the page-level error face. A bare 401 with no such code is still the
+ * lapsed session, which the page resolves through the ordinary login gate rather
+ * than by rendering its own form.
  *
  * Consumers: `OAuthConsentRoute` (the only caller) and its vitest.
  */
@@ -24,8 +30,19 @@ import type {
   OAuthConsentDecisionResponse,
 } from '@/shared/types';
 
-/** Why the page cannot render a decision: an incomplete link, a request the server refused, a lapsed session, or an unreachable server. The page maps each to its own message. */
-export type OAuthConsentErrorKind = 'missing-request' | 'invalid-request' | 'unauthorized' | 'network';
+/**
+ * Why the page cannot render a decision, or why the one it just submitted was
+ * refused: an incomplete link, a request the server refused, a lapsed session,
+ * an unreachable server, a wrong confirmation password, or a source the server
+ * has rate limited. The page maps each to its own message.
+ */
+export type OAuthConsentErrorKind =
+  | 'missing-request'
+  | 'invalid-request'
+  | 'unauthorized'
+  | 'network'
+  | 'invalid-credentials'
+  | 'rate-limited';
 
 /** The four faces the consent page can wear; `ready` is the only one that shows the Allow/Deny decision. */
 export type OAuthConsentPhase = 'loading' | 'ready' | 'submitting' | 'error' | 'unauthorized';
@@ -66,6 +83,16 @@ export type OAuthConsentController = {
   selectedScopes: string[];
   /** True when at least one ticked scope lets the client change something — the page's risk warning. */
   hasWriteSelection: boolean;
+  /** The password the user re-entered to confirm an Allow; empty until they type one. */
+  password: string;
+  setPassword: (value: string) => void;
+  /**
+   * Why a decision the server refused came back: a wrong confirmation password
+   * (401) or a rate-limited source (429). The page stays usable — unlike
+   * {@link OAuthConsentController.error}, this does not hide the decision — so
+   * the user can correct the password and submit again.
+   */
+  submitError: OAuthConsentError | null;
   error: OAuthConsentError | null;
   toggleScope: (scope: string, checked: boolean) => void;
   decide: (action: 'allow' | 'deny') => void;
@@ -99,6 +126,12 @@ export function useOAuthConsent(
   const [phase, setPhase] = useState<OAuthConsentPhase>('loading');
   // Why a load or a decision failed; null whenever the page is usable.
   const [error, setError] = useState<OAuthConsentError | null>(null);
+  // The password re-entered to confirm an Allow (AC-261). Held here, never in
+  // the URL or storage: it lives only as long as the page is open.
+  const [password, setPassword] = useState('');
+  // Why the last decision was refused, when the page is still usable; cleared as
+  // soon as another decision is submitted.
+  const [submitError, setSubmitError] = useState<OAuthConsentError | null>(null);
 
   useEffect(() => {
     // A link missing client_id or redirect_uri cannot be validated at all: fail
@@ -112,6 +145,7 @@ export function useOAuthConsent(
     let cancelled = false;
     setPhase('loading');
     setError(null);
+    setSubmitError(null);
 
     api.oauthConsent
       .context(search)
@@ -182,17 +216,31 @@ export function useOAuthConsent(
         code_challenge_method: request.codeChallengeMethod,
         scopes: action === 'allow' ? selectedScopes : [],
         action,
+        // Only an Allow confirms a password; a denial grants nothing, so it
+        // carries no secret to the server.
+        password: action === 'allow' ? password : '',
       };
       setPhase('submitting');
       setError(null);
+      setSubmitError(null);
       api.oauthConsent
         .decide(decision)
         .then(async (response) => {
           if (!response.ok) {
-            throw new ApiRequestError(
-              response.status === 401 ? 'Unauthorized' : 'Request failed',
-              { status: response.status },
-            );
+            // The consent surface answers refusals as RFC 6749 error objects
+            // (`{error, error_description}`), and the code is what separates a
+            // wrong password from a lapsed session — both are 401.
+            const refusal = (await response.json().catch(() => null)) as
+              | { error?: unknown; error_description?: unknown }
+              | null;
+            const code = typeof refusal?.error === 'string' ? refusal.error : undefined;
+            const message =
+              typeof refusal?.error_description === 'string'
+                ? refusal.error_description
+                : response.status === 401
+                  ? 'Unauthorized'
+                  : 'Request failed';
+            throw new ApiRequestError(message, { code, status: response.status });
           }
           return (await response.json()) as OAuthConsentDecisionResponse;
         })
@@ -200,6 +248,20 @@ export function useOAuthConsent(
           navigate(answer.redirectTo);
         })
         .catch((failure: unknown) => {
+          // A refused confirmation is recoverable in place: the page keeps the
+          // decision on screen so the user can correct the password or wait out
+          // the rate limit. Only a lapsed session or a transport failure takes
+          // the page away.
+          if (failure instanceof ApiRequestError && failure.code === 'invalid_credentials') {
+            setPhase('ready');
+            setSubmitError({ kind: 'invalid-credentials', message: failure.message });
+            return;
+          }
+          if (failure instanceof ApiRequestError && failure.code === 'too_many_requests') {
+            setPhase('ready');
+            setSubmitError({ kind: 'rate-limited', message: failure.message });
+            return;
+          }
           if (failure instanceof ApiRequestError && failure.status === 401) {
             setPhase('unauthorized');
             setError({ kind: 'unauthorized', message: null });
@@ -209,7 +271,7 @@ export function useOAuthConsent(
           setError({ kind: 'network', message: null });
         });
     },
-    [navigate, request, selectedScopes],
+    [navigate, password, request, selectedScopes],
   );
 
   const retry = useCallback(() => {
@@ -231,6 +293,9 @@ export function useOAuthConsent(
     context,
     selectedScopes,
     hasWriteSelection,
+    password,
+    setPassword,
+    submitError,
     error,
     toggleScope,
     decide,
