@@ -33,11 +33,11 @@ extra:
 
 ## AC
 
-- [ ] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-open-session.test.ts` 退出码 0，且新增断言：PAT 调用时 `ui.navigate` 帧的 `requester` 等于该 PAT 的 `name`；OAuth 令牌调用时等于其客户端展示名；PAT 名为空时是固定文案而不是 `null`；`navigations[0].requestedBy` 与帧里的 `requester` 一致。
-- [ ] 同一测试文件断言：超长名称被截断到有界长度。
-- [ ] `npx vitest run src/modules/chat/tests/uiNavigate.test.tsx` 退出码 0，且新增断言：提示条文案里含帧里的请求方名称，名称含 `<b>x</b>` 之类标记时按文本渲染（不产生元素）；只有帧里没有可用名称时才显示兜底名。
-- [ ] `grep -n "resolveClientName" server/modules/mcp-gateway/mcp-ui-open-session.ts server/index.ts` 显示解析经已有的 `resolveClientName` 接入，且全仓库没有第二个独立实现（`grep -rn "function resolveClientName\|resolveClientName:" server --include=*.ts | grep -v tests` 的命中点不增加新的解析逻辑）。
-- [ ] `npm run typecheck` 退出码 0；`mcp-tool-annotations.test.ts`、`mcp-error-vocabulary.test.ts` 逐文件运行退出码 0。
+- [x] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-open-session.test.ts` 退出码 0，且新增断言：PAT 调用时 `ui.navigate` 帧的 `requester` 等于该 PAT 的 `name`；OAuth 令牌调用时等于其客户端展示名；PAT 名为空时是固定文案而不是 `null`；`navigations[0].requestedBy` 与帧里的 `requester` 一致。
+- [x] 同一测试文件断言：超长名称被截断到有界长度。
+- [x] `npx vitest run src/modules/chat/tests/uiNavigate.test.tsx` 退出码 0，且新增断言：提示条文案里含帧里的请求方名称，名称含 `<b>x</b>` 之类标记时按文本渲染（不产生元素）；只有帧里没有可用名称时才显示兜底名。
+- [x] `grep -n "resolveClientName" server/modules/mcp-gateway/mcp-ui-open-session.ts server/index.ts` 显示解析经已有的 `resolveClientName` 接入，且全仓库没有第二个独立实现（`grep -rn "function resolveClientName\|resolveClientName:" server --include=*.ts | grep -v tests` 的命中点不增加新的解析逻辑）。
+- [x] `npm run typecheck` 退出码 0；`mcp-tool-annotations.test.ts`、`mcp-error-vocabulary.test.ts` 逐文件运行退出码 0。
 
 ## DoD
 
@@ -46,10 +46,13 @@ extra:
 ## Touches
 
 - server/modules/mcp-gateway/mcp-ui-open-session.ts
+- server/modules/mcp-gateway/mcp-write-notification.ts
+- server/modules/mcp-gateway/index.ts
 - server/modules/websocket/services/ui-navigation.service.ts
 - server/index.ts
 - src/modules/chat/components/UiNavigatePrompt.tsx
 - src/modules/chat/hooks/useUiNavigate.ts
 - server/modules/mcp-gateway/tests/mcp-ui-open-session.test.ts
+- server/modules/mcp-gateway/tests/mcp-write-notification.test.ts
 - src/modules/chat/tests/uiNavigate.test.tsx
 - tasks/gap-mcp-ui-navigate-requester-name.md
