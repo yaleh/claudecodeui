@@ -39,11 +39,11 @@ extra:
 
 ## AC
 
-- [ ] `grep -n "session_search" server/modules/mcp-gateway/mcp-gateway.read-tools.ts server/modules/mcp-gateway/mcp-tool-annotations.ts server/modules/mcp-gateway/mcp-tool-error-codes.ts` 三个文件均有命中。
-- [ ] 新判据文件 `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-session-search.test.ts` 退出码 0，且覆盖以下断言：(a) 真实 jsonl 夹具里包含目标短语的消息被命中，返回的 `messageId` 能直接喂 `session_read(mode:'around', aroundId)` 拿到同一条消息（两边逐字比对消息内容）；(b) 传 `project`（project id）后只返回该 project 的命中；(c) 无命中时返回 `results: []` 而不是报错；(d) 命中数超过 `limit` 时返回 `cursor`，带 `cursor` 重新调用能看到后续结果；(e) 未接 `sessionSearch` deps 时调用 `session_search` 得到 `MCP_TOOL_NOT_IMPLEMENTED`（占位负控制）。
-- [ ] `grep -n "session_search" server/modules/mcp-gateway/tests/mcp-read-tools.test.ts server/modules/mcp-gateway/tests/mcp-english-only.test.ts server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts` 三个既有「registry 驱动覆盖表」判据文件均已同步，且三文件各自单独运行退出码 0。
-- [ ] `grep -n "sessionConversationsSearchService" server/modules/providers/index.ts server/modules/mcp-gateway/mcp-session-search.ts server/index.ts` 命中，且 `grep -rn "from '.*session-conversations-search.service" server/modules/mcp-gateway` 为空（只经 providers 模块 barrel 导入，没有深度 import）。
-- [ ] `npm run typecheck` 退出码 0；`npm run lint` 的 `: error ` 计数为 0。
+- [x] `grep -n "session_search" server/modules/mcp-gateway/mcp-gateway.read-tools.ts server/modules/mcp-gateway/mcp-tool-annotations.ts server/modules/mcp-gateway/mcp-tool-error-codes.ts` 三个文件均有命中。
+- [x] 新判据文件 `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-session-search.test.ts` 退出码 0，且覆盖以下断言：(a) 真实 jsonl 夹具里包含目标短语的消息被命中，返回的 `messageId` 能直接喂 `session_read(mode:'around', aroundId)` 拿到同一条消息（两边逐字比对消息内容）；(b) 传 `project`（project id）后只返回该 project 的命中；(c) 无命中时返回 `results: []` 而不是报错；(d) 命中数超过 `limit` 时返回 `cursor`，带 `cursor` 重新调用能看到后续结果；(e) 未接 `sessionSearch` deps 时调用 `session_search` 得到 `MCP_TOOL_NOT_IMPLEMENTED`（占位负控制）。
+- [x] `grep -n "session_search" server/modules/mcp-gateway/tests/mcp-read-tools.test.ts server/modules/mcp-gateway/tests/mcp-english-only.test.ts server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts` 三个既有「registry 驱动覆盖表」判据文件均已同步，且三文件各自单独运行退出码 0。
+- [x] `grep -n "sessionConversationsSearchService" server/modules/providers/index.ts server/modules/mcp-gateway/mcp-session-search.ts server/index.ts` 命中，且 `grep -rn "from '.*session-conversations-search.service" server/modules/mcp-gateway` 为空（只经 providers 模块 barrel 导入，没有深度 import）。
+- [x] `npm run typecheck` 退出码 0；`npm run lint` 的 `: error ` 计数为 0。
 
 ## DoD
 
