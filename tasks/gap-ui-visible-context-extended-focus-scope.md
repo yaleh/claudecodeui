@@ -32,11 +32,11 @@ extra:
 
 ## AC
 
-- [ ] `docs/proposals/ui-visible-context-extended-scope.md` 文件存在，且对四个维度（focused/selected message、selected text、current diff、current task）逐一给出三态判定之一：「可直接拆实施任务」/「需要先补前端状态」/「暂不纳入」，缺一个维度的判定算不满足。
-- [ ] 对判定为「可直接拆实施任务」或「需要先补前端状态」的每个维度，文档里有一段范围描述，包含：读取的数据源（现有状态或待补状态的名字/文件）、`ui_visible_context` 返回里新增的字段名与类型、该字段是否需要新 scope 或降级展示的决定（尤其 selected text）、以及建议的下一个实施任务标题。
-- [ ] 对判定为「暂不纳入」的维度，文档里写明具体理由（不能是「以后再看」这种空泛说法，要点名缺失的前端概念或产品范围边界）。
-- [ ] `grep -n "selected text\|selectedText\|current diff\|currentDiff\|current task\|currentTask\|focused message\|focusedMessage" docs/proposals/ui-visible-context-extended-scope.md` 命中数 ≥ 4（证明四个维度确实都被点名讨论，不是漏项）。
-- [ ] `npm run typecheck` 退出码 0（确认本任务未意外改动任何前端/后端代码，只新增文档）。
+- [x] `docs/proposals/ui-visible-context-extended-scope.md` 文件存在，且对四个维度（focused/selected message、selected text、current diff、current task）逐一给出三态判定之一：「可直接拆实施任务」/「需要先补前端状态」/「暂不纳入」，缺一个维度的判定算不满足。
+- [x] 对判定为「可直接拆实施任务」或「需要先补前端状态」的每个维度，文档里有一段范围描述，包含：读取的数据源（现有状态或待补状态的名字/文件）、`ui_visible_context` 返回里新增的字段名与类型、该字段是否需要新 scope 或降级展示的决定（尤其 selected text）、以及建议的下一个实施任务标题。
+- [x] 对判定为「暂不纳入」的维度，文档里写明具体理由（不能是「以后再看」这种空泛说法，要点名缺失的前端概念或产品范围边界）。
+- [x] `grep -n "selected text\|selectedText\|current diff\|currentDiff\|current task\|currentTask\|focused message\|focusedMessage" docs/proposals/ui-visible-context-extended-scope.md` 命中数 ≥ 4（证明四个维度确实都被点名讨论，不是漏项）。
+- [x] `npm run typecheck` 退出码 0（确认本任务未意外改动任何前端/后端代码，只新增文档）。
 
 ## DoD
 
