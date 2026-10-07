@@ -211,6 +211,16 @@ export type {
   RunGetPayload,
 } from './mcp-run-get.js';
 
+// The browser last-opened-session tool (gap-mcp-ui-last-opened-session).
+// `buildUiLastOpened` answers the session the UI last opened — `session_get`'s
+// reading plus `openedAt` — and throws the existing NOT_FOUND-class code when
+// nothing is open (never `lastActivity`). `McpUiLastOpenedStore` is the read-only
+// pointer seam `server/index.ts` binds to `uiLastOpenedSessionService.readLastOpened`;
+// `isUiLastOpenedWired` is the branch `registerMcpReadTools` takes between the
+// real handler and the named refusal.
+export { buildUiLastOpened, isUiLastOpenedWired, registerMcpUiTools } from './mcp-ui-tools.js';
+export type { McpUiLastOpenedDeps, McpUiLastOpenedReading, McpUiLastOpenedStore } from './mcp-ui-tools.js';
+
 // The stage-4 write tools (AC-249). `MCP_STAGE4_WRITE_TOOLS` is the one
 // statement of which write tools exist and the scope each requires — the
 // self-referential guard (AC-252) reads the names from it rather than writing a

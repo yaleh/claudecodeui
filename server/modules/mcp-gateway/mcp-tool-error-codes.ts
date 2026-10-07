@@ -86,6 +86,11 @@ export const MCP_TOOL_ERROR_CODES: Record<McpGatewayToolName, readonly McpErrorC
   // retired the floating "target not found" name in favour of it, so there is
   // no separate literal to mint here; see the task record's AC5 note).
   quay_snapshot: [...WRAPPER_CODES, ...PROJECT_TARGET_CODES, 'MCP_TOOL_NOT_IMPLEMENTED'],
+  // `ui_last_opened_session` has no target argument, so AC-246's gate adds
+  // nothing; its handler throws `SESSION_NOT_FOUND` when nothing has been opened
+  // (no `TARGET_AMBIGUOUS`: there is no target to disambiguate). Unwired, it
+  // keeps the body-table refusal, hence `MCP_TOOL_NOT_IMPLEMENTED`.
+  ui_last_opened_session: [...WRAPPER_CODES, 'SESSION_NOT_FOUND', 'MCP_TOOL_NOT_IMPLEMENTED'],
 
   // -- stage-4 write tools ---------------------------------------------------
   // `session_send` normalizes the control service's `RUN_IN_PROGRESS` to the

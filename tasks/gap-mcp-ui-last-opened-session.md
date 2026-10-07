@@ -2,7 +2,7 @@
 id: gap-mcp-ui-last-opened-session
 title: MCP 只读工具 ui_last_opened_session：浏览器读取会话历史/outline 时落库
   last_opened，工具返回用户最后打开的会话（无记录返回 NOT_FOUND，不退回 lastActivity）
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -51,6 +51,8 @@ extra:
 
 **计数 pin 只在测试文件里**：Proposal 第 6 条提到的 `scripts/test.sh` 并无 known/unknown 字面量（`scripts/test.sh:827` 是运行时打印），pin 只在 `server/shared/tests/quay-test-script.test.ts`，已由 242/244 同步为 243/245，该文件 11/11 通过。
 
+**English-only 判据的登记表随第 18 个工具增长（本轮补）**：本任务把 `MCP_STAGE3_READ_TOOLS` 从 17 个工具扩到 18 个，另一个枚举注册表的判据 `server/modules/mcp-gateway/tests/mcp-english-only.test.ts` 因此需要同步（该文件不在原 Touches 内，本轮补入）：`tools/list` 计数 17→18，成功探针表新增 `ui_last_opened_session` 并把 fixture 的 `uiLastOpened` 指针接到可解析的 `sess-1`。`ui_last_opened_session` 不声明任何输入参数，包装层的声明输入校验分支没有可拒绝的输入，故失败半表按 `mcp-error-envelope.test.ts` 对同一工具的既有做法登记一条**有理由的豁免**（`NO_VALIDATION_FAILURE`），而不是把名字静默删掉——注册表 deepEqual 禁止静默省略；该工具拒绝文案的 CJK-free 仍由 (d) 腿的源码扫描覆盖，其 `SESSION_NOT_FOUND` 信封由 `mcp-ui-last-opened.test.ts` 覆盖。改动后该文件 10/10 通过、`tsc --noEmit -p server/tsconfig.json` 退出码 0。
+
 ## AC
 
 - [x] `node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-last-opened.test.ts` 退出码 0：断言工具返回会话摘要加 `openedAt`；库里无记录时返回 `NOT_FOUND` 类错误码且结构化内容不含 `lastActivity` 回退；MCP 令牌调用 `session_read` 后表内容不变。（按仓库既有形态 `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test …` 实测 4/4 通过；裸命令的偏离与对照见 Finding。）
@@ -81,6 +83,7 @@ extra:
 - server/modules/mcp-gateway/tests/mcp-ui-last-opened.test.ts
 - server/modules/mcp-gateway/tests/mcp-read-tools.test.ts
 - server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts
+- server/modules/mcp-gateway/tests/mcp-english-only.test.ts
 - server/index.ts
 - scripts/test.sh
 - server/shared/tests/quay-test-script.test.ts
@@ -88,4 +91,4 @@ extra:
 - playwright.config.ts
 - tasks/gap-mcp-ui-last-opened-session.md
 
-（`server/modules/websocket/services/chat-websocket.service.ts` 与 `scripts/test.sh` 最终未改动：前者是 Proposal 第 1 步的备选方案，核对结论为无预取，无需启用；后者的计数 pin 实为运行时计算，字面量只在 `server/shared/tests/quay-test-script.test.ts`。两条按原样保留在 Touches 里，以免看起来像被抹掉。）
+（`server/modules/websocket/services/chat-websocket.service.ts` 与 `scripts/test.sh` 最终未改动：前者是 Proposal 第 1 步的备选方案，核对结论为无预取，无需启用；后者的计数 pin 实为运行时计算，字面量只在 `server/shared/tests/quay-test-script.test.ts`。两条按原样保留在 Touches 里，以免看起来像被抹掉。`server/modules/mcp-gateway/tests/mcp-english-only.test.ts` 为本轮补入的工具计数/探针表同步。）

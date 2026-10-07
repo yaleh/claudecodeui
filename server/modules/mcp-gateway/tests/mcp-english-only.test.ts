@@ -15,8 +15,11 @@
  * needed beyond the audit table the audited wrapper writes.
  *
  * Readings, one leg each:
- *   (a) `tools/list` names 17 tools. Every tool has BOTH a success probe and a
- *       failure probe; the success payloads are walked and every string under a
+ *   (a) `tools/list` names 18 tools. Every tool has a success probe; every tool
+ *       with declared arguments also has a failure probe (the one argument-less
+ *       tool, `ui_last_opened_session`, has no validation branch to drive and is
+ *       exempted with a reasoned entry — {@link NO_VALIDATION_FAILURE}); the
+ *       success payloads are walked and every string under a
  *       {@link SERVER_AUTHORED_FIELDS} key must be CJK-free. The tool and
  *       parameter `description`s and the `initialize` instructions are read the
  *       same way, and the OAuth consent router's error page is fetched as HTML.
@@ -397,6 +400,12 @@ const readTools = {
   activity: { snapshot: () => null },
   runGet: runGetDeps,
   now: () => FIXED_NOW,
+  // The browser's last-opened pointer, wired so `ui_last_opened_session` has a
+  // real success path: it names the `sess-1` this fixture resolves, one minute
+  // before the fixed clock. (The tool declares no input, so its only failure is
+  // this reader answering `null`; that arm is the owner criterion's, see
+  // {@link NO_VALIDATION_FAILURE}.)
+  uiLastOpened: { read: () => ({ sessionId: 'sess-1', openedAt: FIXED_NOW - 60 * 1000 }) },
 } as unknown as McpReadToolDeps;
 
 /** Builds the write bag over a control service. */
@@ -696,13 +705,22 @@ const SUCCESS_TABLE: Record<string, AnyRecord> = {
   session_background: { session: 'sess-1' },
   approvals_list: {},
   approval_answer: { requestId: 'req-1', allow: true },
+  // No arguments: the success path is the INJECTED pointer reader saying a
+  // session was opened, wired below to the `sess-1` this fixture resolves.
+  ui_last_opened_session: {},
 };
 
 /**
  * One FAILURE probe per tool — the (a) failure half. Every entry uses the
  * SHALLOWEST failure the tool has (a missing or wrong-typed argument) so the
- * envelope comes from the wrapper's validation branch for all 17 at once; the
- * other codes are probed in {@link CLASS_FAILURES}.
+ * envelope comes from the wrapper's validation branch for all of them at once;
+ * the other codes are probed in {@link CLASS_FAILURES}.
+ *
+ * The one tool that CANNOT appear here is the one that declares no input at all:
+ * with no declared argument the wrapper's validation branch has nothing to
+ * reject, so `ui_last_opened_session` has no shallow failure to drive. It is
+ * named in {@link NO_VALIDATION_FAILURE} with its reason instead of by dropping
+ * it — the registry deepEqual below forbids a silent omission.
  */
 const FAILURE_TABLE: Record<string, { args: AnyRecord; expect: string }> = {
   overview: { args: { project: 5 }, expect: 'INVALID_ARGUMENT' },
@@ -722,6 +740,20 @@ const FAILURE_TABLE: Record<string, { args: AnyRecord; expect: string }> = {
   session_background: { args: { session: 5 }, expect: 'INVALID_ARGUMENT' },
   approvals_list: { args: { session: 5 }, expect: 'INVALID_ARGUMENT' },
   approval_answer: { args: {}, expect: 'INVALID_ARGUMENT' },
+};
+
+/**
+ * The reasoned-exemption bucket the (a) failure half needs. It is NOT empty: one
+ * tool declares no input arguments, so the wrapper's declared-input validation
+ * branch — the shallowest failure every other tool is probed through — has
+ * nothing to reject. Naming it here (rather than deleting it from the coverage
+ * reading) is the same choice `mcp-error-envelope.test.ts` makes for the same
+ * tool; the CJK-free property of its refusal literal is still read, by leg (d)'s
+ * module-source scan.
+ */
+const NO_VALIDATION_FAILURE: Record<string, string> = {
+  ui_last_opened_session:
+    'declares no input arguments, so there is no INVALID_ARGUMENT probe to drive through the wrapper; its SESSION_NOT_FOUND envelope is covered by mcp-ui-last-opened.test.ts',
 };
 
 /** One failure beyond the validation class, so (b)'s buckets are not all one code. */
@@ -892,16 +924,23 @@ test('(a) the success and failure tables cover exactly the tools the registry li
   const listed = await listClient.listTools();
   const registryNames = listed.tools.map((tool) => tool.name).sort();
 
-  assert.equal(registryNames.length, 17, `tools/list must return the full 17-tool set, got ${registryNames.join(', ')}`);
+  assert.equal(registryNames.length, 18, `tools/list must return the full 18-tool set, got ${registryNames.join(', ')}`);
   assert.deepEqual(
     Object.keys(SUCCESS_TABLE).sort(),
     registryNames,
     'every registered tool must have a success probe, and the table must carry no phantom name',
   );
+  const probedFailureNames = Object.keys(FAILURE_TABLE);
+  const exemptFailureNames = Object.keys(NO_VALIDATION_FAILURE);
+  assert.equal(
+    probedFailureNames.filter((name) => exemptFailureNames.includes(name)).length,
+    0,
+    'a tool cannot be both probed and exempted from the failure half',
+  );
   assert.deepEqual(
-    Object.keys(FAILURE_TABLE).sort(),
+    [...probedFailureNames, ...exemptFailureNames].sort(),
     registryNames,
-    'every registered tool must have a failure probe, and the table must carry no phantom name',
+    'every registered tool must have a failure probe OR a reasoned exemption, and neither set may carry a phantom name',
   );
   say(`(a) registry names: ${registryNames.join(', ')}`);
 });
@@ -924,7 +963,7 @@ test('(a) every tool description and parameter description is English', async ()
       }
     }
   }
-  assert.ok(scanned >= 17, `every one of the 17 tools must declare a description, scanned ${scanned}`);
+  assert.ok(scanned >= 18, `every one of the 18 tools must declare a description, scanned ${scanned}`);
   say(`(a) scanned ${scanned} tool/parameter descriptions, all English`);
 });
 

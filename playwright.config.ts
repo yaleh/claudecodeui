@@ -1959,7 +1959,15 @@ const voiceRawCaptureSelection = selectedSpecFiles().includes('voice-raw-capture
  * advertised issuer to match, so the spec reads the audience back out of the
  * published protected-resource document rather than restating it.
  */
-const connectedAppsSelection = selectedSpecFiles().includes('connected-apps-settings.spec.ts');
+const connectedAppsSelection =
+  selectedSpecFiles().includes('connected-apps-settings.spec.ts')
+  // `ui-last-opened-session.spec.ts` calls `/mcp` too — a personal access token against the tool
+  // the browser's own session-read route feeds — so its run needs the gateway mounted for the same
+  // reason, and reads the same deployment environment. It uses no OAuth surface, but the four
+  // variables are one block: mounting the gateway without its OAuth seam is a deployment this
+  // config does not otherwise describe, and splitting them here would invent a fifth server shape
+  // to save nothing. Every other selection's env object stays byte-for-byte unchanged.
+  || selectedSpecFiles().includes('ui-last-opened-session.spec.ts');
 
 /**
  * Where the raw-corpus criterion's server tees its own stdout.
