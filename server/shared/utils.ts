@@ -1464,6 +1464,46 @@ export const terminalTextStyles = {
 };
 
 // ---------------------------
+//----------------- ACCESS-TOKEN LAST-USED THROTTLE UTILITIES ------------
+/**
+ * Minimum age of a token's recorded `last_used` before an accepted verification
+ * rewrites it.
+ *
+ * `/mcp` verifies a bearer token on every request, so stamping `last_used` on
+ * every acceptance would turn a busy client into one database write per call.
+ * Throttling to at most one write per window keeps the reading useful — it still
+ * answers "when was this token last used?" — without the write amplification.
+ * The interval is a product decision, deliberately not configurable.
+ */
+const LAST_USED_STAMP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * The ISO instant an accepted verification should record as `last_used`, or
+ * `null` when the existing stamp is still inside the throttle window and the
+ * write should be skipped.
+ *
+ * `previousLastUsed` is the value currently stored on the row (null when the
+ * token or grant has never been used); `now` is the caller's injected clock, so
+ * the decision is deterministic under test. A stored value that does not parse
+ * as a date is treated as stale, so a corrupt row self-heals on the next use.
+ *
+ * Consumers: the OAuth module's `access-tokens.service.ts` (personal-access-token
+ * verification) and `oauth-provider.service.ts` (OAuth access-token verification,
+ * which throttles the owning grant with the same window). Both verify paths call
+ * this one helper rather than each carrying its own comparison, so the two cannot
+ * drift apart.
+ */
+export function lastUsedStamp(previousLastUsed: string | null, now: Date): string | null {
+  if (previousLastUsed !== null) {
+    const previous = new Date(previousLastUsed).getTime();
+    if (!Number.isNaN(previous) && now.getTime() - previous < LAST_USED_STAMP_INTERVAL_MS) {
+      return null;
+    }
+  }
+  return now.toISOString();
+}
+
+// ---------------------------
 //----------------- RUNTIME PATH RESOLUTION UTILITIES ------------
 /**
  * Resolves the directory containing an ES module from `import.meta.url`.

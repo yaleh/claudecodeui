@@ -6,9 +6,11 @@
  * from the store's injected clock rather than read from `CURRENT_TIMESTAMP`, so
  * revocation is deterministic under test.
  *
- * Consumers: server/modules/oauth/oauth-store.service.ts (the write/cascade path)
- * and server/modules/oauth/oauth-settings.service.ts (the per-user read behind the
- * settings page), both through the database module barrel.
+ * Consumers: server/modules/oauth/oauth-store.service.ts (the write/cascade path),
+ * server/modules/oauth/oauth-provider.service.ts (the throttled `last_used` stamp
+ * when an OAuth access token is verified) and
+ * server/modules/oauth/oauth-settings.service.ts (the per-user read behind the
+ * settings page), all through the database module barrel.
  */
 
 import { getConnection } from '@/modules/database/connection.js';
@@ -53,6 +55,17 @@ export const oauthGrantsDb = {
     return getConnection()
       .prepare(`SELECT ${GRANT_COLUMNS} FROM oauth_grants WHERE id = ?`)
       .get(id) as OAuthGrantRow | undefined;
+  },
+
+  /**
+   * Records the instant a grant's tokens were last accepted. Consumers: the OAuth
+   * module's `oauth-provider.service.ts`, whose `verifyAccessToken` stamps the
+   * grant behind an accepted OAuth access token so the settings page's
+   * connected-apps row stops reading as never-used. It gates the call on
+   * `lastUsedStamp`, so the grant is written at most once per throttle window.
+   */
+  updateLastUsed(id: number, lastUsed: string): void {
+    getConnection().prepare('UPDATE oauth_grants SET last_used = ? WHERE id = ?').run(lastUsed, id);
   },
 
   /**

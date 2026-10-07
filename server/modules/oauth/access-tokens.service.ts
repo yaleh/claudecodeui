@@ -5,7 +5,9 @@
  * returned exactly once; only its SHA-256 hash and an 8-character prefix reach
  * the database, so a leaked database cannot be replayed as a token. Every
  * timestamp comes from the injected clock, which is what makes expiry and
- * revocation testable without waiting on wall time.
+ * revocation testable without waiting on wall time. The `last_used` stamp a
+ * successful verification writes is throttled through `lastUsedStamp`, so the
+ * settings page's "last used" reads as fresh without a write per request.
  *
  * Consumers: this module's criteria, and the AC-227 settings routes.
  */
@@ -13,6 +15,7 @@
 import crypto from 'crypto';
 
 import { accessTokensDb } from '@/modules/database/index.js';
+import { lastUsedStamp } from '@/shared/utils.js';
 
 /** Every token minted by this service carries this prefix, per mcp-gateway-SPEC. */
 const TOKEN_PREFIX = 'ccp_';
@@ -106,7 +109,8 @@ export type AccessTokensService = {
   /**
    * Hashes `token` and looks it up. When `requiredScope` is given, a token that
    * does not grant it is rejected as `insufficient_scope`. A successful check
-   * stamps `last_used` from the injected clock.
+   * stamps `last_used` from the injected clock, throttled to at most one write
+   * per `LAST_USED_STAMP_INTERVAL_MS` (see `lastUsedStamp`).
    */
   verifyToken(token: string, requiredScope?: string): VerifyAccessTokenResult;
   /** Stamps `revoked_at`; the next `verifyToken` rejects the token with no restart. */
@@ -221,7 +225,13 @@ export function createAccessTokensService({ now }: AccessTokensServiceOptions): 
         return { ok: false, reason: 'insufficient_scope' };
       }
 
-      accessTokensDb.updateLastUsed(row.id, now().toISOString());
+      // Throttle: a hot /mcp stream re-verifies the same token on every request,
+      // so only write when the stored instant is missing or older than the
+      // window. `lastUsedStamp` owns that comparison.
+      const stamp = lastUsedStamp(row.last_used, now());
+      if (stamp !== null) {
+        accessTokensDb.updateLastUsed(row.id, stamp);
+      }
       return { ok: true, userId: row.user_id, tokenId: row.id, scopes, expiresAt: row.expires_at };
     },
 
