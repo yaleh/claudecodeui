@@ -674,6 +674,24 @@ export type NormalizedMessage = {
    */
   transcriptAnchorId?: string;
   /**
+   * The transcript row a *fork* taken from this answer should cut at.
+   *
+   * Set on the one assistant message that ends a turn — the last text-bearing
+   * assistant row before the next real user prompt (Claude: that row's `uuid`;
+   * Codex: the turn's `turnId`). Forking at it produces a conversation whose
+   * last row is this answer, which is the "same question, different answer"
+   * shape the sidebar's fork action promises.
+   *
+   * Deliberately separate from `transcriptAnchorId`: that one names a *user*
+   * input row and is shared by editing, the turn outline, lazy-row keys and
+   * the `aroundId` window, so reusing it for assistant rows would move all of
+   * those consumers at once. A message may carry neither, one, or (never) both.
+   *
+   * Withheld from the last turn while its session is running: the answer is
+   * still being written, and a fork cut there would copy a half-finished turn.
+   */
+  forkAnchorId?: string;
+  /**
    * Identity of the stream block a *live* frame belongs to, as `<message.id>:<index>`.
    *
    * Set only on frames forwarded off a live Claude run — the `stream_delta`
@@ -962,6 +980,15 @@ export type FetchHistoryOptions = {
   limit?: number | null;
   offset?: number;
   providerSessionId?: string;
+  /**
+   * Whether the session's run is still in flight at read time.
+   *
+   * A reader that stamps `forkAnchorId` must withhold it from the final turn
+   * while this is true — that turn's answer is still being written, and a fork
+   * cut at a half-written answer copies a partial turn. Optional so direct
+   * provider calls (and providers that do not offer forks) need not set it.
+   */
+  running?: boolean;
 };
 
 /**

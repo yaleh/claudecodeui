@@ -1428,6 +1428,9 @@ async function getCodexSessionMessages(sessionId: string): Promise<CodexHistoryR
         timestamp,
         message: { role: 'assistant', content: textContent },
         memoryCitations: cited.memoryCitations,
+        // The enclosing turn, when one is open. Same id the user prompt carries,
+        // so the reader can pick the turn's last answer as its fork anchor.
+        turnId: turns.getCurrentTurnId(),
       });
       continue;
     }
@@ -1850,6 +1853,38 @@ async function attachCodexSubagentTranscripts(
     subagent.name = subagent.name ?? agentName;
     record.message.subagent = subagent;
   }
+}
+
+/**
+ * The raw rows that each turn should be forked from — its last answer row.
+ *
+ * Codex forks cut at a `turnId` and keep the whole turn *including its answer*
+ * (`thread/fork` semantics), which is why the anchor is a turn id rather than a
+ * row id. A turn can hold several assistant rows; only the last one that
+ * carried text is the turn's final reply, so only it is offered as the fork
+ * point — otherwise the button would appear beside an intermediate narration.
+ *
+ * Rows whose turn was rolled back already lost their `turnId` upstream, so a
+ * retired turn never yields an anchor here either.
+ */
+function collectCodexForkAnchorRows(rawMessages: AnyRecord[]): Set<AnyRecord> {
+  const lastAnswerRowByTurn = new Map<string, AnyRecord>();
+  for (const raw of rawMessages) {
+    if (raw.type !== 'assistant' || raw.message?.role !== 'assistant') {
+      continue;
+    }
+    const turnId = readNonEmptyString(raw.turnId);
+    const content = raw.message?.content;
+    const hasText = typeof content === 'string'
+      ? content.trim().length > 0
+      : Array.isArray(content)
+        ? content.some((part: unknown) => typeof part === 'string' && part.trim().length > 0)
+        : false;
+    if (turnId && hasText) {
+      lastAnswerRowByTurn.set(turnId, raw);
+    }
+  }
+  return new Set(lastAnswerRowByTurn.values());
 }
 
 export class CodexSessionsProvider implements IProviderSessions {
@@ -2290,9 +2325,22 @@ export class CodexSessionsProvider implements IProviderSessions {
       return { messages: [], total: 0, hasMore: false, offset: 0, limit: null };
     }
 
+    const forkAnchorRows = collectCodexForkAnchorRows(result.messages);
+
     const normalized: NormalizedMessage[] = [];
     for (const raw of result.messages) {
-      normalized.push(...this.normalizeHistoryEntry(raw, sessionId));
+      const messages = this.normalizeHistoryEntry(raw, sessionId);
+      if (forkAnchorRows.has(raw)) {
+        const turnId = readNonEmptyString(raw.turnId);
+        if (turnId) {
+          for (const message of messages) {
+            if (message.kind === 'text' && message.role === 'assistant') {
+              message.forkAnchorId = turnId;
+            }
+          }
+        }
+      }
+      normalized.push(...messages);
     }
 
     const toolResultMap = new Map<string, NormalizedMessage>();

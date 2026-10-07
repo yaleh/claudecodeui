@@ -610,3 +610,79 @@ test('Codex history restores user prompts from typed item_completed rows', { con
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('a Codex turn anchors its last assistant answer with the turn id', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-fork-anchors-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+  const restoreHomeDir = patchHomeDir(tempRoot);
+
+  try {
+    const providerSessionId = 'codex-fork-1';
+    const transcriptPath = path.join(
+      tempRoot, '.codex', 'sessions', '2026', '07', '07', `rollout-${providerSessionId}.jsonl`,
+    );
+    await mkdir(path.dirname(transcriptPath), { recursive: true });
+
+    const lineEnd = String.fromCharCode(10);
+    const started = (turnId: string) =>
+      JSON.stringify({ type: 'event_msg', payload: { type: 'task_started', turn_id: turnId } });
+    const prompt = (turnId: string, text: string) =>
+      JSON.stringify({
+        type: 'event_msg',
+        payload: {
+          type: 'item_completed',
+          turn_id: turnId,
+          item: { type: 'UserMessage', id: `item-${turnId}`, content: [{ type: 'text', text }] },
+        },
+      });
+    const answer = (text: string, timestamp: string) =>
+      JSON.stringify({
+        timestamp,
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] },
+      });
+
+    // Two turns: the second holds an intermediate narration before its answer,
+    // so the anchor must land on the final row, not the narration.
+    const lines = [
+      JSON.stringify({ type: 'session_meta', payload: { id: providerSessionId, cwd: workspacePath } }),
+      started('turn-1'),
+      prompt('turn-1', 'first question'),
+      answer('first answer', '2026-09-07T18:00:01.000Z'),
+      started('turn-2'),
+      prompt('turn-2', 'second question'),
+      answer('let me check', '2026-09-07T18:00:02.000Z'),
+      answer('second answer', '2026-09-07T18:00:03.000Z'),
+    ];
+    await writeFile(transcriptPath, `${lines.join(lineEnd)}${lineEnd}`, 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createAppSession('app-fork-1', 'codex', workspacePath);
+      sessionsDb.assignProviderSessionId('app-fork-1', providerSessionId);
+      await new CodexSessionSynchronizer().synchronize();
+
+      const history = await new CodexSessionsProvider().fetchHistory('app-fork-1');
+      const anchored = history.messages.filter((message) => message.forkAnchorId);
+
+      assert.deepEqual(
+        anchored.map((message) => [message.role, message.content, message.forkAnchorId]),
+        [
+          ['assistant', 'first answer', 'turn-1'],
+          ['assistant', 'second answer', 'turn-2'],
+        ],
+      );
+
+      const narration = history.messages.find((message) => message.content === 'let me check');
+      assert.ok(narration);
+      assert.equal(narration.forkAnchorId, undefined, 'a mid-turn narration is not the fork point');
+
+      const users = history.messages.filter((message) => message.role === 'user');
+      assert.equal(users.length, 2);
+      assert.equal(users.some((message) => message.forkAnchorId), false, 'user prompts never carry a fork anchor');
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});

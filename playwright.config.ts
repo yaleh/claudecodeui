@@ -426,6 +426,11 @@ const RUN_CEILING_MS = selectedSpecFiles().reduce(
  * 1200-turn, 1.66 MB JSONL) measured, as the median of 7 fresh config evaluations on 2026-10-04: 0.465s without
  * it, 0.472s with it — a ~7ms delta, against the 2s the seed task budgets for this stage.
  *
+ * `seedForkAnchorTranscript` (a 7-row JSONL plus one `realpathSync`) was measured the same way on 2026-10-07:
+ * a median 496ms without it and 491ms with it — a delta inside the spread of the seven samples themselves
+ * (464-561ms), which is the reading: this seed is smaller than the noise floor of the stage it joins, not
+ * merely smaller than a budget.
+ *
  * The run ceiling itself is the sum of the selected specs' budgets, computed above; for the one-file invocation
  * the gate makes, that sum is `SINGLE_SPEC_CEILING_MS` and nothing about it changed.
  */
@@ -1677,6 +1682,114 @@ const seedWorkSegmentTranscript = () => {
   );
 };
 
+/** Workspace e2e/transcript-fork-from-answer.spec.ts opens; its own directory so no other spec picks this session up. */
+const FORK_ANCHOR_WORKSPACE = path.join(dataDir, 'fork-anchor-workspace');
+/**
+ * Session the fork fixture belongs to, and — unlike every seed above — a real UUID.
+ *
+ * The other seeds name their session with a readable string, which is enough for a transcript the app
+ * only has to *read*. This one has to be *forked*: `forkSession` in the Claude Agent SDK looks the
+ * transcript up as `<projects>/<sanitized cwd>/<session id>.jsonl` and copies it, so the id has to be
+ * the shape a Claude session really has, and the fixture has to sit where a real one would. The two
+ * row uuids the spec forks at are UUIDs for the same reason, and sharper: the SDK validates
+ * `upToMessageId` against a uuid pattern and throws `Invalid upToMessageId` before it ever looks at
+ * the transcript, so a readable anchor would make the fork fail rather than exercise it.
+ */
+const FORK_ANCHOR_SESSION_ID = '99999999-9999-4999-8999-999999999999';
+
+/** The two turn-ending answers, and the prompt that opens the second turn. Read by the spec off the page. */
+const FORK_ANCHOR_FIRST_ANSWER = 'The first answer, about the release notes.';
+const FORK_ANCHOR_SECOND_PROMPT = 'Now summarise the second section.';
+const FORK_ANCHOR_SECOND_ANSWER = 'The second answer, about the changelog.';
+
+/**
+ * Seeds the two-turn transcript e2e/transcript-fork-from-answer.spec.ts forks.
+ *
+ * Same reason as every seed above: the backend scans ~/.claude/projects at boot and only then starts
+ * its file watcher with `ignoreInitial`, so a transcript written while the test runs is picked up by
+ * the watcher and broadcast as a `session_upserted` instead of being indexed quietly.
+ *
+ * ONE DEPARTURE FROM THE SEEDS ABOVE: this transcript is written into `<projects>/<sanitize(cwd)>/`
+ * rather than a readable directory name. The directory a transcript sits in is not what the app reads
+ * it from — the claude provider scans every subdirectory of `~/.claude/projects` — so every other seed
+ * names its directory after the spec. But the SDK's fork resolves the source by *path*: it computes
+ * `<CLAUDE_CONFIG_DIR ?? ~/.claude>/projects/<cwd.replace(/[^a-zA-Z0-9]/g,'-')>/<id>.jsonl` and reads
+ * exactly that. Naming the directory anything else makes the fork report "Session not found in project
+ * directory" while the transcript is sitting right there. `cwd` is therefore the *realpath* of the
+ * workspace, and the directory name is that sanitized — the same value the SDK will compute, which
+ * also keeps the fork's own output landing beside its source.
+ *
+ * The shape is two turns. The first is a turn that calls a tool — an assistant thinking row, an
+ * assistant tool_use row, and the user tool_result row answering it — so a fork cut at its answer has
+ * a tool call behind it to leave behind (a dangling tool_use is exactly what that is for). The second
+ * turn is plain text, so the branch has something it must *not* contain. The assistant text row that
+ * closes each turn is the row the product stamps `forkAnchorId` on.
+ */
+const seedForkAnchorTranscript = () => {
+  fs.mkdirSync(FORK_ANCHOR_WORKSPACE, { recursive: true });
+  // The realpath, because that is what the SDK will resolve `dir` through before sanitizing it. A
+  // dataDir under a symlinked `/tmp` would otherwise give the fork a directory the seed never wrote.
+  const workspace = fs.realpathSync(FORK_ANCHOR_WORKSPACE);
+  const projectDirName = workspace.replace(/[^a-zA-Z0-9]/g, '-');
+  // The SDK caps a sanitized project directory at 200 characters and, past that, appends a hash of
+  // the original path. Recomputing that hash is not possible from here, so a data directory long
+  // enough to reach the cap is refused by name rather than silently seeded somewhere the fork will
+  // never look.
+  if (projectDirName.length > 200) {
+    throw new Error(
+      `the fork fixture's project directory name is ${projectDirName.length} characters; the SDK hashes past 200, so this seed cannot place the transcript where the fork looks`,
+    );
+  }
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', projectDirName);
+  fs.mkdirSync(transcriptDir, { recursive: true });
+
+  const startedAt = Date.now();
+  let tick = 0;
+  let parentUuid: string | null = null;
+  const records: Record<string, unknown>[] = [];
+
+  const append = (type: 'user' | 'assistant', uuid: string, content: unknown) => {
+    records.push({
+      type,
+      uuid,
+      parentUuid,
+      sessionId: FORK_ANCHOR_SESSION_ID,
+      cwd: workspace,
+      // One second apart, so a row's timestamp names exactly one row.
+      timestamp: new Date(startedAt + tick * 1_000).toISOString(),
+      message: { role: type, content },
+    });
+    parentUuid = uuid;
+    tick += 1;
+  };
+
+  append('user', '11111111-1111-4111-8111-111111111111', 'Show me the release notes.');
+  append('assistant', 'aaaaaaaa-1111-4111-8111-111111111111', [
+    { type: 'thinking', thinking: 'Reading the notes before summarising them.' },
+  ]);
+  append('assistant', 'bbbbbbbb-1111-4111-8111-111111111111', [
+    { type: 'tool_use', id: 'fork-tool-1', name: 'Read', input: { file_path: 'notes/release-notes.md' } },
+  ]);
+  append('user', '33333333-3333-4333-8333-333333333333', [
+    { type: 'tool_result', tool_use_id: 'fork-tool-1', content: 'release notes' },
+  ]);
+  // The first turn's answer, and the row the spec forks at.
+  append('assistant', '44444444-4444-4444-8444-444444444444', [
+    { type: 'text', text: FORK_ANCHOR_FIRST_ANSWER },
+  ]);
+
+  append('user', '55555555-5555-4555-8555-555555555555', FORK_ANCHOR_SECOND_PROMPT);
+  append('assistant', '66666666-6666-4666-8666-666666666666', [
+    { type: 'text', text: FORK_ANCHOR_SECOND_ANSWER },
+  ]);
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${FORK_ANCHOR_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 /**
  * Fills this run's own dependency cache with a copy of the shared one, so `viteCacheDir` starts hot.
  *
@@ -1848,6 +1961,7 @@ if (isDataDirOwner) {
   seedMobileSendKeyWorkspace();
   seedMobileLayoutWorkspace();
   seedWorkSegmentTranscript();
+  seedForkAnchorTranscript();
 }
 
 /**

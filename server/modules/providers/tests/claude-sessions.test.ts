@@ -643,6 +643,137 @@ test('resolving an edit anchor skips rows that are not conversation turns', { co
 });
 
 // ---------------------------------------------------------------------------
+// fork anchors (assistant replies)
+// ---------------------------------------------------------------------------
+
+const FORK_SESSION_ID = 'claude-fork-session';
+
+/**
+ * A two-turn transcript whose first turn interleaves a tool call: the assistant
+ * narrates, then calls a tool, then answers. The fork anchor must land on each
+ * turn's *final* text answer (a2, a3), never on the mid-turn narration (a1) nor
+ * on the user prompts.
+ */
+async function writeMultiTurnTranscript(projectDirectory: string): Promise<string> {
+  const transcriptPath = path.join(projectDirectory, `${FORK_SESSION_ID}.jsonl`);
+  const rows = [
+    {
+      type: 'user', uuid: 'u1', parentUuid: null, sessionId: FORK_SESSION_ID,
+      timestamp: '2026-08-23T10:00:00.000Z',
+      message: { role: 'user', content: [{ type: 'text', text: 'first question' }] },
+    },
+    {
+      type: 'assistant', uuid: 'a1', parentUuid: 'u1', sessionId: FORK_SESSION_ID,
+      timestamp: '2026-08-23T10:00:01.000Z',
+      message: {
+        role: 'assistant', model: 'claude-opus-5',
+        content: [
+          { type: 'text', text: 'let me check.' },
+          { type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: '/a' } },
+        ],
+      },
+    },
+    {
+      type: 'user', uuid: 'u2', parentUuid: 'a1', sessionId: FORK_SESSION_ID,
+      timestamp: '2026-08-23T10:00:02.000Z',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }] },
+    },
+    {
+      type: 'assistant', uuid: 'a2', parentUuid: 'u2', sessionId: FORK_SESSION_ID,
+      timestamp: '2026-08-23T10:00:03.000Z',
+      message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'first answer' }] },
+    },
+    {
+      type: 'user', uuid: 'u3', parentUuid: 'a2', sessionId: FORK_SESSION_ID,
+      timestamp: '2026-08-23T10:00:04.000Z',
+      message: { role: 'user', content: [{ type: 'text', text: 'second question' }] },
+    },
+    {
+      type: 'assistant', uuid: 'a3', parentUuid: 'u3', sessionId: FORK_SESSION_ID,
+      timestamp: '2026-08-23T10:00:05.000Z',
+      message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'second answer' }] },
+    },
+  ];
+
+  await writeFile(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+  return transcriptPath;
+}
+
+test('each turn ends with one fork anchor on its final assistant answer', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'claude-fork-anchors-'));
+
+  try {
+    const transcriptPath = await writeMultiTurnTranscript(tempRoot);
+
+    await withIsolatedDatabase(async () => {
+      const now = new Date().toISOString();
+      sessionsDb.createSession(FORK_SESSION_ID, 'claude', tempRoot, 'Fork session', now, now, transcriptPath);
+
+      const history = await new ClaudeSessionsProvider().fetchHistory(FORK_SESSION_ID, {
+        providerSessionId: FORK_SESSION_ID,
+      });
+
+      // Exactly one anchored assistant message per turn — and it is the answer,
+      // not the narration that preceded the tool call.
+      const anchored = history.messages.filter((message) => message.forkAnchorId);
+      assert.deepEqual(
+        anchored.map((message) => [message.role, message.content, message.forkAnchorId]),
+        [
+          ['assistant', 'first answer', 'a2'],
+          ['assistant', 'second answer', 'a3'],
+        ],
+      );
+
+      // The assistant row squeezed between the tool call and its result carries
+      // text but is not the turn's end, so it must not offer a fork.
+      const narration = history.messages.find((message) => message.content === 'let me check.');
+      assert.ok(narration);
+      assert.equal(narration.forkAnchorId, undefined);
+
+      // User prompts are edit anchors, never fork anchors; their
+      // `transcriptAnchorId` is unchanged by this field's arrival.
+      const userRows = history.messages.filter((message) => message.role === 'user');
+      assert.deepEqual(userRows.map((message) => message.transcriptAnchorId), ['u1', 'u3']);
+      assert.equal(userRows.some((message) => message.forkAnchorId), false);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('a running session withholds the final turn\'s fork anchor, then restores it', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'claude-fork-running-'));
+
+  try {
+    const transcriptPath = await writeMultiTurnTranscript(tempRoot);
+
+    await withIsolatedDatabase(async () => {
+      const now = new Date().toISOString();
+      sessionsDb.createSession(FORK_SESSION_ID, 'claude', tempRoot, 'Fork session', now, now, transcriptPath);
+
+      const readAnchors = async (running: boolean) => {
+        const history = await new ClaudeSessionsProvider().fetchHistory(FORK_SESSION_ID, {
+          providerSessionId: FORK_SESSION_ID,
+          running,
+        });
+        return history.messages
+          .filter((message) => message.forkAnchorId)
+          .map((message) => message.forkAnchorId);
+      };
+
+      // While the last turn is still being written, only the settled turn 1
+      // offers a fork; the in-flight turn 2 does not.
+      assert.deepEqual(await readAnchors(true), ['a2']);
+      // Idle, the final answer is anchored too — the positive control against a
+      // reader that simply never writes the last turn's anchor.
+      assert.deepEqual(await readAnchors(false), ['a2', 'a3']);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // buildLookupMap
 // ---------------------------------------------------------------------------
 

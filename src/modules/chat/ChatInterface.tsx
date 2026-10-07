@@ -519,7 +519,10 @@ function ChatInterface({
    * then opens it. The session being viewed is left exactly as it was.
    */
   const handleForkFromMessage = useCallback(async (message: ChatMessage) => {
-    const anchorId = message.transcriptAnchorId;
+    // The fork anchor names the *answer*, so the branch ends at this reply
+    // rather than at the prompt that produced it. `transcriptAnchorId` is the
+    // user-input anchor and belongs to editing, not to this.
+    const anchorId = message.forkAnchorId;
     const sourceSessionId = selectedSession?.id;
     if (!anchorId || !sourceSessionId) return;
 

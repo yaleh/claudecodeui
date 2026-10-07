@@ -852,6 +852,13 @@ export type ChatMessage = {
    */
   transcriptAnchorId?: string;
   /**
+   * The anchor a *fork* taken from this answer cuts at, when this message ends
+   * a turn. Separate from `transcriptAnchorId` (which names a user input):
+   * forking here yields a conversation whose last row is this reply. Absent on
+   * the final turn while its session is running.
+   */
+  forkAnchorId?: string;
+  /**
    * Identity of the stream block this message belongs to, carried onto the
    * rendered row so the transcript keys it by the block rather than by the row
    * id that changes when it settles.
@@ -1053,6 +1060,13 @@ export type NormalizedMessage = {
    * anchor for "edit this message" and "fork from here".
    */
   transcriptAnchorId?: string;
+  /**
+   * The anchor a fork taken from this answer cuts at, when this message ends a
+   * turn. Distinct from `transcriptAnchorId`: this one is set on assistant
+   * replies, not user prompts, and is what the fork button sends back as
+   * `upToAnchorId`. Absent while the turn is still running.
+   */
+  forkAnchorId?: string;
   /**
    * Set only on the client-side optimistic echo of an edited message, naming
    * the anchor that echo replaces. Never sent by the backend.
