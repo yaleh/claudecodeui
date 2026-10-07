@@ -2,7 +2,7 @@
 id: gap-resident-edit-send-truncates-in-place
 title: resident 会话的「编辑重发」在原会话内真正截断：关 host（rewind）→ 带 resumeSessionAt 重拉起 →
   追加替换消息，不新建会话
-status: needs-human
+status: todo
 labels:
   - gap
   - defect
