@@ -28,8 +28,10 @@ import {
   clientAsrSegmentTimeoutMs,
   installVoiceClientAsrEngine,
   routeClientAsrSegment,
+  type VoiceClientFallbackReason,
 } from '@/modules/chat/audio/voiceClientAsrWorker';
 import { api, captureRawVoice, effectivePauseCuesDeclaration, transcribeVoice } from '@/shared/api';
+import type { VoiceUploadAddress } from '@/shared/api';
 import {
   hydrateVoiceRawCapture,
   isVoiceClientAsrSelected,
@@ -95,6 +97,17 @@ import { parseTranscriptionResponse } from '@shared/asr/transcriptionWire';
 
 /** How many retries follow a segment's first attempt before it is reported as lost. */
 const SEGMENT_MAX_RETRIES = 2;
+
+/**
+ * A segment the on-device recogniser handed to the server, carrying the reason it did.
+ *
+ * The reason travels WITH the hand-off rather than being reported inside the router, because the two
+ * consumers are different concerns: the router's `VoiceClientFallbackDetail` is the announcement
+ * (a window event, for anything that wants to know audio left the device), while this is what the
+ * composer needs to (a) tell the user why in the notice they are already looking at and (b) address
+ * the upload to the fallback recogniser. Passing it as a value keeps the router free of UI.
+ */
+type ClientAsrGiveUp = { reason: VoiceClientFallbackReason; message: string };
 
 /**
  * The longest a stream may run without any speech before the microphone is closed on its own.
@@ -813,17 +826,51 @@ export function useVoiceInput(
   };
 
   /**
+   * Tells the user that one segment left the device, and why.
+   *
+   * THE REASON IS THE ENGINE'S OWN SENTENCE, NOT A CODE. The composer's notice renders a string
+   * report verbatim (`VoiceFailureNotice`), which is the only one of the two shapes that can carry the
+   * actionable half — "still downloading 12 MB of 239 MB" tells a user to wait, while
+   * `ENGINE_UNAVAILABLE` tells them nothing they can act on. It is reported through the same channel a
+   * failure uses because the requirement is that it be visible where failures are visible, not
+   * because it is one: the segment may well come back with text a moment later.
+   */
+  const reportClientAsrFallback = (job: SegmentJob, giveUp: ClientAsrGiveUp) => {
+    const span = `${job.startSec.toFixed(2)}-${job.endSec.toFixed(2)}s`;
+    onErrorRef.current?.(
+      `On-device recognition gave up on segment ${job.index + 1} (${span}) — ${giveUp.message}`,
+    );
+  };
+
+  /**
    * One segment, recognised by the SERVER: upload, parse, repair.
+   *
+   * `fallback` IS WHERE THE CLIP CAME FROM, and the upload's ADDRESS is built from it rather than a
+   * recogniser id being picked here: the segment that leaves the device is addressed
+   * `{ kind: 'client-fallback' }`, and `transcribeVoice` resolves which recogniser that means from
+   * the deployment's published rows. THE ONE PROPERTY THAT BUYS is that "no recogniser to fall back
+   * to" is decided in the module that holds those rows, which answers with a refusal and makes NO
+   * request — the audio stays on the device rather than being uploaded to whatever provider the
+   * server would otherwise default to.
    *
    * Throwing is how the pipeline is told to retry, and `refusals` is where the structured reason is
    * left so a segment that runs out of retries can still report the code the recogniser sent.
    */
-  const transcribeViaServer = (session: CaptureSession, job: SegmentJob): Promise<string> =>
+  const transcribeViaServer = (
+    session: CaptureSession,
+    job: SegmentJob,
+    fallback?: ClientAsrGiveUp,
+  ): Promise<string> =>
     (async () => {
+      const address: VoiceUploadAddress = fallback === undefined
+        ? { kind: 'stored' }
+        : { kind: 'client-fallback', giveUpMessage: fallback.message };
+
       const response = await transcribeVoice(
         job.blob,
         `${SEGMENT_BASE_NAME}-${job.index + 1}.wav`,
         session.listenId,
+        address,
       );
       if (!response.ok) {
         const refusal = await refusalDetail(response);
@@ -866,19 +913,23 @@ export function useVoiceInput(
     })();
 
   /**
-   * One segment, recognised by THIS DEVICE, or null when the server should take it.
+   * One segment, recognised by THIS DEVICE, or the reason the server should take it.
    *
    * THE ROUTING DECIDES, NOT THIS FUNCTION. `routeClientAsrSegment` is the policy — it recognises on
-   * the device, measures the segment, and either returns the result or names why it left; null here
-   * means "not mine", and the caller falls through to the upload path. The decision is not duplicated
-   * here, because a second copy of "when do we fall back" is a second answer that can drift.
+   * the device, measures the segment, and either returns the result or names why it left. A
+   * give-up here is not a failure to report but a HAND-OFF: the caller addresses the upload to the
+   * fallback recogniser and tells the user why. The decision is not duplicated here, because a second
+   * copy of "when do we fall back" is a second answer that can drift.
    *
    * A REFUSAL FROM THE DEVICE IS KEPT. `NO_SPEECH_DETECTED` from the model, or a container the engine
    * cannot read, is remembered exactly as the server's own refusal is: it is a definitive answer about
    * this clip, and re-asking the server would spend a request (and a metered charge) on a question the
    * user already has an answer to — while also uploading audio the user asked to keep on the device.
    */
-  const transcribeOnDevice = async (session: CaptureSession, job: SegmentJob): Promise<string | null> => {
+  const transcribeOnDevice = async (
+    session: CaptureSession,
+    job: SegmentJob,
+  ): Promise<{ kind: 'device'; text: string } | { kind: 'fallback'; giveUp: ClientAsrGiveUp }> => {
     // Idempotent, and the first thing a client-path listen does: with no engine installed the adapter
     // answers `ENGINE_UNAVAILABLE` and the routing sends this segment to the server, which is the
     // fail-closed behaviour rather than a special case here.
@@ -909,7 +960,7 @@ export function useVoiceInput(
       segmentIndex: job.index,
     });
 
-    if (route.to === 'server') return null;
+    if (route.to === 'server') return { kind: 'fallback', giveUp: { reason: route.reason, message: route.message } };
     if (!route.result.ok) {
       const failure: VoiceTranscriptionFailure = {
         code: route.result.code,
@@ -929,7 +980,7 @@ export function useVoiceInput(
         after: identifierFidelity(route.result.text, repaired),
       });
     }
-    return repaired;
+    return { kind: 'device', text: repaired };
   };
 
   /**
@@ -938,6 +989,11 @@ export function useVoiceInput(
    * The remembered refusal is checked HERE rather than inside either path, because it is about the
    * SEGMENT rather than about the recogniser that refused it: whichever path answered first has
    * answered, and the pipeline's retries are for transient failures.
+   *
+   * A GIVE-UP IS ANNOUNCED, THEN HONOURED. The user is told the clip left the device and why BEFORE
+   * the upload starts, because a fallback is a disclosure they did not ask for and the difference
+   * between "the device was slow" and "your audio went to a server" is theirs to know — including
+   * when the upload then fails, which is exactly when the reason is the only thing left to show.
    */
   const transcribeSegment = (session: CaptureSession, job: SegmentJob): Promise<string> =>
     (async () => {
@@ -950,7 +1006,9 @@ export function useVoiceInput(
       if (remembered) throw remembered;
       if (isVoiceClientAsrSelected()) {
         const onDevice = await transcribeOnDevice(session, job);
-        if (onDevice !== null) return onDevice;
+        if (onDevice.kind === 'device') return onDevice.text;
+        reportClientAsrFallback(job, onDevice.giveUp);
+        return transcribeViaServer(session, job, onDevice.giveUp);
       }
       return transcribeViaServer(session, job);
     })();

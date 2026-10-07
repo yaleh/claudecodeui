@@ -406,6 +406,33 @@ function unknownProviderFailure(providerId: string, status: number): VoiceRefusa
 }
 
 /**
+ * The refusal for a request-carried override that names a recogniser running in the caller's browser.
+ *
+ * THIS IS NOT THE SAME REFUSAL AS `unknownProviderFailure`, even though both answer a bad id in the
+ * request. The id here IS registered — the adapter exists, this process resolved it, and the
+ * declaration says where it runs: `locality: 'local-client'`, i.e. in the browser that called. What
+ * makes it unserveable is precisely that, and no amount of configuration on this host changes it: the
+ * engine would have to be running in the caller's tab, on the caller's audio, which is what
+ * `local-client` means and what a multipart upload is not. So the sentence names the caller's own
+ * choice rather than an unknown name.
+ *
+ * `400` FOR THE REASON `unknownProviderFailure`'s 400 has: the value came in with the request, so it
+ * is the caller's to correct — the client's own fallback simply names a different recogniser. It
+ * carries no vocabulary code for the same reason the format gate and the unregistered-id refusal carry
+ * none (see `PROVIDER_ERROR_STATUS`): no attempt is ever made, so there is no adapter answer for a code
+ * to describe.
+ */
+function clientLocalProviderFailure(providerId: string): VoiceRefusal {
+  return {
+    ok: false,
+    status: 400,
+    error:
+      `Voice provider '${providerId}' runs in the caller's own browser, so it cannot transcribe an `
+      + 'uploaded recording. Address the request to a recogniser this server can run.',
+  };
+}
+
+/**
  * The seam's semantic vocabulary, mapped to the status this service owes the caller.
  *
  * WHY IT IS A TABLE AND NOT THE BRANCHES IT REPLACED. The statuses on this path used to be decided
@@ -1173,6 +1200,26 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         // which falls back to the shared backend's own resolution precisely because there is no
         // adapter here to declare either.
         const refusal = unknownProviderFailure(providerId, requestedProviderId ? 400 : 503);
+        logAttempt('fail', refusal.status);
+        return refusal;
+      }
+
+      // A RECOGNISER THAT RUNS IN THE CALLER'S BROWSER CANNOT SERVE AN UPLOAD, and a request that
+      // names one is refused here — after the id is resolved, before a request is built, and before any
+      // gate asks the declaration anything. WHY IT HAS TO BE HERE AND NOT LATER: the adapter for such a
+      // provider exists, so nothing above refuses it, and its own failure is the generic
+      // `ENGINE_UNAVAILABLE` "this host has no engine" — which reads as an operator's fault and points
+      // at the wrong remedy. The fault is the ADDRESSING: a clip uploaded to a recogniser that only
+      // ever ran in the sender's browser can never be served, here or anywhere.
+      //
+      // IT APPLIES ONLY WHEN THE ID CAME IN WITH THE REQUEST. A user whose STORED selection is this
+      // recogniser and who sends no override is the unchanged case — the request behaves exactly as it
+      // did before this branch existed — because what it would have done (fall into the adapter, and
+      // answer whatever that adapter answers) is not this refusal's to decide. The override is a caller
+      // naming a recogniser it believes this server can run, and for a `local-client` one that belief is
+      // wrong in a way the caller can fix in one word.
+      if (requestedProviderId && adapter.capabilities.locality === 'local-client') {
+        const refusal = clientLocalProviderFailure(providerId);
         logAttempt('fail', refusal.status);
         return refusal;
       }

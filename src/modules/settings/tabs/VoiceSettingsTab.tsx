@@ -2,19 +2,37 @@ import type { InputHTMLAttributes } from 'react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { clientAsrProviderId } from '@shared/asr/asrRegistry';
+
+import { useVoiceClientAsrStatus } from '@/modules/chat';
 import SettingsSection from '@/modules/settings/SettingsSection';
 import SettingsToggle from '@/modules/settings/SettingsToggle';
 import { api } from '@/shared/api';
 import { useUiPreferences, useSetUiPreference } from '@/shared/context/UiPreferencesContext';
 import { useVoiceConfig } from '@/modules/settings/hooks/useVoiceConfig';
 import { useVoiceProviderOptions } from '@/modules/settings/hooks/useVoiceProviderOptions';
-import { isVoiceConfigField, readVoiceConfigField } from '@/shared/voiceConfig';
+import {
+  isVoiceConfigField,
+  readVoiceConfigField,
+  readVoiceFallbackPreference,
+  writeVoiceFallbackPreference,
+} from '@/shared/voiceConfig';
 
 const inputClass =
   'w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
 /** The size floor the capacity box refuses to commit, mirroring the server's own bound. */
 const MIN_VOICE_DATA_MAX_BYTES = 1024;
+
+/** One decimal place of megabytes, from a byte count — the unit a 239 MB download is read in. */
+function megabytes(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
+
+/** A whole number of kilobytes per second, from a bytes-per-second reading. */
+function kilobytesPerSecond(bytesPerSec: number): number {
+  return Math.max(0, Math.round(bytesPerSec / 1024));
+}
 
 const clearButtonClass =
   'rounded-md border border-destructive/50 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50';
@@ -66,6 +84,21 @@ export default function VoiceSettingsTab() {
   const { config, update } = useVoiceConfig();
   const { providers } = useVoiceProviderOptions();
   const voiceEnabled = preferences.voiceEnabled;
+
+  // THE ON-DEVICE RECOGNISER'S OWN STATE: how far its first download has come, and the reason a clip
+  // had to leave the device. It is asked for here rather than inside the block that renders it because
+  // the preload effect below needs the same reader, and because the hook's subscription must outlive
+  // the block — a download that finishes while the fallback row is not rendered is still a download
+  // whose progress was reported.
+  const clientAsr = useVoiceClientAsrStatus();
+  const { preload } = clientAsr;
+
+  // WHICH RECOGNISER TAKES A CLIP THIS DEVICE CANNOT, as this browser's own preference. It is not part
+  // of the stored config document on purpose: the fallback is chosen for THIS browser — the one whose
+  // device recognition gave up — and putting it in the shared document would make one browser's choice
+  // the deployment's, which no server could honour for anyone else. An empty value means "whichever the
+  // deployment offers first", which is what the resolver answers when no choice has been made.
+  const [fallbackChoice, setFallbackChoice] = useState(() => readVoiceFallbackPreference() ?? '');
 
   // THE CAPACITY BOX'S DRAFT. `voiceDataMaxBytes` is a bounded whole number the store enforces, but
   // the box the user types in is text: binding it straight to the committed number would rewrite the
@@ -121,6 +154,34 @@ export default function VoiceSettingsTab() {
   const declared = declaration ? declaredEntries(declaration) : [];
   const providerLabel = selected?.label ?? selectedId;
 
+  // Whether the form is about the recogniser that runs in this browser. Named through the registry
+  // rather than compared against a string, so a build that renames it moves this with it.
+  const clientSelected = selectedId === clientAsrProviderId();
+  // THE ROWS A CLIP COULD BE HANDED TO: every recogniser this deployment lists EXCEPT the on-device one,
+  // which is the recogniser being fallen back FROM — offering it back would be offering the machine that
+  // just gave up. Whether a row can really serve an upload is the resolver's judgement (it reads each
+  // row's own declaration); this list is what a user may pick, and a pick it cannot honour is not a
+  // silent failure — the resolver answers with the deployment's own first choice instead.
+  const fallbackOptions = providers.filter((provider) => provider.id !== clientAsrProviderId());
+  const progress = clientAsr.progress;
+  const progressPercent = progress && progress.totalBytes > 0
+    ? Math.min(100, Math.round((progress.receivedBytes / progress.totalBytes) * 100))
+    : 0;
+  const remainingText = progress === null || progress.remainingMs === null
+    ? t('voiceSettings.clientAsrRemainingUnknown')
+    : t('voiceSettings.clientAsrRemaining', { minutes: Math.max(1, Math.round(progress.remainingMs / 60_000)) });
+
+  // THE SELECTION IS THE REASON TO DOWNLOAD, and this is where it is acted on. Asking for the load the
+  // moment the on-device recogniser is chosen is what keeps 239 MB out of the first segment — a download
+  // that takes longer than any per-segment deadline can cover, so a fresh browser would fall back on its
+  // first clip every time without this. The memo behind `preload` makes the effect idempotent: a
+  // re-render, a reopened modal, or selecting the same row twice all join the one load, and selecting
+  // anything else never starts one.
+  useEffect(() => {
+    if (selectedId !== clientAsrProviderId()) return;
+    void preload();
+  }, [selectedId, preload]);
+
   return (
     <div className="space-y-8">
       <SettingsSection title={t('voiceSettings.title')} description={t('voiceSettings.description')}>
@@ -154,6 +215,87 @@ export default function VoiceSettingsTab() {
               </select>
               <span className="block text-xs text-muted-foreground">{t('voiceSettings.providerDescription')}</span>
             </label>
+
+            {/* THE ON-DEVICE RECOGNISER'S OWN PANEL. It is keyed on the selection rather than on a
+                runtime reading, and it has to be: this is the one provider whose engine lives in the
+                browser, so it is the one provider the block below — which renders a reading the SERVER
+                took — says nothing about. What a user needs here is exactly what that block cannot
+                give: whether the model has arrived, and where a clip went when it did not. Both are
+                read from the worker that runs the recogniser, through the chat module's barrel. */}
+            {clientSelected && (
+              <div className="space-y-3 rounded-lg border border-border p-3" data-testid="voice-client-asr">
+                <div className="text-sm font-medium text-foreground">
+                  {t('voiceSettings.clientAsrTitle', { provider: providerLabel })}
+                </div>
+                <p className="text-xs text-muted-foreground">{t('voiceSettings.clientAsrNotice')}</p>
+
+                {/* THE FIRST DOWNLOAD, as it happens. Rendered only once the worker has reported a
+                    chunk of it, so a page that never started one shows no empty bar. */}
+                {progress && (
+                  <div className="space-y-1" data-testid="voice-client-asr-progress">
+                    <div className="text-xs text-muted-foreground">
+                      {t('voiceSettings.clientAsrProgress', {
+                        received: megabytes(progress.receivedBytes),
+                        total: megabytes(progress.totalBytes),
+                      })}
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div className="h-full bg-primary" style={{ width: `${progressPercent}%` }} />
+                    </div>
+                    <div className="text-xs text-muted-foreground" data-testid="voice-client-asr-rate">
+                      {t('voiceSettings.clientAsrRate', {
+                        rate: kilobytesPerSecond(progress.bytesPerSec),
+                        remaining: remainingText,
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* HOW THE LOAD ENDED, in the engine's own words. A ready load says so, because the
+                    progress bar above is a record of the download rather than its state; a failed one
+                    shows the reason, which is the sentence an operator needs to fix it. */}
+                {clientAsr.engine !== null && !clientAsr.engine.available && (
+                  <p className="text-xs text-destructive" data-testid="voice-client-asr-engine">
+                    {t('voiceSettings.clientAsrUnavailable', { reason: clientAsr.engine.reason })}
+                  </p>
+                )}
+                {clientAsr.engine?.available === true && clientAsr.engine.state === 'ready' && (
+                  <p className="text-xs text-muted-foreground" data-testid="voice-client-asr-engine">
+                    {t('voiceSettings.clientAsrReady')}
+                  </p>
+                )}
+
+                {/* WHERE A CLIP GOES UNTIL THE MODEL IS THERE — and after it, for the clips the device
+                    still cannot take. The empty row is the deployment's own first choice, which is what
+                    an unanswered question means. */}
+                <label className="block space-y-1">
+                  <span className="text-sm font-medium text-foreground">{t('voiceSettings.clientAsrFallback')}</span>
+                  <select
+                    name="fallbackProviderId"
+                    className={inputClass}
+                    value={fallbackChoice}
+                    onChange={(e) => {
+                      setFallbackChoice(e.target.value);
+                      writeVoiceFallbackPreference(e.target.value);
+                    }}
+                  >
+                    <option value="">{t('voiceSettings.clientAsrFallbackAuto')}</option>
+                    {fallbackOptions.map((provider) => (
+                      <option key={provider.id} value={provider.id}>{provider.label}</option>
+                    ))}
+                  </select>
+                  <span className="block text-xs text-muted-foreground">{t('voiceSettings.clientAsrFallbackDescription')}</span>
+                </label>
+
+                {/* THE GIVE-UP ITSELF, IN WORDS: the worker's own sentence, not a status code — which is
+                    the whole point of surfacing it, since the code names nothing a user could act on. */}
+                {clientAsr.fallback && (
+                  <p className="text-xs text-destructive" data-testid="voice-client-asr-fallback">
+                    {t('voiceSettings.clientAsrFallbackReason', { reason: clientAsr.fallback.message })}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* WHAT THIS PROVIDER IS, for the ones that answer, and whether it can run.
                 The rows above and below are all about something the user types; this block is the

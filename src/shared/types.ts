@@ -5,6 +5,8 @@ import type {
 } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
+import type { AsrCapabilities, AsrRuntimeStatus } from '@shared/asr/asrRegistry';
+
 //----------------- LLM PROVIDER MODEL CATALOG ------------
 
 /** Identifies which coding-agent CLI backs a session, project selection or model list. */
@@ -2660,6 +2662,29 @@ export type VoiceClientAssetPaths = {
   tokensUrl: string;
   ortScriptUrl: string;
   ortWasmPaths: string;
+};
+
+/**
+ * One recogniser as the deployment publishes it, kept for the routing decisions that cannot be made
+ * from the user's settings alone.
+ *
+ * WHY THE CLIENT HOLDS THESE ROWS AT ALL. `AsrCapabilities.locality` decides what may happen to a
+ * user's audio, and the declarations live in the registry the SERVER compiles; the browser's copy of
+ * the registry names the same providers but answers about the browser's own adapters, not about what
+ * this deployment can actually serve. The health payload is the one reading that carries both, so it
+ * is what the fallback resolver below reads: a recogniser this deployment does not publish is not a
+ * recogniser to hand an upload to.
+ *
+ * `capabilities` and `runtime` are `null` rather than absent for the same reason every other lenient
+ * reader in this codebase spells it that way: a row from a server too old to send the field, or one
+ * that sent something unreadable, must be visibly unusable rather than silently missing.
+ */
+export type VoiceProviderRow = {
+  id: string;
+  label: string;
+  configured: boolean;
+  capabilities: AsrCapabilities | null;
+  runtime: AsrRuntimeStatus | null;
 };
 
 // ---------------------------

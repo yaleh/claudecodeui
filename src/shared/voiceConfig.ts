@@ -263,6 +263,49 @@ export function isVoiceClientAsrSelected(): boolean {
 }
 
 /**
+ * The localStorage key the FALLBACK recogniser's id is kept under.
+ *
+ * WHY THIS IS NOT A FIELD OF THE DOCUMENT ABOVE, which is the question the whole design turns on.
+ * Every other setting here is a server-side document, saved as one whole object: a field the server's
+ * store does not validate is dropped on the next save, so a new field means a new column, a
+ * migration and a schema change on the server. What this setting IS is the answer to "where does a
+ * clip go when the recogniser the user chose cannot take it" — a property of THIS BROWSER's choice,
+ * meaningful only where the client recogniser is selected, and read at exactly one moment (a give-up)
+ * by exactly one process (this tab). Sending it to the server would make it a deployment-wide fact
+ * a second browser would then disagree with.
+ */
+export const VOICE_FALLBACK_STORAGE_KEY = 'voice-client-asr-fallback';
+
+/**
+ * The recogniser the user chose to fall back to, or `null` when they have not chosen one.
+ *
+ * `null` MEANS "NO CHOICE MADE", NOT "NO FALLBACK": the resolver that reads this has a default of its
+ * own (see `resolveVoiceFallbackProvider`), and collapsing the two here would make a user who never
+ * opened the settings panel indistinguishable from one who deliberately picked nothing.
+ */
+export function readVoiceFallbackPreference(): string | null {
+  try {
+    return localStorage.getItem(VOICE_FALLBACK_STORAGE_KEY);
+  } catch {
+    // No localStorage (a locked-down profile, an insecure context): there is no stored choice, and the
+    // resolver's own default is the answer. Not an error — the preference is an override, not state.
+    return null;
+  }
+}
+
+/** Remembers the fallback recogniser, or forgets it when given the empty string. */
+export function writeVoiceFallbackPreference(providerId: string): void {
+  const id = providerId.trim();
+  try {
+    if (id === '') localStorage.removeItem(VOICE_FALLBACK_STORAGE_KEY);
+    else localStorage.setItem(VOICE_FALLBACK_STORAGE_KEY, id);
+  } catch {
+    // The choice cannot be kept across reloads; it still applies to this session's uploads, which is
+    // the visible behaviour. Failing loudly here would break a settings panel over a preference.
+  }
+}
+
+/**
  * Whether `field` is one of the names this module stores.
  *
  * Exposed for the settings form, whose field names come from a provider's declaration rather than

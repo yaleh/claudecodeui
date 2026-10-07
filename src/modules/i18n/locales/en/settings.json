@@ -91,7 +91,19 @@
     "providerLocalTitle": "{{provider}} runs on this server",
     "providerLocalNotice": "This recogniser runs on the machine hosting this server. It needs no key and no address — the audio never leaves the host — so the shared backend fields below do not apply to it.",
     "providerBuild": "Engine build: {{buildId}}",
-    "providerUnavailable": "This recogniser cannot run here: {{reason}}"
+    "providerUnavailable": "This recogniser cannot run here: {{reason}}",
+    "clientAsrTitle": "{{provider}} (runs in this browser)",
+    "clientAsrNotice": "This recogniser runs in your browser. Its model is downloaded once, then recognition happens on this device — audio leaves it only when a segment falls back.",
+    "clientAsrProgress": "Model download: {{received}} MB of {{total}} MB",
+    "clientAsrRate": "{{rate}} KB/s — {{remaining}}",
+    "clientAsrRemaining": "about {{minutes}} min left",
+    "clientAsrRemainingUnknown": "remaining time unknown",
+    "clientAsrReady": "The model is ready: new segments are recognised on this device.",
+    "clientAsrUnavailable": "The model could not be loaded: {{reason}}",
+    "clientAsrFallback": "Where clips that cannot be recognised here go",
+    "clientAsrFallbackAuto": "Use the backend's own choice",
+    "clientAsrFallbackDescription": "Clips this device cannot take — while the model is still downloading, or ones that take too long — are sent to this recogniser instead. It has to be one this server can run.",
+    "clientAsrFallbackReason": "The last clip left this device: {{reason}}"
   },
   "quickSettings": {
     "title": "Quick Settings",

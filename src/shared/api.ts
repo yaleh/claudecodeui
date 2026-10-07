@@ -5,9 +5,10 @@ import {
 } from '@/shared/authToken';
 import type { SessionMessagesQuery } from '@/shared/types';
 import type { ActivitySnapshotFrame } from '@/shared/types';
+import type { VoiceProviderRow } from '@/shared/types';
 import { IS_PLATFORM } from '@/shared/utils';
 import type { VoiceConfig } from '@/shared/voiceConfig';
-import { readVoiceConfig, voiceConfigHeaders, whenVoiceConfigReady } from '@/shared/voiceConfig';
+import { readVoiceConfig, readVoiceFallbackPreference, voiceConfigHeaders, whenVoiceConfigReady } from '@/shared/voiceConfig';
 import type { VoiceEditLabel } from '@/shared/voiceEditLabels';
 // The direct path's request construction lives in the repository-root shared tree, the same
 // module the server and the CLI compile — see shared/asr/transcriptionWire.ts.
@@ -775,6 +776,69 @@ export function setVoiceProviderProfile(profile: { id: string; capabilities: Asr
 }
 
 /**
+ * Every recogniser the last health reading published, in the deployment's own order.
+ *
+ * WHY A SECOND SLOT BESIDE `voiceProviderProfile`. The profile above answers "what did the deployment
+ * say about the recogniser in use"; this one answers "which recognisers exist here at all, and what
+ * does each declare" — the question a FALLBACK asks, because the recogniser that gave up is by
+ * definition not the one to read a declaration off. Both come from one payload and one writer, so the
+ * two cannot disagree about a row they both saw.
+ */
+let voiceProviderRows: VoiceProviderRow[] = [];
+
+/** Publishes the health reading's provider rows. Called by `useVoiceAvailable`, like the profile. */
+export function setVoiceProviderRows(rows: VoiceProviderRow[]): void {
+  voiceProviderRows = rows;
+}
+
+/** The published rows, for a caller that has to reason about more than the effective provider. */
+export function readVoiceProviderRows(): VoiceProviderRow[] {
+  return voiceProviderRows;
+}
+
+/**
+ * The recogniser a clip the CLIENT gave up on is uploaded to, or `null` when this deployment has none.
+ *
+ * WHY THIS IS A DECISION AND NOT A DEFAULT. When the on-device recogniser cannot take a clip the
+ * user's audio has to go somewhere, and every candidate is a disclosure the user did not ask for —
+ * so the choice is made from what the deployment PUBLISHED rather than from a guess, and the answer
+ * "nowhere" is a real one: a deployment that offers nothing but the browser recogniser has no
+ * fallback, and telling the user so is better than uploading to a service nobody selected.
+ *
+ * THE RULE, in order:
+ *   · the user's own stored preference, when it names a row that is eligible — a choice they made is
+ *     the most specific statement available, and this is the only field the panel lets them make it in;
+ *   · otherwise the first recogniser that runs on the SERVER's own host (`locality: 'local-server'`).
+ *     Falling back to a local-server recogniser keeps the clip on the machine the audio was already
+ *     going to be transcribed on, which is the smallest step away from "it never left this device";
+ *     a remote service is only ever used when the user named one;
+ *   · otherwise `null`.
+ *
+ * ELIGIBILITY IS THE SERVER'S OWN READING. `local-client` is excluded because such a row cannot serve
+ * an upload at all — it is the recogniser that just gave up, and the server refuses a request that
+ * names one (see `voice.service.ts`). `runtime.available === false` is excluded because that row's own
+ * engine has said it cannot run; a row with no runtime reading is a remote recogniser, whose
+ * readiness is a property of the user's settings and not of this machine.
+ */
+export function resolveVoiceFallbackProvider(): string | null {
+  const eligible = voiceProviderRows.filter((row) =>
+    row.capabilities !== null
+    && row.capabilities.locality !== 'local-client'
+    && (row.runtime === null || row.runtime.available),
+  );
+
+  const preferred = readVoiceFallbackPreference();
+  if (preferred !== null) {
+    const chosen = eligible.find((row) => row.id === preferred.trim());
+    if (chosen !== undefined) {
+      return chosen.id;
+    }
+  }
+
+  return eligible.find((row) => row.capabilities?.locality === 'local-server')?.id ?? null;
+}
+
+/**
  * The pause-cue declaration of the provider a recording will actually be transcribed by, or
  * `null` when this build cannot name one.
  *
@@ -1018,7 +1082,48 @@ function unregisteredIdRefusal(providerId: string): Response {
   );
 }
 
-export async function transcribeVoice(blob: Blob, filename: string, listenId?: string): Promise<Response> {
+/**
+ * Where an upload takes the recogniser it is addressed to from.
+ *
+ * `stored` IS THE ORDINARY CASE and the default: the recogniser the user saved is the one they asked
+ * to have their recordings transcribed by, so the id travels in the usual settings header.
+ *
+ * `client-fallback` IS THE ON-DEVICE RECOGNISER'S HAND-OFF. The clip was going to be recognised in
+ * this browser and the engine gave up, so the stored choice is exactly the id that cannot serve an
+ * upload — it names a provider that runs in the caller's own browser. The address is therefore
+ * RESOLVED here (`resolveVoiceFallbackProvider`) rather than passed in as a bare id, because the
+ * resolution needs the deployment's published rows and this module is the one that holds them; a
+ * caller that resolved it itself would be a second copy of the eligibility rule, and the two copies
+ * would be a second answer to "may this audio leave the device".
+ */
+export type VoiceUploadAddress =
+  | { kind: 'stored' }
+  | { kind: 'client-fallback'; giveUpMessage: string };
+
+/**
+ * Uploads one recording, and answers with the recogniser's own response.
+ *
+ * `address` NAMES THE RECOGNISER FOR THIS REQUEST ALONE. The server reads the id off the same
+ * `x-voice-provider` header the stored choice travels in, and applies the request override above the
+ * stored document (see `effectiveProviderId`), so the two spellings are one mechanism rather than two.
+ *
+ * THE RESOLVED ID CANNOT RESURRECT THE SHARED BACKEND. It is resolved exactly like the stored id —
+ * through `routedProvider`, and therefore through the same unregistered-id refusal — so an id this
+ * build does not register is refused before a byte is sent, and a recogniser that is not a remote one
+ * reached directly still takes the proxy branch rather than a base URL the user never set.
+ *
+ * A FALLBACK WITH NOWHERE TO GO UPLOADS NOTHING AND SAYS SO. The answer is a refusal response rather
+ * than a throw, so the caller's existing refusal handling reports the reason without a request being
+ * made: an upload addressed to a recogniser nobody published would reach the server's default
+ * provider — a service the user did not select — which is precisely the disclosure this addressing
+ * exists to avoid.
+ */
+export async function transcribeVoice(
+  blob: Blob,
+  filename: string,
+  listenId?: string,
+  address: VoiceUploadAddress = { kind: 'stored' },
+): Promise<Response> {
   const refusal = unregisteredProviderRefusal() ?? unsupportedContainerRefusal(blob.type);
   if (refusal) {
     return refusal;
@@ -1047,7 +1152,25 @@ export async function transcribeVoice(blob: Blob, filename: string, listenId?: s
   // `routedProvider` therefore reads the stored choice, not the health reading — which is only as
   // fresh as the last time the settings page was open — and `sharedBackendApplies` is false for any
   // recogniser that is not a remote one reached directly.
-  const routed = routedProvider(config.providerId);
+  // THE ADDRESS IS RESOLVED BEFORE ANY ROUTE IS TAKEN, because one of its two outcomes is "there is
+  // no route": a clip the on-device recogniser gave up on is addressed to the fallback recogniser
+  // this deployment publishes, and a deployment that publishes none gets a refusal with no request
+  // behind it. Falls through to the stored id for every other upload, which is the shipped behaviour.
+  let providerId = config.providerId;
+  if (address.kind === 'client-fallback') {
+    const target = resolveVoiceFallbackProvider();
+    if (target === null) {
+      return voiceFailureEnvelope(
+        'ENGINE_UNAVAILABLE',
+        503,
+        `the on-device recogniser gave up on this clip (${address.giveUpMessage}) and this deployment `
+        + 'publishes no recogniser to fall back to, so it was not uploaded',
+      );
+    }
+    providerId = target;
+  }
+
+  const routed = routedProvider(providerId);
   if (routed !== null && 'unregistered' in routed) {
     return unregisteredIdRefusal(routed.unregistered);
   }

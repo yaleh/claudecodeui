@@ -11,7 +11,7 @@ import { afterAll, beforeEach, test, vi } from 'vitest';
 // dead zone. Declaring the registry first is what guarantees it is evaluated first. The last case
 // below needs both: it renders the form from the rows the deployment really publishes, so the
 // provider under test is derived from the registry rather than named in this file.
-import { listProviders } from '@shared/asr/asrRegistry';
+import { clientAsrProviderId, listProviders } from '@shared/asr/asrRegistry';
 import { installSensevoiceEngine } from '@shared/asr/list/sensevoice-local/sensevoice-local.asr-provider';
 import VoiceSettingsTab from '@/modules/settings/tabs/VoiceSettingsTab';
 import { resetVoiceConfig } from '@/shared/voiceConfig';
@@ -42,6 +42,31 @@ const voice = vi.hoisted(() => ({
 }));
 
 vi.mock('@/shared/api', () => ({ api: { voice }, authenticatedFetch: vi.fn() }));
+
+/**
+ * The on-device recogniser's reading, as the settings panel consumes it.
+ *
+ * IT IS A MODULE-LEVEL OBJECT THE CASES FILL IN, because the panel reads it two ways at once: as the
+ * subscription that reports the download, and as the effect input that decides whether to start one.
+ * Doubling the chat module's barrel rather than the worker is what keeps a case about the FORM, and
+ * it is also what keeps a real Web Worker out of the process — the panel's job is to render what the
+ * hook reports and to ask for a load at the right moment, and both of those are visible here.
+ */
+const clientAsrPanel = vi.hoisted(() => ({
+  engine: null as null | { available: boolean; state: string; buildId?: string; reason?: string },
+  progress: null as null | {
+    receivedBytes: number;
+    totalBytes: number;
+    bytesPerSec: number;
+    remainingMs: number | null;
+  },
+  fallback: null as null | { providerId: string; reason: string; message: string },
+  preload: vi.fn(),
+}));
+
+vi.mock('@/modules/chat', () => ({
+  useVoiceClientAsrStatus: () => clientAsrPanel,
+}));
 
 // The form's enable switch and the language are not what either reading is about; the provider list
 // comes from the mocked `api.voice.health` below, which is the seam under test.
@@ -151,6 +176,14 @@ beforeEach(() => {
   voice.health.mockReset();
   voice.config.mockReset();
   voice.saveConfig.mockReset();
+  // The on-device reading starts empty — nothing installed, nothing downloaded, nothing given up —
+  // so a case that needs one of the three says so rather than inheriting the case before it.
+  clientAsrPanel.engine = null;
+  clientAsrPanel.progress = null;
+  clientAsrPanel.fallback = null;
+  clientAsrPanel.preload.mockReset();
+  clientAsrPanel.preload.mockResolvedValue({ available: true, state: 'ready', buildId: 'preloaded' });
+  localStorage.clear();
   // The settings module is a singleton for the whole tab, so a case that typed into it would
   // otherwise leave its values in the next case's document. Resetting it re-hydrates from the
   // mocked server, which is what makes every case start from the same (empty) document.
@@ -399,3 +432,105 @@ test('the provider that runs on this server shows no credential field of its own
     installSensevoiceEngine(null);
   }
 });
+
+/**
+ * The two registry rows the on-device cases are built from: the browser recogniser, and a
+ * recogniser that runs somewhere that is not this browser.
+ *
+ * NEITHER ID IS WRITTEN IN THIS FILE. The panel's client block is keyed on the selection, so a case
+ * that invented the id would be a case about a payload nobody serves — and a rename would leave it
+ * green while the shipping build showed nothing.
+ */
+function onDeviceAndElsewhere(): { onDevice: { id: string }; elsewhere: { id: string; credentials?: unknown } } {
+  const adapters = listProviders();
+  const onDevice = adapters.find((adapter) => adapter.id === clientAsrProviderId());
+  const elsewhere = adapters.find(
+    (adapter) => adapter.id !== clientAsrProviderId() && adapter.credentials !== undefined,
+  );
+  assert.ok(onDevice, 'the registry no longer publishes the on-device recogniser');
+  assert.ok(elsewhere, 'the registry publishes no recogniser with credentials of its own to compare against');
+  return { onDevice, elsewhere };
+}
+
+test('a recogniser that runs elsewhere neither shows the on-device panel nor starts a load', async () => {
+  const { onDevice, elsewhere } = onDeviceAndElsewhere();
+
+  voice.health.mockImplementation(() => ok({
+    configured: true,
+    provider: elsewhere.id,
+    providers: [row(elsewhere.id, elsewhere.id, elsewhere.credentials as Row['credentialFields']), row(onDevice.id, onDevice.id)],
+  }));
+  voice.config.mockImplementation(() => ok({ ...EMPTY_SERVER_DOCUMENT, providerId: elsewhere.id }));
+
+  const view = render(<VoiceSettingsTab />);
+  await waitFor(() => assert.equal(providerSelect(view).value, elsewhere.id));
+
+  // The download belongs to the on-device selection alone: a form that preloaded for whatever was
+  // selected would spend 239 MB in every deployment, including the ones that never run this engine.
+  assert.equal(view.queryByTestId('voice-client-asr'), null, 'the on-device panel is not this provider\'s');
+  assert.equal(clientAsrPanel.preload.mock.calls.length, 0, 'a recogniser that runs elsewhere must not start a download');
+});
+
+test('selecting the on-device recogniser starts its model load exactly once', async () => {
+  const { onDevice, elsewhere } = onDeviceAndElsewhere();
+
+  voice.health.mockImplementation(() => ok({
+    configured: true,
+    provider: onDevice.id,
+    providers: [row(elsewhere.id, elsewhere.id, elsewhere.credentials as Row['credentialFields']), row(onDevice.id, onDevice.id)],
+  }));
+  voice.config.mockImplementation(() => ok({ ...EMPTY_SERVER_DOCUMENT, providerId: onDevice.id }));
+
+  // The selection is what pays the 239 MB, so the load is asked for at the moment the recogniser is
+  // picked rather than at the first clip: a user who chose it has time to wait while the model
+  // arrives, and a user who did not never spends the bandwidth.
+  const view = render(<VoiceSettingsTab />);
+  await waitFor(() => assert.ok(view.queryByTestId('voice-client-asr'), 'the on-device panel was never rendered'));
+  await waitFor(() => assert.equal(clientAsrPanel.preload.mock.calls.length, 1));
+
+  // ONCE, though the panel subscribes to the same reading it loads from: a second call per render
+  // would restart the download on every keystroke in the form beside it. The second reading is taken
+  // after an explicit re-render, so "one" is a count that held rather than one that never advanced.
+  view.rerender(<VoiceSettingsTab />);
+  await waitFor(() => assert.equal(clientAsrPanel.preload.mock.calls.length, 1));
+  console.log(`[settings] on-device selection: id=${onDevice.id} preload=${clientAsrPanel.preload.mock.calls.length}`);
+});
+
+test('the on-device panel shows the download\'s own numbers and the reason a clip left the device, in words', async () => {
+  const { onDevice, elsewhere } = onDeviceAndElsewhere();
+  const GIVE_UP = 'the on-device recogniser is still loading its model: 12.0 MB of 239.2 MB downloaded (100 KB/s)';
+
+  clientAsrPanel.progress = {
+    receivedBytes: 12_582_912,
+    totalBytes: 239_233_841,
+    bytesPerSec: 102_400,
+    remainingMs: 2_040_000,
+  };
+  clientAsrPanel.fallback = { providerId: onDevice.id, reason: 'engine-unavailable', message: GIVE_UP };
+
+  voice.health.mockImplementation(() => ok({
+    configured: true,
+    provider: onDevice.id,
+    providers: [
+      row(elsewhere.id, elsewhere.id, elsewhere.credentials as Row['credentialFields']),
+      row(onDevice.id, onDevice.id),
+    ],
+  }));
+  voice.config.mockImplementation(() => ok({ ...EMPTY_SERVER_DOCUMENT, providerId: onDevice.id }));
+
+  const view = render(<VoiceSettingsTab />);
+  await waitFor(() => assert.ok(view.queryByTestId('voice-client-asr'), 'the on-device panel was never rendered'));
+
+  // THE DOWNLOAD, in the units a user reads it in — megabytes of the whole, and the rate beside it.
+  const progress = view.getByTestId('voice-client-asr-progress');
+  assert.match(progress.textContent ?? '', /received=12\.0,total=228\.2/);
+  assert.match(view.getByTestId('voice-client-asr-rate').textContent ?? '', /rate=100/);
+
+  // THE GIVE-UP, IN THE ENGINE'S OWN WORDS RATHER THAN A CODE. That is the whole point of surfacing
+  // it: `engine-unavailable` tells a user nothing they can act on, while "still loading ... 12.0 MB
+  // of 239.2 MB" tells them to wait.
+  const giveUp = view.getByTestId('voice-client-asr-fallback');
+  assert.match(giveUp.textContent ?? '', /loading its model/);
+  assert.match(giveUp.textContent ?? '', /12\.0 MB of 239\.2 MB downloaded/);
+});
+
