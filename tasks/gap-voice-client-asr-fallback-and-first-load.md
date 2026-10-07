@@ -34,7 +34,8 @@ extra:
 - 不改识别、缓存、校验、同源交付的行为（下载本身、哈希校验与缓存写入不动）；
 - 不新增 `server/**/*.test.ts` 文件（`quay-test-script.test.ts` 钉死了数量），服务端新测试加进 `server/modules/voice/tests/` 已有文件；
 - 不做多线程 / COOP-COEP；
-- 不做模型的服务端自动下载，也不在本任务内优化服务端出口带宽（那是部署层问题）。
+- 不做模型的服务端自动下载，也不在本任务内优化服务端出口带宽（那是部署层问题）；
+- **不做合并部署之后的真实页面复核**（原 S5，2026-10-07 删除）：那种读数只在本任务落地**之后**才存在，把它当本任务的验收条件是循环的。它属于部署方的上线核对，按 `docs/operations/voice-client-asr-deployment.md` 第 6 节进行。
 
 ## Plan
 
@@ -43,7 +44,6 @@ extra:
 - **S2 原因可见。** 回退事件的消费者，在界面显示放弃原因。
 - **S3 进度与预加载。** worker 发 progress，主线程订阅，设置面板显示，选中识别器时调用 `init`。
 - **S4 文档。**
-- **S5 真实使用复核。** 用户在真实页面上：选中识别器后看到下载进度；下载期间说话由回退识别器出文本；下载完成后说话由设备路径出文本。
 
 ## AC
 
@@ -54,11 +54,12 @@ extra:
 - [x] S3：单测证明 worker 在 `init` 期间发出 `progress` 消息、主线程订阅者收到的 `receivedBytes` 单调不减；选中 `sensevoice-wasm` 时调用了一次 `init`，选中其他识别器时没有；命令 `npx vitest run src/modules/chat/tests/voiceClientAsrRouting.test.ts src/modules/settings/tests/voiceSettingsProviderSelection.test.tsx` 退出码 0。
 - [x] S4：`grep -c "KB/s\|首次下载" docs/operations/voice-client-asr-deployment.md` 至少为 1，且文档明确写出下载期间片段走回退识别器。
 - [x] 全部新增与改动的 `src/` 代码满足 `frontend-module-standards`、`server/` 代码满足 `backend-module-standards`；`npm run typecheck`、`npm run lint`、`npm run build` 均退出码 0。
-- [ ] S5 真实使用：在 `https://cloudcli.lrfz.com` 的真实页面上，选中 `sensevoice-wasm` 后设置面板显示下载进度；下载期间说话，该片段由回退识别器识别出文本、不再出现「服务端没有 sensevoice-wasm 引擎」的 503；下载完成后说话由设备路径识别出文本；读数由人 yale 在真实页面取得并写进 `docs/operations/voice-client-asr-deployment.md` 的「已验证」一节，执行者不得代写（待外部）
 
 ## DoD
 
-真实落地的标准：在真实页面上，选中 `sensevoice-wasm` 后设置面板立即显示模型下载进度；下载期间说话由回退识别器出文本，下载完成后由设备路径出文本；当设备放弃时用户能看到放弃原因；**在任何情况下都不会再出现「服务端没有 sensevoice-wasm 引擎」的 503**。只有单测、没有真实页面上的这几个读数，不算完成。
+真实落地的标准：选中 `sensevoice-wasm` 后设置面板**立即**显示模型下载进度（已下载 / 总字节 / 速度 / 剩余时间），并在选中的那一刻就发起预载；模型未就绪（`stopped` / `starting`）时语音片段**立刻**交给回退识别器，不吃 30 秒的单段超时，**不再出现「服务端没有 `sensevoice-wasm` 引擎」的 503**——回退请求带的是服务端注册表里存在且非 `local-client` 的识别器 ID，没有可用回退目标时干脆**不上传**并把原因显示给用户；设备放弃的原因（不只错误码）在界面上可见；下载完成后新片段自动回到本机路径。
+
+这些读数全部由真实 HTTP 与真实 worker 的单测、以及仓库门取得（见「逐条验证」）。**合并并部署之后的真实页面复核不属于本任务**——它的读数只可能在本任务落地之后才存在，当验收条件是循环的（见「边界」）。
 
 ## Touches
 
@@ -81,7 +82,15 @@ extra:
 
 ## Notes
 
-**S5 是外部读数，执行者无法取得，故本任务停在 `needs-human`。** 前七条 AC 已逐条验证通过，S5 保持未勾选（不代写、不伪造）。yale 在真实页面量到读数、填进 `docs/operations/voice-client-asr-deployment.md` 的「8. 已验证」一节后，把最后一条勾上即可 `promote`/`complete`。
+**2026-10-07 重发（人 yale 裁定）：删去原 S5「真实使用」一条 AC。**
+
+原 S5 要求在 `https://cloudcli.lrfz.com` 的真实页面上取读数。那条读数只可能在**本任务合并并部署之后**才存在——线上站不是另一套部署，就是本检出构建出的 `dist-server`——所以把它当本任务的验收条件，等于拿「本任务之后的产物」当判据：循环、且在本任务内不可满足（此前因此 park `needs-human`）。
+
+删除后本任务的验收面完全落在它自己产出的证据上：S0–S4 的真实 HTTP / 真实 worker 单测 + 仓库门（typecheck / lint / build），七条 AC 已逐条验证通过、现全部勾选，任务可直接 `promote`/`complete`。
+
+同时删除 `docs/operations/voice-client-asr-deployment.md` 里为那条 AC 准备的「8. 已验证（真实页面读数）」待填小节——不留下没有 AC 支撑的空验收槽（该文档第 6 节的下载代价说明是 S4 的交付物，保留）。部署后的真实页面复核仍由部署方按该文档第 6 节自行进行，**不计入本任务**。
+
+合并 develop 后（`50d19373`）逐条复跑，读数不变：`vitest run voiceClientAsrRouting + voiceSettingsProviderSelection` → `Tests 22 passed (22)`，退出码 0；`tsx --test voice-sensevoice-health.routes.test.ts` → `pass 16 / fail 0`，退出码 0；`grep -c "KB/s\|首次下载" docs/operations/voice-client-asr-deployment.md` → `6`；`git diff --name-status develop...HEAD -- 'server/**/*.test.ts'` 无 `A` 行；`npm run typecheck` / `npm run lint`（`: error ` 0 条）/ `npm run build` 三者退出码均为 0。
 
 ### 逐条验证（命令与读数）
 
