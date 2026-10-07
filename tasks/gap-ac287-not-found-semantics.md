@@ -3,7 +3,7 @@ id: gap-ac287-not-found-semantics
 title: MCP「引用不存在即错误」语义（AC-287）：approval_answer/session_cancel_queued/run_get/quay_snapshot
   的找不到改为 APPROVAL_NOT_FOUND / QUEUED_MESSAGE_NOT_FOUND / RUN_NOT_FOUND /
   PROJECT_NOT_FOUND，真实状态（已开始执行、已完成、无 quay 配置）仍是成功结果
-status: needs-human
+status: todo
 labels:
   - gap
   - defect
