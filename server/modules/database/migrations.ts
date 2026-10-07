@@ -106,6 +106,70 @@ const addMcpAuditLogDeniedScopesColumn = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'mcp_audit_log', columnNames, 'denied_scopes', 'TEXT');
 };
 
+/**
+ * Backfills `last_used` from the MCP audit log for rows that were never stamped
+ * (gap-mcp-token-last-used-never-stamped-for-oauth).
+ *
+ * Before the throttled stamp existed, only the personal-access-token
+ * `verifyToken` path wrote `access_tokens.last_used`; OAuth access tokens and
+ * every `oauth_grants` row stayed NULL even while the token was in constant use.
+ * The audit log already recorded one row per tool call against the calling
+ * `token_id`, so the newest such instant is the honest "last used" for that
+ * token. A grant has no audit rows of its own, so its reading is the newest
+ * instant among the tokens issued under it.
+ *
+ * Both statements are idempotent and non-destructive: each writes only where
+ * `last_used IS NULL` and only where a source row actually exists, so a row that
+ * already carries a stamp — or that has genuinely never been used — keeps its
+ * value, and a second run changes nothing. The token pass runs first because the
+ * grant pass reads `access_tokens.last_used`.
+ *
+ * The `mcp_audit_log.at` column is written in SQLite's `CURRENT_TIMESTAMP` format
+ * (`YYYY-MM-DD HH:MM:SS`, UTC) by production and in ISO-8601 by tests, so the max
+ * is taken with `ORDER BY datetime(at)` rather than a lexicographic `MAX`, and
+ * the stored result is normalized to the ISO-8601 UTC form every other
+ * `last_used` writer produces — a mixed format would be read back by the
+ * throttle's `new Date(...)` as local time.
+ */
+const backfillLastUsedFromAuditLog = (db: Database): number => {
+  const tokens = db
+    .prepare(
+      `UPDATE access_tokens
+          SET last_used = (
+                SELECT strftime('%Y-%m-%dT%H:%M:%fZ', mcp_audit_log.at)
+                  FROM mcp_audit_log
+                 WHERE mcp_audit_log.token_id = access_tokens.id
+                 ORDER BY datetime(mcp_audit_log.at) DESC
+                 LIMIT 1
+              )
+        WHERE last_used IS NULL
+          AND EXISTS (SELECT 1 FROM mcp_audit_log WHERE mcp_audit_log.token_id = access_tokens.id)`
+    )
+    .run().changes;
+
+  const grants = db
+    .prepare(
+      `UPDATE oauth_grants
+          SET last_used = (
+                SELECT access_tokens.last_used
+                  FROM access_tokens
+                 WHERE access_tokens.grant_id = oauth_grants.id
+                   AND access_tokens.last_used IS NOT NULL
+                 ORDER BY datetime(access_tokens.last_used) DESC
+                 LIMIT 1
+              )
+        WHERE last_used IS NULL
+          AND EXISTS (
+                SELECT 1 FROM access_tokens
+                 WHERE access_tokens.grant_id = oauth_grants.id
+                   AND access_tokens.last_used IS NOT NULL
+              )`
+    )
+    .run().changes;
+
+  return tokens + grants;
+};
+
 const migrateLegacySessionNames = (db: Database): void => {
   const hasLegacySessionNamesTable = tableExists(db, 'session_names');
   const hasSessionsTable = tableExists(db, 'sessions');
@@ -1016,6 +1080,18 @@ export const runMigrations = (db: Database) => {
     db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_grants_client ON oauth_grants(client_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_grants_user ON oauth_grants(user_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_access_tokens_grant ON access_tokens(grant_id)');
+
+    // A token that was in use before the throttled stamp existed still reads as
+    // never used; the audit log already holds the honest answer. Runs after the
+    // audit table and the grant index exist. Idempotent — it writes only NULL
+    // columns and only where a source row exists — so it logs solely when it
+    // actually changed something.
+    const backfilledLastUsedRows = backfillLastUsedFromAuditLog(db);
+    if (backfilledLastUsedRows > 0) {
+      console.log(
+        `Running migration: Backfilled last_used for ${backfilledLastUsedRows} token/grant row(s)`
+      );
+    }
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');

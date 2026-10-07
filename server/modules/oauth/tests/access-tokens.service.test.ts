@@ -5,7 +5,8 @@
  * directory (temporary DATABASE_PATH + migrations), with an injected clock so
  * expiry can be reached by advancing time rather than sleeping. Covers:
  *   (a) plaintext only in the issue result, never on disk;
- *   (b) a live token verifies and stamps last_used;
+ *   (b) a live token verifies and stamps last_used, throttled to one write per
+ *       60-second window;
  *   (c) the five rejection reasons are pairwise distinct;
  *   (d) only 7/30/90 day lifetimes are accepted;
  *   (e) revocation takes effect on the next verify in the same process.
@@ -143,8 +144,8 @@ test('(a) plaintext appears once in the issue result and zero times in the datab
   });
 });
 
-test('(b) a live token verifies and stamps last_used from the injected clock', async () => {
-  await withAccessTokenDb(async ({ service, userId, currentTime }) => {
+test('(b) a live token verifies and stamps last_used from the injected clock, throttled to one write per window', async () => {
+  await withAccessTokenDb(async ({ service, userId, advanceTo, currentTime }) => {
     const issued = service.issueToken({
       userId,
       name: 'laptop',
@@ -166,7 +167,19 @@ test('(b) a live token verifies and stamps last_used from the injected clock', a
     assert.equal(verified.userId, userId);
     assert.deepEqual(verified.scopes, ['cloudcli:read', 'cloudcli:session:send']);
 
-    assert.equal(readLastUsed(), currentTime().toISOString());
+    // t0: the first use fills the NULL column with the clock's reading.
+    const firstStamp = currentTime().toISOString();
+    assert.equal(readLastUsed(), firstStamp);
+
+    // t0+59s: inside the window, so the stored instant is left alone.
+    advanceTo(new Date(START.getTime() + 59_000));
+    assert.equal(service.verifyToken(issued.token.token, 'cloudcli:read').ok, true);
+    assert.equal(readLastUsed(), firstStamp);
+
+    // t0+61s: past the window, so the instant advances to the new reading.
+    advanceTo(new Date(START.getTime() + 61_000));
+    assert.equal(service.verifyToken(issued.token.token, 'cloudcli:read').ok, true);
+    assert.equal(readLastUsed(), new Date(START.getTime() + 61_000).toISOString());
   });
 });
 

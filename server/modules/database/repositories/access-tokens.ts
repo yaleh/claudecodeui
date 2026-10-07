@@ -111,7 +111,12 @@ export const accessTokensDb = {
       .get(tokenHash) as AccessTokenRow | undefined;
   },
 
-  /** Records the instant a token was last accepted. */
+  /**
+   * Records the instant a token was last accepted. Consumers: the OAuth module's
+   * `access-tokens.service.ts` (PAT `verifyToken`) and `oauth-provider.service.ts`
+   * (OAuth `verifyAccessToken`). Both gate the call on `lastUsedStamp`, so a hot
+   * `/mcp` stream writes at most once per throttle window rather than per request.
+   */
   updateLastUsed(id: number, lastUsed: string): void {
     const db = getConnection();
     db.prepare('UPDATE access_tokens SET last_used = ? WHERE id = ?').run(lastUsed, id);

@@ -38,7 +38,8 @@ import { bearerToken } from '@/shared/utils.js';
  * The legs map one-to-one onto the AC: (a) PKCE S256, (b) single-use / 60-second /
  * replay revocation, (c) refresh rotation and reuse revocation, (d) scope
  * narrowing, (e) audience binding, (f) exact redirect_uri and client secret,
- * (g) configurable lifetimes and expiry boundaries.
+ * (g) configurable lifetimes and expiry boundaries, (h) the throttled `last_used`
+ * stamp on both the access token and its grant.
  */
 
 const PUBLIC_BASE_URL = 'https://cli.example';
@@ -783,5 +784,78 @@ test('(g) lifetimes: default access 3600s / refresh 30d, configurable to 120s / 
     assert.deepEqual(accessAtExpiry, { ok: false, reason: 'expired' });
     assert.equal(refreshBeforeExpiry.ok, true);
     assert.deepEqual(refreshAtExpiry, { ok: false, reason: 'expired' });
+  });
+});
+
+// --------------------------- (h) last_used stamping ---------------------------
+
+test('(h) verifying an OAuth access token stamps the token and its grant, throttled to one write per window', async () => {
+  await withOAuthProvider(async ({ store, provider, userId, advance, nowMsValue }) => {
+    const client = registerConfidentialClient(store, [REDIRECT_URI]);
+    const { verifier, challenge } = pkcePair();
+
+    const authorized = provider.authorize({
+      clientId: client.clientId,
+      redirectUri: REDIRECT_URI,
+      codeChallenge: challenge,
+      codeChallengeMethod: 'S256',
+      scopes: GRANT_SCOPES,
+      userId,
+    });
+    if (!authorized.ok) {
+      assert.fail(`authorize must succeed, got ${JSON.stringify(authorized)}`);
+    }
+
+    const exchanged = provider.exchangeAuthorizationCode({
+      code: authorized.code,
+      clientId: client.clientId,
+      clientSecret: client.clientSecret,
+      redirectUri: REDIRECT_URI,
+      codeVerifier: verifier,
+      resource: AUDIENCE,
+    });
+    if (!exchanged.ok) {
+      assert.fail(`exchange must succeed, got ${JSON.stringify(exchanged)}`);
+    }
+
+    const tokenLastUsed = (): string | null =>
+      accessTokensDb.findByHash(sha256Hex(exchanged.accessToken))?.last_used ?? null;
+    const grantLastUsed = (): string | null =>
+      oauthGrantsDb.findById(authorized.grantId)?.last_used ?? null;
+
+    // Never verified yet: neither the token nor the grant carries a reading.
+    console.log(`(h) before verify: token.last_used=${tokenLastUsed()} grant.last_used=${grantLastUsed()}`);
+    assert.equal(tokenLastUsed(), null);
+    assert.equal(grantLastUsed(), null);
+
+    // t0: a successful verify stamps both rows with the clock's reading.
+    const firstVerified = provider.verifyAccessToken(exchanged.accessToken, { resource: AUDIENCE });
+    assert.equal(firstVerified.ok, true);
+    const firstStamp = new Date(nowMsValue()).toISOString();
+    console.log(
+      `(h) after verify @t0: token.last_used=${tokenLastUsed()} grant.last_used=${grantLastUsed()} (clock ${firstStamp})`
+    );
+    assert.equal(tokenLastUsed(), firstStamp);
+    assert.equal(grantLastUsed(), firstStamp);
+
+    // t0+59s: inside the 60s window, so neither row is rewritten.
+    advance(59_000);
+    assert.equal(provider.verifyAccessToken(exchanged.accessToken, { resource: AUDIENCE }).ok, true);
+    console.log(
+      `(h) after verify @t0+59s: token.last_used=${tokenLastUsed()} grant.last_used=${grantLastUsed()}`
+    );
+    assert.equal(tokenLastUsed(), firstStamp);
+    assert.equal(grantLastUsed(), firstStamp);
+
+    // t0+61s: past the window, so both rows advance to the new reading.
+    advance(2_000);
+    assert.equal(provider.verifyAccessToken(exchanged.accessToken, { resource: AUDIENCE }).ok, true);
+    const secondStamp = new Date(nowMsValue()).toISOString();
+    console.log(
+      `(h) after verify @t0+61s: token.last_used=${tokenLastUsed()} grant.last_used=${grantLastUsed()} (clock ${secondStamp})`
+    );
+    assert.equal(tokenLastUsed(), secondStamp);
+    assert.equal(grantLastUsed(), secondStamp);
+    assert.notEqual(secondStamp, firstStamp);
   });
 });
