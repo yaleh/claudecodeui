@@ -65,6 +65,8 @@ depends_on:
 - src/modules/chat/ChatInterface.tsx
 - server/modules/mcp-gateway/tests/mcp-ui-visible-context.test.ts
 - server/modules/mcp-gateway/tests/mcp-read-tools.test.ts
+- server/modules/mcp-gateway/tests/mcp-english-only.test.ts
+- server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts
 - src/modules/chat/tests/uiStateResponder.test.tsx
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-mcp-ui-visible-context.md
@@ -74,4 +76,10 @@ depends_on:
 - **应答 hook 挂在 `src/modules/chat/ChatInterface.tsx` 而不是 `src/shared/context/WebSocketContext.tsx`**：`WebSocketContext` 位于 router 之上，读不到当前面板 / 选中项目与会话 / 待审批数 / 排队数；而 shared 反向 import 前端模块会被 oxlint boundaries 判红。`ChatInterface` 与既有 `useUiNavigate` 同处，正是这份状态所在。`WebSocketContext.tsx` 因此未被改动。
 - `ui-client-registry.service.ts` 新增了一个只增不改的读口 `listUiClientTargets(deviceId?)`：往返必须拿到 socket 才能写，而 `listUiClients` 刻意不暴露连接。socket 不出服务端（服务写完即弃），调用方仍旧只按设备/标签页寻址。
 - 计数 pin 更新：`mcp-read-tools.test.ts` 的 stage-3 读工具数 8 → 9；`quay-test-script.test.ts` 的 known/unknown 由 244/246 → 245/247（新增 1 个 server 测试文件，总数 248）。
+- **第 19 个工具触发了两张「registry 驱动」覆盖表的同步**（与 `471954f9` 为第 18 个工具做的是同一件事）：`mcp-english-only.test.ts` 把 tools/list 计数 18 → 19、`scanned >= 18` 下限 → 19，`SUCCESS_TABLE` 增加 `ui_visible_context`（夹具里接进注入的 `uiVisibleContext` 往返，给一条真实成功路径），`FAILURE_TABLE` 增加 `client: 5` 的 `INVALID_ARGUMENT` 浅失败；`mcp-error-envelope.test.ts` 的 `PROBE_TABLE` 同样增加该条并把计数 18 → 19。两张表都按注册名 deepEqual 全表，所以少一个名字即判红——这正是它们在本任务首次 fan-in 时 suite 变红的原因，本轮的修复。
 - **DoD 未在此会话执行**：真实服务 + 浏览器 + PAT 的走查属于外层/人工验证；本次交付的证据是 AC 的 5 条机械判据全部逐条退出码 0。
+
+## Evidence
+
+- 首次 fan-in suite 红：`mcp-english-only.test.ts` 与 `mcp-error-envelope.test.ts` 各断在「tools/list 必须是完整 18 工具集，得 19」——本任务把 `MCP_STAGE3_READ_TOOLS` 扩到 19（`ui_visible_context`），两张 registry 覆盖表未随之增长。delta 判定为 RELATED（同一模块、一跳导入），复现后按真因修复（见 Notes 末条）。
+- 修复后逐文件复跑：`mcp-english-only.test.ts` 10/10、`mcp-error-envelope.test.ts` 7/7；`npm run typecheck`（三条 tsconfig）退出码 0；AC 逐条复跑 `mcp-ui-visible-context.test.ts` 7/7、`mcp-tool-annotations.test.ts` 5/5、`mcp-error-vocabulary.test.ts` 5/5、`quay-test-script.test.ts` 11/11、`uiStateResponder.test.tsx` 5/5。
