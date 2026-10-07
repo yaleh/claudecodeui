@@ -556,7 +556,8 @@
       "sessionSend": "Отправка в сессии (cloudcli:session:send)",
       "sessionCreate": "Создание сессий (cloudcli:session:create)",
       "sessionControl": "Управление сессиями (cloudcli:session:control)",
-      "approve": "Подтверждение (cloudcli:approve)"
+      "approve": "Подтверждение (cloudcli:approve)",
+      "navigate": "Открыть сессию в одном из ваших браузеров (cloudcli:navigate)"
     }
   },
   "mcpGateway": {

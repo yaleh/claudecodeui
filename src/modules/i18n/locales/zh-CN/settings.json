@@ -673,7 +673,8 @@
       "sessionSend": "向会话发送（cloudcli:session:send）",
       "sessionCreate": "创建会话（cloudcli:session:create）",
       "sessionControl": "控制会话（cloudcli:session:control）",
-      "approve": "批准（cloudcli:approve）"
+      "approve": "批准（cloudcli:approve）",
+      "navigate": "在您的浏览器中打开会话（cloudcli:navigate）"
     }
   },
   "mcpGateway": {

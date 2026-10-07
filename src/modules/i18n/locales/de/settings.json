@@ -556,7 +556,8 @@
       "sessionSend": "An Sitzungen senden (cloudcli:session:send)",
       "sessionCreate": "Sitzungen erstellen (cloudcli:session:create)",
       "sessionControl": "Sitzungen steuern (cloudcli:session:control)",
-      "approve": "Genehmigen (cloudcli:approve)"
+      "approve": "Genehmigen (cloudcli:approve)",
+      "navigate": "Sitzung in einem Ihrer Browser öffnen (cloudcli:navigate)"
     }
   },
   "mcpGateway": {

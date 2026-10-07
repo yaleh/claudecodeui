@@ -41,6 +41,10 @@ export const ACCESS_TOKEN_SCOPES = [
   'cloudcli:session:create',
   'cloudcli:session:control',
   'cloudcli:approve',
+  // gap-mcp-ui-open-session: lets a token drive `ui_open_session`, the first
+  // tool that changes what the user's screen shows. Appended LAST so the five
+  // positional reads that predate it keep their index.
+  'cloudcli:navigate',
 ] as const;
 
 /**

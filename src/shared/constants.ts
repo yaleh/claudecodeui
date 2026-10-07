@@ -229,7 +229,7 @@ export const PROVIDER_PERMISSION_PREFERENCE_KEYS: Record<LLMProvider, UserPrefer
  * the `settings` i18n leaf that labels it.
  *
  * `cloudcli:read` is the required baseline every token carries and is the only
- * non-writable scope; the four write scopes are opt-in, and checking any of them
+ * non-writable scope; the five write scopes are opt-in, and checking any of them
  * is what makes the create form raise its write-access risk note. The vocabulary
  * mirrors the server's `ACCESS_TOKEN_SCOPES` (`server/modules/oauth`), which
  * rejects anything outside it. `labelKey` is an alias rather than the raw scope
@@ -246,4 +246,7 @@ export const ACCESS_TOKEN_SCOPE_OPTIONS: readonly {
   { scope: 'cloudcli:session:create', writable: true, labelKey: 'sessionCreate' },
   { scope: 'cloudcli:session:control', writable: true, labelKey: 'sessionControl' },
   { scope: 'cloudcli:approve', writable: true, labelKey: 'approve' },
+  // gap-mcp-ui-open-session: opens a session in one of the user's browsers. A
+  // write scope — it changes what the user's screen shows.
+  { scope: 'cloudcli:navigate', writable: true, labelKey: 'navigate' },
 ];

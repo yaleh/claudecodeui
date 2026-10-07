@@ -562,7 +562,8 @@
       "sessionSend": "Invia alle sessioni (cloudcli:session:send)",
       "sessionCreate": "Crea sessioni (cloudcli:session:create)",
       "sessionControl": "Controlla sessioni (cloudcli:session:control)",
-      "approve": "Approva (cloudcli:approve)"
+      "approve": "Approva (cloudcli:approve)",
+      "navigate": "Apri una sessione in uno dei tuoi browser (cloudcli:navigate)"
     }
   },
   "mcpGateway": {

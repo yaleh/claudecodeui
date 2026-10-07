@@ -141,6 +141,14 @@ const EXPECTED_ERROR_CODES: Readonly<Record<McpErrorCode, true>> = {
   FORBIDDEN: true,
   INTERNAL_ERROR: true,
   APPROVAL_EXPIRED_OR_NOT_FOUND: true,
+  // gap-mcp-ui-open-session: `ui_open_session`'s device-resolution and throttle
+  // refusals. This criterion's mount leaves the tool's deps unwired, so it reads
+  // the placeholder — the four are triggered by
+  // `tests/mcp-ui-open-session.test.ts` (see the exemptions below).
+  CLIENT_REQUIRED: true,
+  NO_CLIENT: true,
+  CLIENT_NOT_FOUND: true,
+  RATE_LIMITED: true,
 };
 
 /**
@@ -211,6 +219,26 @@ const CODE_EXEMPTIONS: ReadonlyArray<{ code: string; reason: string }> = [
     code: 'APPROVAL_EXPIRED_OR_NOT_FOUND',
     reason:
       "approval_answer reports this INSIDE its normal success-shaped payload (not as an error envelope), and converting it is AC-287's; AC-285 only needed it in the vocabulary so the value-position literal that mints it points at one source (e)",
+  },
+  {
+    code: 'CLIENT_REQUIRED',
+    reason:
+      "declared for gap-mcp-ui-open-session's `ui_open_session`; this criterion's mount leaves the tool's deps unwired (it reads the placeholder), so a single-call probe cannot reach the device-resolution refusal — `mcp-ui-open-session.test.ts` triggers it with two connected devices",
+  },
+  {
+    code: 'NO_CLIENT',
+    reason:
+      "declared for gap-mcp-ui-open-session's `ui_open_session`; unreachable here for the same unwired-deps reason — `mcp-ui-open-session.test.ts` triggers it with an empty device roster",
+  },
+  {
+    code: 'CLIENT_NOT_FOUND',
+    reason:
+      "declared for gap-mcp-ui-open-session's `ui_open_session`; unreachable here for the same unwired-deps reason — `mcp-ui-open-session.test.ts` triggers it by naming a device that is not connected",
+  },
+  {
+    code: 'RATE_LIMITED',
+    reason:
+      "declared for gap-mcp-ui-open-session's `ui_open_session`; it needs SEVEN calls on one token inside the window, which no single-call probe can produce — `mcp-ui-open-session.test.ts` drives the throttle to the limit",
   },
 ];
 

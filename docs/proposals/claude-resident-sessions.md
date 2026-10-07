@@ -432,14 +432,14 @@ E9 实测这条清单路径可靠：`claude` 2.1.282 下 **Stop hook 每轮都�
    - 新增的关闭动作调用 `unbind(..., 'user')`，只对 resident 开放。
 3. **模式切换**：宿主 `busy` 时不切换（前端按 `!isProcessing` 禁用入口，§15.2），本轮结束后才能切换。resident 转回 per-run 时，以 `mode-change` 解除绑定。
 4. **编辑已发送消息**（`chat.edit-send`，即 Claude 的 `resumeSessionAt`）：resident 下无法就地回退，只能以 `rewind` 关闭进程，再带截断点重新拉起。cron 和后台任务会丢失，前端必须先确认，确认框列出会丢失的内容（格式同 §15.2）。
-5. **分叉出的会话**默认 per-run，不继承 `lifecycle_mode`。
+5. **分叉出的会话继承源的 `lifecycle_mode`**（2026-10-07 人的裁定取代此条原文「分叉出的会话默认 per-run」，AC-169 判据 (3) 随之作废）：resident 源 fork 出的新会话为 resident，per-run 源 fork 后仍为 per-run。只复制**偏好值**，不拉起进程 —— fork 后没有 host，进程在第一次发送时才起。判据读数见 `server/modules/providers/tests/session-fork.test.ts`（`sourceMode=resident forkedMode=resident hostsStartedByFork=0`）。
 
 ### 14. 与现有功能的关系
 
 | 功能 | 处理 |
 |---|---|
 | 定时消息（`scheduled-messages`） | 常驻会话：`interruptActiveRun` 为真且 busy 时，先 `interrupt()` 再写入输入；否则按 §8 的忙时输入规则直接写入。不重启进程 |
-| 分叉会话 | 新会话默认 per-run，不继承常驻 |
+| 分叉会话 | 继承源的 `lifecycle_mode`（2026-10-07 人的裁定取代原「新会话默认 per-run」）：resident 源 → resident fork，per-run 源 → per-run fork；只复制偏好，不拉起进程 |
 | 编辑已发送消息 | 常驻会话按 §13 第 4 条处理 |
 | 归档/删除 | 先以 `user` 关闭常驻进程 |
 | Running sessions 视图 | 改为读统一的宿主接口；分"正在运行"和"常驻（空闲）"两组；侧栏徽标只计正在运行的（§15.8） |
@@ -470,7 +470,7 @@ E9 实测这条清单路径可靠：`claude` 2.1.282 下 **Stop hook 每轮都�
 - **已有会话**：`SessionOptions` 菜单加"转为常驻…"，打开同样内容的告知与勾选框，确认后生效。会话正在处理时禁用该项（与 `canFork` 一样按 `!isProcessing` 判断）。
 - **关闭常驻模式**（菜单项文案，即转回 per-run）：若仍有存活的 cron 或未结束的后台工作（按 §10 的清单），确认框**列出会丢失的内容**（如"2 个定时任务、1 个监视将停止"）；没有就直接切换。
 - **归档 / 删除**：进程存活时，现有确认框补一句"常驻进程会被关闭，定时任务会丢失"。
-- **分叉**：新会话默认 per-run，不需要额外提示。
+- **分叉**：新会话继承源的 `lifecycle_mode`（2026-10-07 人的裁定取代原「默认 per-run」），不需要额外提示 —— resident 源在进入常驻时已经过 §15.2 的知情面，fork 不另加确认流。
 
 #### 15.3 会话内状态条
 

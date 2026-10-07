@@ -563,7 +563,8 @@
       "sessionSend": "Oturumlara gönder (cloudcli:session:send)",
       "sessionCreate": "Oturum oluştur (cloudcli:session:create)",
       "sessionControl": "Oturumları kontrol et (cloudcli:session:control)",
-      "approve": "Onayla (cloudcli:approve)"
+      "approve": "Onayla (cloudcli:approve)",
+      "navigate": "Oturumu tarayıcılarınızdan birinde aç (cloudcli:navigate)"
     }
   },
   "mcpGateway": {

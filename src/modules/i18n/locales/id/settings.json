@@ -858,7 +858,8 @@
       "sessionSend": "Kirim ke sesi (cloudcli:session:send)",
       "sessionCreate": "Buat sesi (cloudcli:session:create)",
       "sessionControl": "Kendalikan sesi (cloudcli:session:control)",
-      "approve": "Setujui (cloudcli:approve)"
+      "approve": "Setujui (cloudcli:approve)",
+      "navigate": "Buka sesi di salah satu browser Anda (cloudcli:navigate)"
     }
   },
   "mcpGateway": {

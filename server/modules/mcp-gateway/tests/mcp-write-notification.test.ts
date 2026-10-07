@@ -279,6 +279,11 @@ const WRITE_CALLS: Array<{ tool: string; args: AnyRecord; sessionTitle: string |
   },
   { tool: 'session_background', args: { session: TARGET }, sessionTitle: TARGET_TITLE },
   { tool: 'approval_answer', args: { requestId: REQUEST_ID, allow: true }, sessionTitle: null },
+  // gap-mcp-ui-open-session: the sixth write tool. It notifies like every other
+  // `readOnlyHint: false` tool, so the plan must carry it too — the plan's
+  // deepEqual against the registry-derived set is the reading that forces a new
+  // write tool to be called here.
+  { tool: 'ui_open_session', args: { session: SEND_SESSION }, sessionTitle: SEND_TITLE },
 ];
 
 async function withHarness(options: HarnessOptions, run: (harness: Harness) => Promise<void>): Promise<void> {
@@ -405,6 +410,31 @@ async function withHarness(options: HarnessOptions, run: (harness: Harness) => P
               liveHost: () => null,
             },
           } as never,
+          // gap-mcp-ui-open-session: `ui_open_session`'s two services. Exactly one
+          // browser is connected, so the tool's optional `client` may be omitted
+          // and auto-selected, and the navigation resolves `applied` at once —
+          // which is all leg (a) needs: the call succeeds and therefore notifies.
+          uiOpenSession: {
+            listUiClients: () => [
+              {
+                deviceId: 'dev-ac303',
+                deviceName: 'AC303 Browser',
+                tabs: [{ tabId: 'tab-ac303', deviceName: 'AC303 Browser', connectedAt: NOW }],
+              },
+            ],
+            navigate: async (request) => ({
+              navigationId: 'nav-ac303',
+              deviceId: request.deviceId,
+              deviceName: request.deviceName,
+              tabId: 'tab-ac303',
+              sessionId: request.sessionId,
+              at: request.at,
+              requestedBy: request.requestedBy,
+              requestedAt: NOW,
+              updatedAt: NOW,
+              status: 'applied',
+            }),
+          },
         },
         residentTools: {
           control: { cancelQueued: async () => 'withdrawn' },

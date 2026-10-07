@@ -31,7 +31,7 @@
 
 import { z } from 'zod';
 
-import type { UiClientDevice, UiVisibleContextDevice } from '@/shared/types.js';
+import type { UiClientDevice, UiNavigationRecord, UiVisibleContextDevice } from '@/shared/types.js';
 import type { UiStateRequestOptions } from '@/modules/websocket/index.js';
 
 import { MCP_ERROR_CODES, McpToolError } from './mcp-error-envelope.js';
@@ -60,6 +60,14 @@ export type McpUiVisibleContextDeps = {
    * same primitive the other UI-facing tools share.
    */
   requestUiState: (options?: UiStateRequestOptions) => Promise<UiVisibleContextDevice[]>;
+  /**
+   * The retained navigation records, newest first, optionally narrowed to one
+   * `navigationId` (gap-mcp-ui-open-session). Bound to the websocket module's
+   * `listUiNavigations`. Optional: a mount without the navigation service still
+   * answers `navigations: []`, because "no navigation has been asked for" is the
+   * truthful reading of a process that cannot perform one.
+   */
+  listNavigations?: (navigationId?: string) => UiNavigationRecord[];
 };
 
 /** Whether the injected deps carry the round trip, i.e. this tool is wired. */
@@ -69,14 +77,26 @@ export function isUiVisibleContextWired(
   return deps.uiVisibleContext !== undefined;
 }
 
-/** The tool's arguments: an optional device reference. */
+/** The tool's arguments: an optional device reference and an optional navigation id. */
 export type McpUiVisibleContextInput = {
   client?: string;
+  /**
+   * Narrow the `navigations[]` reading to ONE navigation. Absent means every
+   * retained navigation is reported, which is how a caller asks "what did the
+   * browsers do with what I asked for".
+   */
+  navigationId?: string;
 };
 
-/** The tool's reading: every addressed device, most recently focused first. */
+/** The tool's reading: every addressed device, most recently focused first, plus the navigation log. */
 export type UiVisibleContextPayload = {
   devices: UiVisibleContextDevice[];
+  /**
+   * The retained `ui_open_session` records, newest first. Empty when nothing has
+   * been asked for (or when no navigation service is wired) — never omitted, so a
+   * caller can read "no navigations" without a second call.
+   */
+  navigations: UiNavigationRecord[];
 };
 
 /** Whether a device matches one query: an exact `deviceId`, or the substring in either of its names. */
@@ -156,13 +176,14 @@ export async function buildUiVisibleContext(
   deps: McpUiVisibleContextDeps,
   input: McpUiVisibleContextInput,
 ): Promise<UiVisibleContextPayload> {
+  const navigations = deps.listNavigations?.(input.navigationId) ?? [];
   const client = typeof input.client === 'string' ? input.client : null;
   if (client === null) {
-    return { devices: await deps.requestUiState() };
+    return { devices: await deps.requestUiState(), navigations };
   }
 
   const device = resolveDevice(deps.listUiClients(), client);
-  return { devices: await deps.requestUiState({ deviceId: device.deviceId }) };
+  return { devices: await deps.requestUiState({ deviceId: device.deviceId }), navigations };
 }
 
 /**

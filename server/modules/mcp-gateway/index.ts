@@ -224,11 +224,13 @@ export type { McpUiLastOpenedDeps, McpUiLastOpenedReading, McpUiLastOpenedStore 
 // The visible-context tool (gap-mcp-ui-visible-context). `buildUiVisibleContext`
 // asks the connected browsers what they are showing — over the websocket
 // module's round trip — and returns the per-device, per-tab identifiers and
-// ranges, resolving its optional `client` reference with AC-246's rules.
-// `McpUiVisibleContextDeps` is the injected pair `server/index.ts` binds to the
-// websocket barrel's `listUiClients` and `uiStateRequestService.requestUiState`;
-// `isUiVisibleContextWired` is the branch `registerMcpReadTools` takes between
-// the real handler and the named refusal.
+// ranges, resolving its optional `client` reference with AC-246's rules. It also
+// reports the `ui_open_session` navigation log as `navigations[]`
+// (gap-mcp-ui-open-session), narrowed by an optional `navigationId`.
+// `McpUiVisibleContextDeps` is the injected services `server/index.ts` binds to
+// the websocket barrel's `listUiClients` and `uiStateRequestService.requestUiState`,
+// plus `listUiNavigations`; `isUiVisibleContextWired` is the branch
+// `registerMcpReadTools` takes between the real handler and the named refusal.
 export {
   buildUiVisibleContext,
   isUiVisibleContextWired,
@@ -263,6 +265,36 @@ export type {
   UiClientsListTab,
 } from './mcp-ui-clients-list.js';
 
+// The open-session tool (gap-mcp-ui-open-session). `buildUiOpenSession` resolves
+// ONE connected browser (an exact `deviceId`, or a unique id/name substring; a
+// single device may be auto-selected), writes a `ui.navigate` to it, and returns
+// the DELIVERY reading without waiting for the user. `McpUiOpenSessionDeps` is the
+// injected triple `server/index.ts` binds to the websocket barrel's
+// `listUiClients` + `uiNavigationService.navigate` plus the process-wide
+// `createUiOpenSessionRateLimiter()`; `MCP_UI_OPEN_SESSION_RATE_LIMIT_PER_MINUTE`
+// is the fixed per-token throttle the criterion reads rather than re-typing.
+export {
+  buildUiOpenSession,
+  createUiOpenSessionRateLimiter,
+  isUiOpenSessionWired,
+  MCP_UI_OPEN_SESSION_RATE_LIMIT_PER_MINUTE,
+  readUiOpenSessionInput,
+  registerMcpUiOpenSessionTool,
+  resolveUiOpenSessionDevice,
+  UI_OPEN_SESSION_AT_SCHEMA,
+  UI_OPEN_SESSION_INPUT_SCHEMA,
+  UI_OPEN_SESSION_OUTPUT_SCHEMA,
+  UI_OPEN_SESSION_RATE_WINDOW_MS,
+} from './mcp-ui-open-session.js';
+export type {
+  McpUiOpenSessionDeps,
+  McpUiOpenSessionInput,
+  McpUiOpenSessionRegistration,
+  UiOpenSessionPayload,
+  UiOpenSessionRateLimiter,
+  UiOpenSessionRateLimiterOptions,
+} from './mcp-ui-open-session.js';
+
 // The stage-4 write tools (AC-249). `MCP_STAGE4_WRITE_TOOLS` is the one
 // statement of which write tools exist and the scope each requires — the
 // self-referential guard (AC-252) reads the names from it rather than writing a
@@ -275,7 +307,12 @@ export type {
 // criterion drives it through the real mount, and `server/index.ts` supplies the
 // deps it reads. `SESSION_SEND_INPUT_SCHEMA` / `readSessionSendInput` are the
 // one argument shape, shared by registration and validation.
-export { MCP_STAGE4_WRITE_TOOLS, registerMcpWriteTools } from './mcp-gateway.write-tools.js';
+export {
+  MCP_STAGE4_WRITE_TOOLS,
+  registerMcpWriteTools,
+  UI_OPEN_SESSION_DESCRIPTION,
+  UI_OPEN_SESSION_TOOL_NAME,
+} from './mcp-gateway.write-tools.js';
 export type {
   McpStage4WriteToolName,
   McpWriteToolDeps,

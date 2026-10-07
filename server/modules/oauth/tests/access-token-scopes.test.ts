@@ -36,7 +36,7 @@ import { AppError } from '@/shared/utils.js';
 const OWNER_ID = 1;
 
 /**
- * The five issuable scopes written out literally, so a source change that adds
+ * The six issuable scopes written out literally, so a source change that adds
  * `cloudcli:admin` (or drops a scope) is caught here rather than silently
  * changing what the criterion expects.
  */
@@ -46,6 +46,9 @@ const VOCABULARY = [
   'cloudcli:session:create',
   'cloudcli:session:control',
   'cloudcli:approve',
+  // gap-mcp-ui-open-session: appended last, so the five positional reads in the
+  // gateway's write-tool table keep their index.
+  'cloudcli:navigate',
 ] as const;
 
 /** A non-empty subset request and the unique scopes it must resolve to. */
@@ -224,7 +227,7 @@ async function withSettingsServer(run: (harness: Harness) => Promise<void>): Pro
   }
 }
 
-test('(vocabulary) ACCESS_TOKEN_SCOPES is exactly the five issuable scopes, admin absent', () => {
+test('(vocabulary) ACCESS_TOKEN_SCOPES is exactly the six issuable scopes, admin absent', () => {
   assert.deepEqual([...ACCESS_TOKEN_SCOPES], [...VOCABULARY]);
   assert.equal((ACCESS_TOKEN_SCOPES as readonly string[]).includes('cloudcli:admin'), false);
   console.log(`(vocabulary) ACCESS_TOKEN_SCOPES = ${JSON.stringify(ACCESS_TOKEN_SCOPES)}`);

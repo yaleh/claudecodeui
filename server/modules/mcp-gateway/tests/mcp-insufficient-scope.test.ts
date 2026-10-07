@@ -82,8 +82,14 @@ const {
 
 // AC-243's single scope vocabulary, read positionally (its order is pinned by the
 // OAuth module's own criterion); the literals are never re-typed here.
-const [READ_SCOPE, SESSION_SEND_SCOPE, SESSION_CREATE_SCOPE, SESSION_CONTROL_SCOPE, APPROVE_SCOPE] =
-  ACCESS_TOKEN_SCOPES;
+const [
+  READ_SCOPE,
+  SESSION_SEND_SCOPE,
+  SESSION_CREATE_SCOPE,
+  SESSION_CONTROL_SCOPE,
+  APPROVE_SCOPE,
+  NAVIGATE_SCOPE,
+] = ACCESS_TOKEN_SCOPES;
 
 /** The only scope the read-only token carries — the "held" set the missing set is measured against. */
 const READ_ONLY_TOKEN_SCOPES: string[] = [READ_SCOPE];
@@ -124,6 +130,9 @@ function declaredToolScopes(): Map<string, string> {
   scopes.set('session_background', READ_SCOPE);
   scopes.set('approvals_list', READ_SCOPE);
   scopes.set('approval_answer', APPROVE_SCOPE);
+  // gap-mcp-ui-open-session: registered alongside the stage-4 table, so it is
+  // not covered by the loop above.
+  scopes.set('ui_open_session', NAVIGATE_SCOPE);
   return scopes;
 }
 

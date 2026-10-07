@@ -151,6 +151,9 @@ test('recent sessions carry the source id for a branched conversation', { concur
       model: null,
       effort: null,
       permissionMode: null,
+      // The source above never set a mode, so its fork reads back the column
+      // default; the column is exercised by `session-fork.test.ts`.
+      lifecycleMode: 'per-run',
     });
 
     const page = sessionsService.listRecentSessions(10, 0);

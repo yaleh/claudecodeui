@@ -827,7 +827,9 @@ const TOOL_BODIES = {
     handle: () => notImplemented('ui_last_opened_session', 'gap-mcp-ui-last-opened-session'),
   },
   ui_visible_context: {
-    inputSchema: { client: z.string().optional() },
+    // `navigationId` narrows the `navigations[]` reading to one record
+    // (gap-mcp-ui-open-session); `client` narrows which browsers are asked.
+    inputSchema: { client: z.string().optional(), navigationId: z.string().optional() },
     // The reading, one entry per addressed device. Every field is nullable
     // because a tab that did not answer reports none of them — the shape has to
     // admit "asked, asleep" as readily as it admits a full reading.
@@ -856,6 +858,28 @@ const TOOL_BODIES = {
               queuedMessages: z.number().nullable(),
             }),
           ),
+        }),
+      ),
+      // The `ui_open_session` navigation log (gap-mcp-ui-open-session), newest
+      // first: what was asked for, in which browser, and the last status known
+      // (`pending_user` while an ask-policy prompt is up, then the final verdict
+      // a later `ui.navigate_result` reports). Empty when nothing was asked or no
+      // navigation service is wired — never omitted.
+      navigations: z.array(
+        z.object({
+          navigationId: z.string(),
+          deviceId: z.string(),
+          deviceName: z.string(),
+          tabId: z.string().nullable(),
+          sessionId: z.string(),
+          at: z.union([
+            z.object({ latest: z.literal(true) }),
+            z.object({ messageId: z.string() }),
+          ]),
+          requestedBy: z.string().nullable(),
+          requestedAt: z.number(),
+          updatedAt: z.number(),
+          status: z.enum(['applied', 'declined', 'pending_user', 'ignored', 'superseded', 'expired']),
         }),
       ),
     },

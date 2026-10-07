@@ -493,6 +493,13 @@ export const sessionsService = {
       // Same reasoning for the permission mode: a fork inherits how the
       // conversation it branches from was actually being run.
       permissionMode: source.permission_mode,
+      // And the lifecycle mode: a resident conversation branches into a resident
+      // fork (the human ruling of 2026-10-07 overturned AC-169's "a fork does
+      // not inherit"). `getSessionLifecycleMode` gives the fallback for free —
+      // an unknown stored value reads as `per-run`. This copies the stored
+      // preference only: the fork has no host, and its process (if any) starts
+      // on the first send, not here.
+      lifecycleMode: sessionsDb.getSessionLifecycleMode(sessionId),
     });
 
     await broadcastSessionUpserted(forkSessionId);
