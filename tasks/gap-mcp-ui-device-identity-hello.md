@@ -37,10 +37,10 @@ depends_on:
 
 ## AC
 
-- [ ] `npx vitest run src/shared/tests/deviceIdentity.test.ts` 退出码 0：`getDeviceId()` 在同一 localStorage 内稳定、清除后变化；`getTabId()` 在同一 sessionStorage 内稳定、不同 sessionStorage 不同；存储不可用时不抛错。
-- [ ] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/websocket/tests/ui-client-registry.test.ts` 退出码 0：`ui.hello` 后 `listUiClients()` 返回该设备；连接关闭后消失；同一 `deviceId` 的两条连接聚合为一个设备两个标签页；字段超长或类型错误的 `ui.hello` 被丢弃且连接保持。
-- [ ] 前端测试断言每次 WS（重新）连接后恰好发送一次 `ui.hello`，且内容含 `deviceId`、`tabId` 与设备名。
-- [ ] `npm run typecheck` 退出码 0；`quay-test-script` 的文件数 pin 已同步（只在 `server/shared/tests/quay-test-script.test.ts`），该测试退出码 0。
+- [x] `npx vitest run src/shared/tests/deviceIdentity.test.ts` 退出码 0：`getDeviceId()` 在同一 localStorage 内稳定、清除后变化；`getTabId()` 在同一 sessionStorage 内稳定、不同 sessionStorage 不同；存储不可用时不抛错。
+- [x] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/websocket/tests/ui-client-registry.test.ts` 退出码 0：`ui.hello` 后 `listUiClients()` 返回该设备；连接关闭后消失；同一 `deviceId` 的两条连接聚合为一个设备两个标签页；字段超长或类型错误的 `ui.hello` 被丢弃且连接保持。
+- [x] 前端测试断言每次 WS（重新）连接后恰好发送一次 `ui.hello`，且内容含 `deviceId`、`tabId` 与设备名。
+- [x] `npm run typecheck` 退出码 0；`quay-test-script` 的文件数 pin 已同步（只在 `server/shared/tests/quay-test-script.test.ts`），该测试退出码 0。
 
 ## DoD
 
