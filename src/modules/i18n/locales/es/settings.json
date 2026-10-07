@@ -627,7 +627,8 @@
       "createButton": "Crear token",
       "cancelButton": "Cancelar",
       "scopesLabel": "Ámbitos",
-      "writeScopeRisk": "Este token puede enviar, crear y controlar sesiones. Mantenlo en secreto."
+      "writeScopeRisk": "Este token puede enviar, crear y controlar sesiones. Mantenlo en secreto.",
+      "defaultName": "Token MCP · {{date}}"
     },
     "newToken": {
       "alertTitle": "⚠️ Guarda tu token de acceso",
@@ -644,7 +645,9 @@
       "active": "Activo",
       "revoked": "Revocado",
       "revokeButton": "Revocar",
-      "revokeConfirm": "¿Seguro que quieres revocar este token? Esta acción no se puede deshacer."
+      "revokeConfirm": "¿Seguro que quieres revocar este token? Esta acción no se puede deshacer.",
+      "created": "Creado:",
+      "expired": "Caducado"
     },
     "scopes": {
       "read": "Lectura (cloudcli:read)",
@@ -653,6 +656,17 @@
       "sessionControl": "Controlar sesiones (cloudcli:session:control)",
       "approve": "Aprobar (cloudcli:approve)",
       "navigate": "Abrir una sesión en uno de tus navegadores (cloudcli:navigate)"
+    },
+    "oauthTokens": {
+      "title": "Avanzado: tokens OAuth (solo lectura)",
+      "description": "Tokens emitidos por los flujos OAuth (aplicaciones conectadas y clientes MCP). Los gestionan esos flujos y no se pueden crear ni revocar aquí.",
+      "empty": "Aún no se ha emitido ningún token OAuth.",
+      "showInactive": "Mostrar revocados y caducados",
+      "unknownClient": "Cliente desconocido",
+      "kind": "Tipo:",
+      "kindAccess": "Token de acceso",
+      "kindRefresh": "Token de actualización",
+      "scopes": "Ámbitos:"
     }
   },
   "mcpGateway": {

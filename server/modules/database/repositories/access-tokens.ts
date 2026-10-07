@@ -83,16 +83,27 @@ export const accessTokensDb = {
   },
 
   /**
-   * Lists every token row owned by `userId`, newest first. Used by the settings
+   * Lists the token rows owned by `userId`, newest first. Used by the settings
    * module's `/access-tokens` list; the caller projects away `token_hash`, which
    * this read deliberately includes so the projection is the caller's explicit
    * allowlist rather than an accidental omission.
+   *
+   * `kind` narrows the read to a single token kind at the SQL layer. The settings
+   * PAT list passes `'pat'` so the OAuth tokens the OAuth store writes (whose
+   * `name` is NULL) can never appear in it; the MCP-audit reader and the settings
+   * OAuth-token list omit it and receive every kind, because an OAuth token
+   * makes MCP calls too.
    */
-  listByUser(userId: number): AccessTokenRow[] {
+  listByUser(userId: number, kind?: string): AccessTokenRow[] {
     const db = getConnection();
+    if (kind === undefined) {
+      return db
+        .prepare(`SELECT ${TOKEN_COLUMNS} FROM access_tokens WHERE user_id = ? ORDER BY id DESC`)
+        .all(userId) as AccessTokenRow[];
+    }
     return db
-      .prepare(`SELECT ${TOKEN_COLUMNS} FROM access_tokens WHERE user_id = ? ORDER BY id DESC`)
-      .all(userId) as AccessTokenRow[];
+      .prepare(`SELECT ${TOKEN_COLUMNS} FROM access_tokens WHERE user_id = ? AND kind = ? ORDER BY id DESC`)
+      .all(userId, kind) as AccessTokenRow[];
   },
 
   /** Finds a token by its row id; undefined when no row matches. Used to check ownership before revocation. */

@@ -10,7 +10,7 @@ import type { ChatMessage,
   ProviderModelsDefinition,
   SessionActivity } from '@/shared/types';
 import { RESIDENT_PENDING_MESSAGE_TYPE } from '@/modules/chat/hooks/useChatMessages';
-import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
+import { getIntrinsicMessageKey, messageAnchorId } from '@/modules/chat/utils/messageKeys';
 import { groupWorkSegments, isWorkSegment } from '@/modules/chat/utils/workSegments';
 import { findSearchTargetIndex } from '@/modules/chat/utils/searchTargetLocator';
 import { nextPxPerMessage } from '@/modules/chat/utils/contentHeightModel';
@@ -561,7 +561,7 @@ function ChatMessagesPane({
                     key={segmentKey}
                     lazyRows={lazyRows}
                     timestamp={anchorTimestamp}
-                    anchorId={item.messages[0]?.transcriptAnchorId}
+                    anchorId={item.messages[0] ? messageAnchorId(item.messages[0]) : null}
                     initiallyNearViewport={initiallyNearViewport}
                     estimatedHeightPerMessage={pxPerMessage}
                     messageCount={item.messages.length}
@@ -623,7 +623,7 @@ function ChatMessagesPane({
                   key={getMessageKey(item)}
                   lazyRows={lazyRows}
                   timestamp={item.timestamp}
-                  anchorId={item.transcriptAnchorId}
+                  anchorId={messageAnchorId(item)}
                   initiallyNearViewport={initiallyNearViewport}
                   estimatedHeightPerMessage={pxPerMessage}
                 >

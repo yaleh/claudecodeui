@@ -16,6 +16,7 @@ export default function CredentialsSettingsTab() {
   const { t } = useTranslation('settings');
   const {
     accessTokens,
+    oauthTokens,
     githubCredentials,
     loading,
     showNewTokenForm,
@@ -94,6 +95,7 @@ export default function CredentialsSettingsTab() {
 
       <AccessTokensSection
         accessTokens={accessTokens}
+        oauthTokens={oauthTokens}
         showNewTokenForm={showNewTokenForm}
         newTokenName={newTokenName}
         newTokenExpiryDays={newTokenExpiryDays}

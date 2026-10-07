@@ -2,9 +2,15 @@ import { act, render } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useUiStateResponder, type UseUiStateResponderDeps } from '@/modules/chat/hooks/useUiStateResponder';
+import {
+  UNKNOWN_PANEL,
+  useUiStateResponder,
+  type UseUiStateResponderDeps,
+} from '@/modules/chat/hooks/useUiStateResponder';
+import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
+import { messageAnchorId } from '@/modules/chat/utils/messageKeys';
 import { getDeviceId, getTabId } from '@/shared/utils/deviceIdentity';
-import type { ServerEvent } from '@/shared/types';
+import type { ChatMessage, ServerEvent } from '@/shared/types';
 
 /**
  * The browser half of the `ui_visible_context` round trip.
@@ -110,6 +116,93 @@ const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibility
 function stubVisibility(value: 'visible' | 'hidden'): void {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value });
 }
+
+/** A `ChatMessage` with the two required fields defaulted, so a case states only what it is about. */
+const message = (fields: Partial<ChatMessage> & Pick<ChatMessage, 'type'>): ChatMessage => ({
+  timestamp: '2024-01-01T00:00:00.000Z',
+  content: '',
+  ...fields,
+});
+
+/** jsdom lays every element out at zero; a row's geometry has to be handed to it. */
+const setRect = (element: Element, top: number, height: number): void => {
+  (element as HTMLElement).getBoundingClientRect = () =>
+    ({
+      top,
+      bottom: top + height,
+      height,
+      left: 0,
+      right: 400,
+      width: 400,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    }) as DOMRect;
+};
+
+/**
+ * One row exactly as `ChatMessagesPane` renders it: the real `LazyMessageRow`, addressed by the
+ * pane's own rule and mounting its content because a standalone render has no lazy observer
+ * (`lazyRows={null}`).
+ *
+ * Rendering through the real wrapper rather than a hand-built `div` is the point of these cases —
+ * the `data-message-anchor-id` under test is the attribute *that component* publishes, from the
+ * anchor *that rule* computes, which is the pair the responder reads in a live browser.
+ */
+function TranscriptRow({ row }: { row: { message: ChatMessage } }) {
+  return (
+    <LazyMessageRow
+      lazyRows={null}
+      timestamp={row.message.timestamp}
+      anchorId={messageAnchorId(row.message)}
+      initiallyNearViewport
+    >
+      <div className="chat-message">{row.message.content}</div>
+    </LazyMessageRow>
+  );
+}
+
+/** A message plus the geometry the case wants the DOM to report for its row. */
+type LaidOutRow = { message: ChatMessage; top: number; height: number };
+
+/**
+ * Renders a transcript into a real scroll container — `overflow-y: auto`, as the pane is — and
+ * hands every element the geometry jsdom cannot compute. Returns the pane and the addressed rows
+ * in document order, which is transcript order and therefore the order the responder walks.
+ */
+function renderTranscript(rows: LaidOutRow[], pane: { top: number; height: number }) {
+  const { container } = render(
+    <div className="chat-messages-pane" style={{ overflowY: 'auto' }}>
+      {rows.map((row, index) => (
+        <TranscriptRow key={messageAnchorId(row.message) ?? index} row={row} />
+      ))}
+    </div>,
+  );
+  const paneElement = container.querySelector<HTMLElement>('.chat-messages-pane');
+  if (!paneElement) {
+    throw new Error('the transcript pane did not render');
+  }
+  setRect(paneElement, pane.top, pane.height);
+  const rowElements = Array.from(paneElement.querySelectorAll<HTMLElement>('[data-message-anchor-id]'));
+  rowElements.forEach((element, index) => {
+    const row = rows[index];
+    if (row) {
+      setRect(element, row.top, row.height);
+    }
+  });
+  return { paneElement, rowElements };
+}
+
+/** The ids on screen, computed from the DOM the way the criterion words it: rows inside the pane band. */
+const onScreenIds = (pane: HTMLElement, rows: HTMLElement[]): (string | null)[] => {
+  const paneRect = pane.getBoundingClientRect();
+  return rows
+    .filter((row) => {
+      const rect = row.getBoundingClientRect();
+      return rect.bottom > paneRect.top && rect.top < paneRect.bottom;
+    })
+    .map((row) => row.getAttribute('data-message-anchor-id'));
+};
 
 beforeEach(() => {
   localStorage.clear();
@@ -219,5 +312,100 @@ describe('a ui.state_request is answered with this tab’s visible context', () 
     await rig.dispatch(requestFrame('req-two'));
 
     expect(rig.sent.map((frame) => frame.requestId)).toEqual(['req-one', 'req-two']);
+  });
+});
+
+describe('the anchor rule the transcript and the responder share', () => {
+  it('prefers the provider anchor, then the read row id, then this client’s own row id', () => {
+    expect(messageAnchorId({ transcriptAnchorId: 'anchor-user', transcriptRowId: 'row-1', id: 'live:1' })).toBe(
+      'anchor-user',
+    );
+    // A row from a read has no provider anchor and no `id` — its address is its own row id.
+    expect(messageAnchorId({ transcriptRowId: 'row-1', id: 'live:1' })).toBe('row-1');
+    expect(messageAnchorId({ id: 'live:1' })).toBe('live:1');
+    expect(messageAnchorId({})).toBeNull();
+  });
+
+  it('addresses an assistant row that carries only its read id — the arrangement the defect left blank', () => {
+    const assistant = message({ type: 'assistant', transcriptRowId: 'e2e-answer_0', content: 'the answer' });
+    // No provider anchor: Claude stamps one on user turns alone, which is why the raw field named nothing here.
+    expect(assistant.transcriptAnchorId).toBeUndefined();
+    expect(messageAnchorId(assistant)).toBe('e2e-answer_0');
+  });
+});
+
+describe('the visible-message range over a real transcript', () => {
+  it('reports the first and last on-screen row’s anchor ids, not a pair of nulls', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    stubVisibility('visible');
+
+    // A prompt scrolled just past the pane's top, then two assistant rows filling the band — the
+    // arrangement the defect met with an empty range: the band holds a message, so the addresses
+    // must be the band's own rows.
+    const rows: LaidOutRow[] = [
+      // Bottom 40 sits inside the window but above the pane (top 60), so only the clip excludes it.
+      { message: message({ type: 'user', transcriptAnchorId: 'anchor-prompt', content: 'the prompt' }), top: -300, height: 340 },
+      { message: message({ type: 'assistant', transcriptRowId: 'e2e-answer_0', content: 'the answer' }), top: 100, height: 500 },
+      { message: message({ type: 'assistant', transcriptRowId: 'e2e-answer_1', content: 'the tail' }), top: 640, height: 100 },
+    ];
+    const { paneElement, rowElements } = renderTranscript(rows, { top: 60, height: 700 });
+
+    const rig = buildRig();
+    render(<Harness {...rig.deps} />);
+    await rig.dispatch(requestFrame('req-range'));
+
+    const range = rig.reply().visibleMessages as { first: string | null; last: string | null };
+    const expected = onScreenIds(paneElement, rowElements);
+    expect(expected.length, 'the band must hold rows, or there is nothing to compare the range to').toBe(2);
+
+    expect(range.first, 'the reported first id must be non-null').not.toBeNull();
+    expect(range.last, 'the reported last id must be non-null').not.toBeNull();
+    // The ends are the ends of what is really on screen, in transcript order.
+    expect(range).toEqual({ first: expected[0], last: expected[expected.length - 1] });
+    expect(range).toEqual({ first: 'e2e-answer_0', last: 'e2e-answer_1' });
+
+    // The assistant row the defect left unaddressable is the one carrying the reported address.
+    const assistantRow = rowElements.find((row) => row.textContent === 'the answer');
+    expect(assistantRow?.getAttribute('data-message-anchor-id')).toBe('e2e-answer_0');
+  });
+
+  it('still reports an empty range, honestly, when no row is on screen', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    stubVisibility('visible');
+
+    const rows: LaidOutRow[] = [
+      { message: message({ type: 'user', transcriptAnchorId: 'anchor-prompt', content: 'above' }), top: -600, height: 200 },
+      { message: message({ type: 'assistant', transcriptRowId: 'e2e-answer_0', content: 'below' }), top: 2_000, height: 300 },
+    ];
+    const { paneElement, rowElements } = renderTranscript(rows, { top: 60, height: 700 });
+    expect(onScreenIds(paneElement, rowElements)).toEqual([]);
+
+    const rig = buildRig();
+    render(<Harness {...rig.deps} />);
+    await rig.dispatch(requestFrame('req-empty'));
+
+    expect(rig.reply().visibleMessages).toEqual({ first: null, last: null });
+  });
+});
+
+describe('an absent workspace and an unreadable one are two different readings', () => {
+  it('reports null with no workspace mounted and the unknown sentinel when the read fails', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    stubVisibility('visible');
+    const rig = buildRig();
+    render(<Harness {...rig.deps} />);
+
+    // No `data-workspace-tab` anywhere: this tab is not showing a workspace, so the question does not apply.
+    await rig.dispatch(requestFrame('req-no-workspace'));
+    expect(rig.reply().panel).toBeNull();
+
+    // A workspace shell is mounted, but no view marks itself active — the read failed. Reporting
+    // null here would read to a caller exactly like "this tab shows no workspace".
+    const tab = document.createElement('button');
+    tab.setAttribute('data-workspace-tab', 'chat');
+    document.body.appendChild(tab);
+
+    await rig.dispatch(requestFrame('req-unreadable'));
+    expect(rig.reply().panel).toBe(UNKNOWN_PANEL);
   });
 });

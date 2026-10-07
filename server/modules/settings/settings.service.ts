@@ -9,11 +9,14 @@ type NotificationPreferences = Record<string, unknown> & {
 /**
  * A persisted access-token row as the token store returns it. `token_hash` is
  * present because it is the storage form; the settings projection deliberately
- * omits it so a list response can never leak the hash.
+ * omits it so a list response can never leak the hash. `kind` is the row's token
+ * kind (`'pat'`, `'oauth_access'` or `'oauth_refresh'`) — the PAT list selects on
+ * it so an OAuth row can never render as a nameless "Unnamed token".
  */
 type StoredAccessToken = {
   id: number;
   user_id: number;
+  kind: string;
   token_prefix: string;
   name: string | null;
   scopes: string;
@@ -24,13 +27,32 @@ type StoredAccessToken = {
 };
 
 /**
+ * One OAuth access/refresh token row, already joined to its grant's client name.
+ * `token_hash` is present because it is the storage form; `projectOAuthToken`
+ * omits it so the read-only list response cannot leak the hash.
+ */
+type StoredOAuthToken = {
+  id: number;
+  kind: string;
+  token_hash: string;
+  token_prefix: string;
+  scopes: string;
+  expires_at: string;
+  created_at: string | null;
+  last_used: string | null;
+  revoked_at: string | null;
+  client_name: string | null;
+};
+
+/**
  * The token-store operations Settings delegates to. Satisfied by the OAuth
  * module's `AccessTokensService` (issue/revoke) plus the access-token repository
  * (list/find); the settings service owns the projection and the ownership check
  * so this module never imports the OAuth implementation directly.
  */
 type AccessTokensPort = {
-  list(userId: number): StoredAccessToken[];
+  /** `kind` narrows the SQL read; the PAT list passes `'pat'`. */
+  list(userId: number, kind?: string): StoredAccessToken[];
   findById(tokenId: number): StoredAccessToken | undefined;
   issue(input: {
     userId: number;
@@ -69,6 +91,18 @@ type SettingsDependencies = {
   };
   getVapidPublicKey(): string | null;
   accessTokens: AccessTokensPort;
+  /**
+   * The read-only seam behind the Settings → API page's advanced OAuth-token list.
+   *
+   * Optional so the existing service criteria keep constructing the dependency
+   * object they always have; the module always supplies it (see
+   * `settings.module.ts`). It returns the caller's non-PAT token rows already
+   * joined to their grant's client name, so the join (a grant → client lookup)
+   * lives where the repositories are wired rather than here.
+   */
+  oauthTokens?: {
+    list(userId: number): StoredOAuthToken[];
+  };
   /**
    * The read-only seams the Settings → API page's CloudCLI MCP block needs.
    *
@@ -121,6 +155,27 @@ function projectAccessToken(row: StoredAccessToken) {
     expiresAt: row.expires_at,
     lastUsed: row.last_used,
     createdAt: row.created_at,
+    revokedAt: row.revoked_at,
+  };
+}
+
+/**
+ * Projects an OAuth token row to the read-only advanced list's shape. Like
+ * `projectAccessToken` this is an allowlist: `token_hash` is not copied, so the
+ * hash cannot reach the response even if the storage row grows new secret
+ * columns. `clientName` is the OAuth client the token's grant belongs to, so the
+ * row is identified by name instead of the NULL `name` the store writes.
+ */
+function projectOAuthToken(row: StoredOAuthToken) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    tokenPrefix: row.token_prefix,
+    clientName: row.client_name,
+    scopes: JSON.parse(row.scopes) as string[],
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    lastUsed: row.last_used,
     revokedAt: row.revoked_at,
   };
 }
@@ -198,7 +253,27 @@ export function createSettingsService(dependencies: SettingsDependencies) {
       return { success: true };
     },
     listAccessTokens(userId: number) {
-      return { tokens: dependencies.accessTokens.list(userId).map(projectAccessToken) };
+      // PAT-only on the SQL layer: the OAuth store writes each oauth_access /
+      // oauth_refresh row with a NULL name, and without the kind filter those rows
+      // rendered as "Unnamed token" in this list (they belong in the advanced
+      // read-only list below, never here).
+      return { tokens: dependencies.accessTokens.list(userId, 'pat').map(projectAccessToken) };
+    },
+    /**
+     * The Settings → API page's advanced, read-only OAuth-token list: the caller's
+     * non-PAT rows, each carrying its grant's client name. There is deliberately no
+     * create or revoke here — OAuth tokens are minted and revoked by the OAuth
+     * flows and the grant/client cascades, never from this list.
+     */
+    listOAuthTokens(userId: number) {
+      const oauthTokens = dependencies.oauthTokens;
+      if (!oauthTokens) {
+        throw new AppError('OAuth tokens are not configured', {
+          code: 'OAUTH_TOKENS_UNAVAILABLE',
+          statusCode: 500,
+        });
+      }
+      return { tokens: oauthTokens.list(userId).map(projectOAuthToken) };
     },
     createAccessToken(userId: number, input: Record<string, unknown>) {
       const name = requiredString(input.name, 'Token name', 'TOKEN_NAME_REQUIRED');

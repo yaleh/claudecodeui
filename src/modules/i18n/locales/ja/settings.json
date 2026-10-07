@@ -532,7 +532,8 @@
       "createButton": "トークンを作成",
       "cancelButton": "キャンセル",
       "scopesLabel": "スコープ",
-      "writeScopeRisk": "このトークンはセッションの送信・作成・制御ができます。安全に保管してください。"
+      "writeScopeRisk": "このトークンはセッションの送信・作成・制御ができます。安全に保管してください。",
+      "defaultName": "MCP トークン · {{date}}"
     },
     "newToken": {
       "alertTitle": "⚠️ アクセストークンを保存してください",
@@ -549,7 +550,9 @@
       "active": "有効",
       "revoked": "失効",
       "revokeButton": "失効させる",
-      "revokeConfirm": "このトークンを失効させますか？この操作は元に戻せません。"
+      "revokeConfirm": "このトークンを失効させますか？この操作は元に戻せません。",
+      "created": "作成日:",
+      "expired": "期限切れ"
     },
     "scopes": {
       "read": "読み取り（cloudcli:read）",
@@ -558,6 +561,17 @@
       "sessionControl": "セッションを制御（cloudcli:session:control）",
       "approve": "承認（cloudcli:approve）",
       "navigate": "お使いのブラウザでセッションを開く（cloudcli:navigate）"
+    },
+    "oauthTokens": {
+      "title": "詳細: OAuth トークン（読み取り専用）",
+      "description": "OAuth フロー（連携アプリと MCP クライアント）が発行したトークンです。これらはフロー側で管理され、ここで作成・失効させることはできません。",
+      "empty": "OAuth トークンはまだ発行されていません。",
+      "showInactive": "失効済みと期限切れを表示",
+      "unknownClient": "不明なクライアント",
+      "kind": "種類:",
+      "kindAccess": "アクセストークン",
+      "kindRefresh": "リフレッシュトークン",
+      "scopes": "スコープ:"
     }
   },
   "mcpGateway": {

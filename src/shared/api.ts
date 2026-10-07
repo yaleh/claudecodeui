@@ -610,6 +610,9 @@ export const api = {
   // Server-side settings: personal access tokens, stored credentials, notifications, web push
   settings: {
     accessTokens: () => get('/api/settings/access-tokens'),
+    // The advanced, read-only OAuth-token list beside the PAT list. GET only: there
+    // is no create/revoke here on purpose (OAuth tokens are revoked via grants).
+    oauthTokens: () => get('/api/settings/oauth-tokens'),
     createAccessToken: (payload: { name: string; expiresInDays: number; scopes: string[] }) =>
       post('/api/settings/access-tokens', payload),
     revokeAccessToken: (tokenId: number) => del(`/api/settings/access-tokens/${tokenId}`),
