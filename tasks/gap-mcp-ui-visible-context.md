@@ -94,3 +94,21 @@ depends_on:
 - session_id：0c64ee80-f841-4b26-b935-30d1b4a73db1
 - suite 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-suite-gap-mcp-ui-visible-context~wk-prod-anchor~1791345917182-d6257d.log
 - fan-in 日志：/data/home/yale/work/claudecodeui/.quay/fan-in-gap-mcp-ui-visible-context-wk-prod-anchor.log
+
+
+
+## Resolution (2026-10-07) — 上面的 Needs-Human 停派记录已被本节推翻
+
+停派理由是「失败无法归因」，但那次归因失败是**解析器**的限制：判词里抓到的两行是测试自己的诊断输出（`say()` 文本），不是断言文本，所以「解析出 0 行、归因不到文件」。逐份子产物读下来，两轮的成因不同，且**只有第一轮是本任务的缺陷**：
+
+- **第一轮**（suite 日志 `suite-logs/20261007T115640-3973367`）——真缺陷，已修。`mcp-error-envelope.test.ts`(d) 与 `mcp-english-only.test.ts`(a) 同时红在 `tools/list must return the full 18-tool set, got …19`：本任务加了第 19 个工具 `ui_visible_context`，而这两条是 AC-284 / AC-289 的**已达成的兄弟判据**，钉着 18。修法是 `ab881acf`（2026-10-07 12:04:27）把 registry 驱动的覆盖表同步到第 19 个工具；时间上它正落在第一轮（11:56:40）与第二轮（12:05:28）之间。
+- **第二轮**（suite 日志 `suite-logs/20261007T120528-852213`）——与本任务无关。`server/modules/oauth/tests/oauth-dcr.test.ts` 红在一次 `ENOENT … server/modules/debug-agent/__criterion-falsify-typed-turn-1102321-provider.ts`：多个「取假形态」判据都会在源码目录里写/删 `__criterion-falsify-*` 副本，`debug-agent-typed-turn` 撞上了别的判据删除该文件的时刻，是已知的跨判据并发竞态，不是本任务改动引入的。
+
+**解除 park 前在工作树（`b049344a`）复核：**
+
+- `server/modules/mcp-gateway/tests/*.test.ts`（`--test-concurrency=4`）→ **183 tests / 183 pass / 0 fail**，退出码 0；
+- `server/modules/oauth/tests/oauth-dcr.test.ts` → `pass 7 / fail 0`，连跑两次均退出码 0；
+- `mcp-english-only.test.ts` → 10/10，`mcp-error-envelope.test.ts` → 7/7；
+- 另两条 registry 驱动判据（`mcp-error-vocabulary` 的 `registryNames.length >= 17` + 与 `MCP_TOOL_ERROR_CODES` 键集 `deepEqual`、`mcp-insufficient-scope` 的 `declaredToolScopes()`）都是从模块表**派生**而非硬编码数字，故新增工具只要表同步就自动跟随——全仓已无残留的 18 钉。
+
+即：第一轮的缺陷已修复，第二轮的红是无关竞态，5/5 AC 已勾。据此解除 `needs-human`，重发进入循环，由 driver 跑一轮新的 fan-in。
