@@ -337,7 +337,7 @@ test.describe('the OAuth consent SPA', () => {
     callbackPort = address.port;
     armCallback();
 
-    page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.on('console', (message) => {
       if (message.type() === 'error') startupEvidence.consoleErrors.push(message.text());
     });
@@ -617,5 +617,136 @@ test.describe('the OAuth consent SPA', () => {
     );
     expect(frameOptions).toBe('DENY');
     expect(documentCsp).toContain("frame-ancestors 'none'");
+
+    // (DoD) The visual-review grid for this single-page surface: the consent page in DARK mode at
+    // both viewports, plus the settings page in the same theme — the surface the revoke hint points
+    // at, and the reference the visual review compares this page's theme against.
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await navigateBounded(consentUrl(query), CONSENT_LANDING);
+    await page.screenshot({ path: 'artifacts/oauth-consent-desktop-dark.png' });
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.screenshot({ path: 'artifacts/oauth-consent-mobile-dark.png' });
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await navigateBounded('/', APP_SHELL_LANDING);
+    await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
+    await expect(page.getByRole('button', { name: 'API & Tokens', exact: true })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'API & Tokens', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Connected Apps' })).toBeVisible({ timeout: 15_000 });
+    await page.screenshot({ path: 'artifacts/oauth-consent-settings-theme-reference.png' });
+
+    // (DoD) The mechanical half of the visual review, read off the rendered consent document: an
+    // accessible name on every interactive control, no skipped heading level, and every rendered
+    // text run at or above its WCAG AA contrast ratio. This replaces Lighthouse (this host has no
+    // lighthouse binary and the task forbids new dependencies) with a dependency-free reading of
+    // exactly the properties Lighthouse's accessibility audit scores.
+    await navigateBounded(consentUrl(query), CONSENT_LANDING);
+    await page.emulateMedia({ colorScheme: 'dark' });
+    const reading = await page.evaluate(() => {
+      const accessibleName = (element: Element): string => {
+        const ariaLabel = (element.getAttribute('aria-label') ?? '').trim();
+        if (ariaLabel !== '') return ariaLabel;
+        const labelledBy = element.getAttribute('aria-labelledby');
+        if (labelledBy) {
+          const target = document.getElementById(labelledBy);
+          const text = (target?.textContent ?? '').trim();
+          if (text !== '') return text;
+        }
+        if (element instanceof HTMLInputElement) {
+          const labelText = Array.from(element.labels ?? [])
+            .map((label) => (label.textContent ?? '').trim())
+            .join(' ')
+            .trim();
+          if (labelText !== '') return labelText;
+          const placeholder = (element.getAttribute('placeholder') ?? '').trim();
+          if (placeholder !== '') return placeholder;
+        }
+        return (element.textContent ?? '').trim();
+      };
+
+      const channel = (value: number): number => {
+        const scaled = value / 255;
+        return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+      };
+      const luminance = ([r, g, b]: [number, number, number]): number =>
+        0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+      const parseColor = (value: string): [number, number, number, number] | null => {
+        const match = /rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?\)/.exec(value);
+        if (match === null) return null;
+        return [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? 1 : Number(match[4])];
+      };
+      // The background under a text run is every translucent ancestor layer composited over the
+      // first opaque one (the white browser canvas when the chain has none). Reading a `bg-*/10`
+      // overlay as though it were opaque measures the text against the overlay itself and invents
+      // a contrast failure the eye never sees.
+      const backgroundOf = (element: Element): [number, number, number] => {
+        const layers: [number, number, number, number][] = [];
+        let node: Element | null = element;
+        while (node !== null) {
+          const parsed = parseColor(getComputedStyle(node).backgroundColor);
+          if (parsed !== null && parsed[3] > 0) {
+            layers.push(parsed);
+            if (parsed[3] >= 1) break;
+          }
+          node = node.parentElement;
+        }
+        let composited: [number, number, number] = [255, 255, 255];
+        for (let index = layers.length - 1; index >= 0; index -= 1) {
+          const [r, g, b, alpha] = layers[index];
+          composited = [
+            r * alpha + composited[0] * (1 - alpha),
+            g * alpha + composited[1] * (1 - alpha),
+            b * alpha + composited[2] * (1 - alpha),
+          ];
+        }
+        return composited;
+      };
+
+      const unnamed = Array.from(document.querySelectorAll('button, a[href], input, select, textarea'))
+        .filter((element) => {
+          const box = element.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && accessibleName(element) === '';
+        })
+        .map((element) => element.outerHTML.slice(0, 80));
+      const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+        .map((heading) => Number(heading.tagName.slice(1)));
+      const lowContrast: { text: string; size: number; weight: string; ratio: number }[] = [];
+      for (const element of Array.from(document.querySelectorAll('body *'))) {
+        const ownText = Array.from(element.childNodes)
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => (node.textContent ?? '').trim())
+          .join(' ')
+          .trim();
+        if (ownText === '') continue;
+        const box = element.getBoundingClientRect();
+        if (box.width === 0 || box.height === 0) continue;
+        const style = getComputedStyle(element);
+        const foreground = parseColor(style.color);
+        if (foreground === null || foreground[3] === 0) continue;
+        const background = backgroundOf(element);
+        const foregroundRgb: [number, number, number] = [foreground[0], foreground[1], foreground[2]];
+        const lighter = Math.max(luminance(foregroundRgb), luminance(background));
+        const darker = Math.min(luminance(foregroundRgb), luminance(background));
+        const ratio = (lighter + 0.05) / (darker + 0.05);
+        const size = Number.parseFloat(style.fontSize);
+        const bold = Number.parseInt(style.fontWeight, 10) >= 700;
+        const required = size >= 24 || (bold && size >= 18.66) ? 3 : 4.5;
+        if (ratio + 0.005 < required) {
+          lowContrast.push({ text: ownText.slice(0, 40), size, weight: style.fontWeight, ratio: Number(ratio.toFixed(2)) });
+        }
+      }
+      return { unnamed, headings, lowContrast };
+    });
+    console.log(
+      `(visual) unnamed controls=${JSON.stringify(reading.unnamed)}; headings=${JSON.stringify(reading.headings)}; `
+      + `below-AA text runs=${JSON.stringify(reading.lowContrast)}`,
+    );
+    expect(reading.unnamed).toEqual([]);
+    expect(reading.headings[0]).toBe(1);
+    for (let index = 1; index < reading.headings.length; index += 1) {
+      expect(reading.headings[index] - reading.headings[index - 1]).toBeLessThanOrEqual(1);
+    }
+    expect(reading.lowContrast).toEqual([]);
   });
 });
