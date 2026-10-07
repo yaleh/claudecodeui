@@ -3,7 +3,7 @@ id: gap-mcp-session-search
 title: MCP 只读工具 session_search：暴露 session-conversations-search.service.ts 的跨
   session 全文检索，返回 sessionId/messageId/snippet/timestamp，并与
   session_read(mode=around) 衔接
-status: todo
+status: ready
 labels:
   - gap
 parent: null
