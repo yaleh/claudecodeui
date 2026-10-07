@@ -2,7 +2,7 @@
 id: gap-quay-panel-inflight-task-display
 title: Quay tab 从未渲染后端已产出的 inFlight 读数：driver=running / tests.current.taskId
   被误读为"当前任务"
-status: ready
+status: done
 labels:
   - gap
   - defect
