@@ -3,7 +3,7 @@ id: gap-ac188-criterion-agreement-loses-poll-source-falsifiability
 title: AC-188 的 AC6 回合一致性判据在坞合并后失去对「轮询驱动第二 busy 源」的证伪力——坞成为链路最快的源（回合打开即
   in-turn、回合间 absent），1 秒 /api/session-hosts 轮询侧的假形态在 e3f86d82
   改窄后的任何采样窗口都落不了红；先量坞的心跳节拍与轮询侧真实滞后，再定修窗口还是按 AC-172/177/178 家族先例退役该假形态
-status: todo
+status: ready
 labels:
   - gap
   - defect
