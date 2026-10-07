@@ -1381,7 +1381,18 @@ test.describe('activity dock consolidation', () => {
 
     const wall = Date.now() - startedAt;
     console.log(`dock.wall=${wall}ms`);
-    expect(wall, 'the case body must land inside its own budget').toBeLessThanOrEqual(20_000);
+    // The measured floor, and why this guard sits above it. The body is one debug-agent turn walk
+    // (`unattended-turn@0` → `turn-end@5000` → `wait@5500`), whose `await clock` returns at ~15.0s
+    // because the control plane takes several seconds to pick the request up behind this run's page
+    // loads — the ordering the scenario's own note above describes, and a cost the walk cannot
+    // compress. Above that floor sit two mandatory costs: re-navigating both viewports so each gets a
+    // fresh `chat_subscribed` (the deterministic signal this case's after-turn window is read from,
+    // not a poll to wait out), and AC6's 8×55ms sample window per viewport. Measured 2026-10-07 on
+    // this tree: `walk-done` ~15.0s, the tail ~3.5–4.2s, the body ~18.5–20.8s. A 20s guard left under
+    // a second over the floor, so it red under load (filed: 20810ms, every substantive reading in that
+    // run correct — the budget red, not the reading). 30s clears the worst measured body by ~9s and
+    // stays well inside `SINGLE_SPEC_CEILING_MS`, which is unchanged.
+    expect(wall, 'the case body must land inside its own budget').toBeLessThanOrEqual(30_000);
   });
 });
 
