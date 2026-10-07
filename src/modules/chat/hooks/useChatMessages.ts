@@ -373,6 +373,16 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       // Carried through so a rendered user bubble can address its own
       // transcript row when the user edits or forks from it.
       transcriptAnchorId: msg.transcriptAnchorId,
+      // The read row's own id, under a name that says what it is for: addressing
+      // the row back to the server, which resolves `session_read mode=around`
+      // against exactly this value. It is *not* carried as `id` — see the
+      // comment on that field above; a React key and an address have opposite
+      // stability requirements, so they are two fields. A live row's id is this
+      // client's (`live:…`) and names nothing on the server, so it is not
+      // carried here; such a row is addressed by `id` alone.
+      ...(!isLiveRowId(msg.id) && typeof msg.id === 'string' && msg.id.length > 0
+        ? { transcriptRowId: msg.id }
+        : {}),
       // The turn-ending reply's fork anchor, carried so a rendered assistant
       // bubble can offer "fork from this answer".
       forkAnchorId: msg.forkAnchorId,

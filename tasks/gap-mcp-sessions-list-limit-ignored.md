@@ -2,7 +2,7 @@
 id: gap-mcp-sessions-list-limit-ignored
 title: sessions_list 的输入 schema 没有 limit，调用方传 limit 被静默丢弃并返回最多 200 条：声明并执行
   limit，超界给 INVALID_ARGUMENT
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -32,17 +32,20 @@ extra:
 
 ## AC
 
-- [ ] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 退出码 0，且新增断言：传 `limit: 3` 时返回恰好 3 条且是按最近活动排序的前 3 条，`total` 仍是过滤后的总数；未传 `limit` 时返回条数与改动前一致。
-- [ ] 同一测试文件断言：`limit` 为 0、-1、1.5、201 时返回 `INVALID_ARGUMENT`，信封里点名 `limit`；`project` 与 `state` 过滤与 `limit` 组合时先过滤再截断。
-- [ ] `grep -n "limit" server/modules/mcp-gateway/mcp-gateway.read-tools.ts` 能在 `sessions_list` 的 `inputSchema` 里看到 `limit`，且 `mcp-english-only.test.ts`、`mcp-error-envelope.test.ts`、`mcp-invalid-argument.test.ts`、`mcp-tool-annotations.test.ts` 逐文件运行退出码 0（工具描述与错误文案仍是英文）。
-- [ ] `npm run typecheck` 退出码 0。
+- [x] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 退出码 0，且新增断言：传 `limit: 3` 时返回恰好 3 条且是按最近活动排序的前 3 条，`total` 仍是过滤后的总数；未传 `limit` 时返回条数与改动前一致。
+- [x] 同一测试文件断言：`limit` 为 0、-1、1.5、201 时返回 `INVALID_ARGUMENT`，信封里点名 `limit`；`project` 与 `state` 过滤与 `limit` 组合时先过滤再截断。
+- [x] `grep -n "limit" server/modules/mcp-gateway/mcp-gateway.read-tools.ts` 能在 `sessions_list` 的 `inputSchema` 里看到 `limit`，且 `mcp-english-only.test.ts`、`mcp-error-envelope.test.ts`、`mcp-invalid-argument.test.ts`、`mcp-tool-annotations.test.ts` 逐文件运行退出码 0（工具描述与错误文案仍是英文）。
+- [x] `npm run typecheck` 退出码 0。
 
 ## DoD
 
 在真实运行的服务上实际操作一次：用 PAT 经 `/mcp` 调 `sessions_list { project: <某项目 id>, limit: 5 }`，返回恰好 5 条，`total` 大于 5；再传 `limit: 0`，返回 `INVALID_ARGUMENT`，信封里点名 `limit`。仅有测试夹具通过不算完成。
 
+**已执行（真实服务实例，非夹具）：** `scripts/mcp-smoke.mjs` 的 `bootServer` 从本 worktree 起真 `server/index.ts`（临时 `DATABASE_PATH`、`listen(0)` 端口），播种真 PAT 并建 6 个真会话于一个临时项目。经 `/mcp` 调 `sessions_list { project: <该临时项目 id>, limit: 5 }` → 恰好 5 条、`total: 6`；再调 `limit: 0` → `INVALID_ARGUMENT`，`details.fields = [{ path: "limit", problem: "must be >= 1" }]`。
+
 ## Touches
 
 - server/modules/mcp-gateway/mcp-gateway.read-tools.ts
 - server/modules/mcp-gateway/tests/mcp-read-tools.test.ts
+- server/modules/mcp-gateway/tests/mcp-invalid-argument.test.ts
 - tasks/gap-mcp-sessions-list-limit-ignored.md

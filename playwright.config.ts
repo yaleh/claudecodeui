@@ -1013,6 +1013,81 @@ const seedTranscriptJumpTallTranscript = () => {
   );
 };
 
+/** Workspace e2e/ui-visible-context-range.spec.ts opens; its own directory so no other spec's project list picks this session up. */
+const UI_VISIBLE_CONTEXT_WORKSPACE = path.join(dataDir, 'ui-visible-context-workspace');
+/** Session id that spec addresses, and the display name it looks its sidebar row up by. */
+const UI_VISIBLE_CONTEXT_SESSION_ID = 'e2e-ui-visible-context';
+const UI_VISIBLE_CONTEXT_SESSION_NAME = 'ui-visible-context';
+/**
+ * Paragraphs the single assistant answer carries.
+ *
+ * The criterion's premise is an answer TALLER than the transcript pane on both viewports, so
+ * that a reader scrolled into the middle of it has a full pane of one answer on screen and no
+ * other row. Measured against the shipped layout (the pane is ~668px tall at 390×844 and
+ * ~830px at 1280×1000; a paragraph is ~60px): 24 keeps the answer well past either pane.
+ */
+const UI_VISIBLE_CONTEXT_ANSWER_PARAGRAPHS = 24;
+
+/**
+ * Seeds the transcript e2e/ui-visible-context-range.spec.ts reads its visible range from.
+ *
+ * Same reason as every seed above: the backend scans `~/.claude/projects` at boot and only then
+ * starts its file watcher with `ignoreInitial`, so a transcript written while a test runs is
+ * picked up by the watcher and broadcast as a `session_upserted` instead.
+ *
+ * The shape is the reported defect's own: ONE user prompt followed by ONE answer many screens
+ * tall. A reader scrolled into the middle of that answer sees only that answer's row, which is
+ * exactly the real state a phone lands in constantly and the state the visible-range reader has
+ * to answer for. It is deliberately NOT a cadence of alternating short turns — such a fixture
+ * always keeps a prompt row on screen and cannot express the defect at all.
+ */
+const seedUiVisibleContextTranscript = () => {
+  fs.mkdirSync(UI_VISIBLE_CONTEXT_WORKSPACE, { recursive: true });
+  const transcriptDir = path.join(dataDir, '.claude', 'projects', 'ui-visible-context-workspace');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+
+  const startedAt = Date.now();
+  const paragraph =
+    'This paragraph exists so the answer is taller than any viewport the criterion measures, and it is ordinary prose so nothing about it reflows after the first paint. ';
+  const answerText = Array.from(
+    { length: UI_VISIBLE_CONTEXT_ANSWER_PARAGRAPHS },
+    (_, index) => `Paragraph ${index + 1}. ${paragraph.repeat(5)}`,
+  ).join('\n\n');
+  const records: Record<string, unknown>[] = [
+    {
+      type: 'user',
+      uuid: 'e2e-ui-visible-context-prompt',
+      parentUuid: null,
+      sessionId: UI_VISIBLE_CONTEXT_SESSION_ID,
+      cwd: UI_VISIBLE_CONTEXT_WORKSPACE,
+      timestamp: new Date(startedAt).toISOString(),
+      message: { role: 'user', content: [{ type: 'text', text: 'Turn 1. Describe the layout in detail.' }] },
+    },
+    {
+      type: 'assistant',
+      uuid: 'e2e-ui-visible-context-answer',
+      parentUuid: 'e2e-ui-visible-context-prompt',
+      sessionId: UI_VISIBLE_CONTEXT_SESSION_ID,
+      cwd: UI_VISIBLE_CONTEXT_WORKSPACE,
+      timestamp: new Date(startedAt + 1_000).toISOString(),
+      message: { role: 'assistant', content: [{ type: 'text', text: answerText }] },
+    },
+    {
+      type: 'custom-title',
+      sessionId: UI_VISIBLE_CONTEXT_SESSION_ID,
+      cwd: UI_VISIBLE_CONTEXT_WORKSPACE,
+      timestamp: new Date(startedAt + 2_000).toISOString(),
+      customTitle: UI_VISIBLE_CONTEXT_SESSION_NAME,
+    },
+  ];
+
+  fs.writeFileSync(
+    path.join(transcriptDir, `${UI_VISIBLE_CONTEXT_SESSION_ID}.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    'utf8',
+  );
+};
+
 /** Workspace e2e/voice-identifier-repair.spec.ts records into; its own directory so no other spec picks this session up. */
 const VOICE_IDENTIFIER_WORKSPACE = path.join(dataDir, 'voice-identifier-workspace');
 /** Session id that spec opens the composer in, and the display name it looks its sidebar row up by. */
@@ -1952,6 +2027,7 @@ if (isDataDirOwner) {
   seedTranscriptFollowTranscript();
   seedTranscriptJumpTranscript();
   seedTranscriptJumpTallTranscript();
+  seedUiVisibleContextTranscript();
   seedVoiceIdentifierWorkspace();
   seedVoiceContinuousWorkspace();
   seedVoiceLiveVadWorkspace();
@@ -2081,7 +2157,11 @@ const connectedAppsSelection =
   // variables are one block: mounting the gateway without its OAuth seam is a deployment this
   // config does not otherwise describe, and splitting them here would invent a fifth server shape
   // to save nothing. Every other selection's env object stays byte-for-byte unchanged.
-  || selectedSpecFiles().includes('ui-last-opened-session.spec.ts');
+  || selectedSpecFiles().includes('ui-last-opened-session.spec.ts')
+  // `ui-visible-context-range.spec.ts` makes the same kind of reading — a PAT calling a stage-3
+  // read tool over `/mcp` — for the `ui_visible_context` range, so it needs the gateway mounted and
+  // reads the same deployment environment. Same reason, same one block of four variables.
+  || selectedSpecFiles().includes('ui-visible-context-range.spec.ts');
 
 /**
  * Where the raw-corpus criterion's server tees its own stdout.

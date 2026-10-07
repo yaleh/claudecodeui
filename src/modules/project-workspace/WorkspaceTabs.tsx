@@ -227,6 +227,12 @@ export default function WorkspaceTabs({
                 // hook the mobile selector carries, so a reading of "which view is this"
                 // and of "why is it closed" does not have to go through translated text.
                 data-workspace-tab={tab.id}
+                // `aria-selected` is the tablist's own marker; `aria-current` is the
+                // one every workspace surface shares, mobile rows included, so a
+                // reader that is not a screen reader — `ui_visible_context` — can
+                // ask "which view is this tab showing" with one selector on either
+                // layout instead of knowing a different convention per layout.
+                aria-current={isActive ? 'true' : undefined}
                 onClick={() => setActiveTab(tab.id)}
                 onKeyDown={handleTabKeyDown}
                 {...shellTabState(isResidentSession, tab.id, residentShellNotice)}
@@ -280,9 +286,20 @@ export function CollapsedWorkspaceSelector({
 
   return (
     <Dialog open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+      {/*
+        The trigger *is* this layout's statement of the active view: it shows the
+        active view's icon and label, and it is the only thing on screen that
+        names a view while the picker is closed. It therefore carries the same
+        `data-workspace-tab`/`aria-current` pair as the rows inside the dialog —
+        without it, a reading of "which view is this tab showing" returns nothing
+        on every narrow screen, because the rows it would have read are in a
+        dialog that is not open.
+      */}
       <DialogTrigger
         aria-haspopup="dialog"
         aria-expanded={isPickerOpen}
+        data-workspace-tab={activeTabDefinition.id}
+        aria-current="true"
         className="flex h-8 min-w-0 max-w-[8rem] shrink-0 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/50 px-2 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
       >
         <WorkspaceTabIcon tab={activeTabDefinition} strokeWidth={2} />
