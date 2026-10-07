@@ -13,6 +13,7 @@ import { api } from '@/shared/api';
 import type { LLMProvider, NormalizedMessage, SessionMessagesQuery, SessionTurnOutline } from '@/shared/types';
 import { createLiveRowId, isLiveRowId } from '@/modules/chat/utils/liveRowIdentity';
 import { removeOptimisticUserEchoes } from '@/modules/chat/utils/sessionMessageReconciliation';
+import { messageAnchorId } from '@/modules/chat/utils/messageKeys';
 import {
   hasReachedCachedTailTimeBoundary,
   mergeLatestServerPage,
@@ -238,9 +239,16 @@ async function requestSessionOutline(sessionId: string): Promise<SessionTurnOutl
   };
 }
 
-/** The identity the server resolves an `around` id against: anchor when present, else id. */
+/**
+ * The identity the server resolves an `around` id against — the same rule the
+ * pane publishes and the jump machinery looks a row up by, defined once in
+ * {@link messageAnchorId}. A store row has no `transcriptRowId` (that field is
+ * the rendered row's copy of this one), so the rule collapses to "anchor when
+ * present, else id" here; the trailing `??` only restates the shape's own
+ * guarantee that a store row always has an id, and keeps the return type total.
+ */
 function windowIdOf(message: NormalizedMessage): string {
-  return message.transcriptAnchorId ?? message.id;
+  return messageAnchorId(message) ?? message.id;
 }
 
 /** Clamps an absolute subscript into the half-open window `[startIndex, endIndex)`. */

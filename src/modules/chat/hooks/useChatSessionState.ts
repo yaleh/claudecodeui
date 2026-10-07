@@ -15,6 +15,7 @@ import { createCachedDiffCalculator } from '@/modules/chat/utils/messageTransfor
 import { collapseMonitorEventRows, normalizedToChatMessages } from '@/modules/chat/hooks/useChatMessages';
 import { MIN_SNIPPET_LENGTH, findSearchTargetIndex, normalizeSearchSnippet, resolveSearchWindowSize } from '@/modules/chat/utils/searchTargetLocator';
 import { createJumpAnchorLock } from '@/modules/chat/utils/jumpAnchorLock';
+import { messageAnchorId } from '@/modules/chat/utils/messageKeys';
 import type { JumpAnchorLock } from '@/modules/chat/utils/jumpAnchorLock';
 import { readSelectedProvider } from '@/shared/selectedProvider';
 import type { SearchTarget } from '@/modules/chat/utils/searchTargetLocator';
@@ -137,14 +138,13 @@ function findRenderedMessageElementById(
 }
 
 /**
- * The identity a transcript row is addressed by: its provider anchor, or the
- * store id when the provider has none. This is the same key the server resolves
- * an `around` read against, so a row found in the DOM by this value is the row
- * that read fetched — two turns sharing a millisecond are still two keys.
+ * The identity a transcript row is addressed by — the one rule the pane, the
+ * store and the server all read, defined once in {@link messageAnchorId}. This
+ * is the same key the server resolves an `around` read against, so a row found
+ * in the DOM by this value is the row that read fetched — two turns sharing a
+ * millisecond are still two keys.
  */
-function anchorIdOf(message: ChatMessage): string | null {
-  return message.transcriptAnchorId ?? message.id ?? null;
-}
+const anchorIdOf = (message: ChatMessage): string | null => messageAnchorId(message);
 
 /**
  * Resolves a sidebar search hit to the transcript anchor id it should jump to.
