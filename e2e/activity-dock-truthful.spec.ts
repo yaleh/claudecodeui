@@ -452,11 +452,20 @@ const appears = async (locator: Locator, timeoutMs: number): Promise<boolean> =>
   );
 
 /** How long the landing of the *first* navigation is given on its own, before the guard starts replaying. */
-const STARTUP_PROBE_MS = 8_000;
+const STARTUP_PROBE_MS = 5_000;
 /** How long each bounded replay's landing is given. Shorter than the first: a replay is a re-ask, not a cold boot. */
 const STARTUP_RELOAD_PROBE_MS = 3_000;
-/** How long one navigation's single rpc to its server is given, before the guard treats it as a failed landing. */
-const NAVIGATION_PROBE_MS = 8_000;
+/**
+ * How long one navigation's single rpc to its server is given — the first hop and every replay hop alike.
+ *
+ * Tightened from 8s because this bound is what the deadline has to fit *around*: a first hop allowed to spend 8s
+ * of a 12s deadline left 4s for its landing probe and nothing for the replay the guard exists to make. The
+ * warm-up above has already committed this run's pre-bundle over plain HTTP before any page exists, so a healthy
+ * first document is served from that cache in well under a second — the whole guard, hop plus landing, measured
+ * ~2.3s quiet on this host. 5s is many times a healthy hop, and short enough that a document which is not coming
+ * is abandoned while there is still budget to re-ask for it.
+ */
+const NAVIGATION_PROBE_MS = 5_000;
 
 /**
  * How long the startup probe may spend proving a navigation landed, replays included.
@@ -467,14 +476,30 @@ const NAVIGATION_PROBE_MS = 8_000;
  * this spec's own `beforeAll` (the bounded warm-up plus the control plane's arm/start calls) before the
  * probe's first attempt even starts. Counting replays leaves that head-room to chance; a deadline spends it.
  *
+ * The deadline is the one bound the replay budget is spent out of, so it has to clear the *worst case* — a first
+ * hop that spends its entire bound and whose landing probe does too — with a full replay hop and its landing probe
+ * still left over. Spelled out, because this sum is the whole of why the guard can replay at all:
+ *
+ *   first hop        NAVIGATION_PROBE_MS      = 5_000
+ * + first landing    STARTUP_PROBE_MS         = 5_000
+ * + replay hop       NAVIGATION_PROBE_MS      = 5_000
+ * + replay landing   STARTUP_RELOAD_PROBE_MS  = 3_000
+ *   ──────────────────────────────────────────────────
+ *   worst case                                = 18_000  ≤  STARTUP_PROBE_DEADLINE_MS = 20_000
+ *
+ * so even the slowest first hop leaves a complete replay inside the deadline. That is the gap this task closes:
+ * at the old deadline (12_000) an 8s first hop left 4s, the landing probe spent it, `Date.now() >= deadline` fired
+ * at the throw below, and the replay never began — the guard died in the startup form on an otherwise-green tree
+ * (the criterion: pass 05:20 / fail 05:22, same treeSha).
+ *
  * The value is derived from *this* spec's overhead, not copied. Unlike the onboarding spec
  * (`e2e/resident-shell-tab.spec.ts`, whose three-screen wizard measured 10.2s quiet / 16.0s loaded and
  * whose deadline was fitted down to 12s for it), this spec creates its account over the API and pays only
- * the boot, the launch and the warm-up — the same overhead as the API-created siblings. 12s is therefore
- * conservative here: it keeps the bounded-failure run inside its budget across that range and still fits
- * the first 8s landing probe plus a full 3s replay.
+ * the boot, the launch and the warm-up — the same overhead as the API-created siblings. 20s keeps a
+ * bounded-failure run inside its budget (against the 55s single-spec watchdog and the config's own 60s kill)
+ * and is the smallest round value above the 18s worst case.
  */
-const STARTUP_PROBE_DEADLINE_MS = 12_000;
+const STARTUP_PROBE_DEADLINE_MS = 20_000;
 
 /**
  * What the startup page said, kept for one purpose: a startup red has to *explain* a document that was
@@ -539,20 +564,33 @@ const navigateBounded = async (
   const budgetMs = () => Math.max(1, deadline - Date.now());
   let navigationFailure: string | null = null;
   for (let attempt = 1; ; attempt += 1) {
+    // Which hop this is, named before it is taken: the first-load `goto` or a replay `reload`. Both are logged
+    // below, so a run's own output records every navigation attempt it made — hop 1, then each `page.reload` by
+    // number — rather than only the attempt that happened to land. A replay claimed by reading the constants is
+    // not the same as a replay observed in the log, and this is the log the criterion is read from.
+    const isFirstHop = attempt === 1 && kind === 'first-load';
+    const hopKind = isFirstHop ? 'page.goto' : 'page.reload';
+    const hopTimeout = Math.min(NAVIGATION_PROBE_MS, budgetMs());
+    const hopStartedAt = Date.now();
+    console.log(`[e2e] client startup: hop ${attempt} (${hopKind} ${url}) begins with ${hopTimeout}ms of navigation budget`);
     try {
-      if (attempt === 1 && kind === 'first-load') {
-        await page.goto(url, { timeout: Math.min(NAVIGATION_PROBE_MS, budgetMs()) });
+      if (isFirstHop) {
+        await page.goto(url, { timeout: hopTimeout });
       } else {
-        await page.reload({ timeout: Math.min(NAVIGATION_PROBE_MS, budgetMs()) });
+        await page.reload({ timeout: hopTimeout });
       }
       navigationFailure = null;
+      console.log(`[e2e] client startup: hop ${attempt} (${hopKind}) navigated in ${Date.now() - hopStartedAt}ms`);
     } catch (error) {
       navigationFailure = error instanceof Error ? error.message : String(error);
+      console.log(
+        `[e2e] client startup: hop ${attempt} (${hopKind}) did not finish navigating in ${hopTimeout}ms: ${navigationFailure}`,
+      );
     }
-    const landingBudget = Math.min(attempt === 1 ? STARTUP_PROBE_MS : STARTUP_RELOAD_PROBE_MS, budgetMs());
+    const landingBudget = Math.min(isFirstHop ? STARTUP_PROBE_MS : STARTUP_RELOAD_PROBE_MS, budgetMs());
     if (await landing.present(landingBudget)) {
       console.log(
-        `[e2e] client startup: ${landing.label()} landed after ${Date.now() - startedAt}ms (attempt ${attempt})`,
+        `[e2e] client startup: ${landing.label()} landed after ${Date.now() - startedAt}ms (attempt ${attempt}, ${hopKind})`,
       );
       return;
     }
