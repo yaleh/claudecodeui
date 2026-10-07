@@ -246,10 +246,16 @@ const QUAY_DRIVER_KINDS = ['promotion', 'worker', 'outer', 'quality', 'meta', 'g
  * reach a write command (`task create/edit/check`, `driver start/stop`,
  * `gate run`, `promote/retreat`, …). Widening the display surface means adding
  * an entry here; every entry must stay a read-only verb.
+ *
+ * `server status --json` is deliberately absent. It was the one source of the
+ * panel's optional dashboard link, but answering it costs ~4 s of its own
+ * driver-kind subprocesses — for one `web` host/port that the `.quay/server.json`
+ * carrier already records. The dashboard reading now reads that carrier and
+ * probes the recorded address directly, so the command is no longer reachable at
+ * all rather than merely uncalled.
  */
 export const QUAY_READ_ONLY_COMMANDS: readonly (readonly string[])[] = [
   ['config', 'validate', '--json'],
-  ['server', 'status', '--json'],
   ['task', 'list', '--json'],
   ['goal', 'list', '--json'],
   ['adr', 'list', '--json'],
@@ -271,6 +277,13 @@ type QuayServiceDependencies = {
   runCommand: QuayCommandRunner;
   /** Read-only filesystem boundary for the `.quay/` carrier files behind the Tests and Fan-in cards. */
   readFile: QuayFileReader;
+  /**
+   * Probes a project's `quay serve` web face and resolves `true` only when it answers.
+   * Injected so the dashboard reading is exercised without opening a socket, and so the
+   * composition root can pick the transport (an in-process HTTP `GET /health`). It must
+   * never reject: an unreachable dashboard is a `null` link, not an error.
+   */
+  probeWebService(host: string, port: number): Promise<boolean>;
   now(): number;
   /** How long a Tier-2 snapshot stays fresh; requests inside the window reuse it. */
   snapshotTtlMs: number;
@@ -606,13 +619,24 @@ function summarizeFanInAttempts(value: unknown): QuayFanInAttemptSummary[] {
 }
 
 /**
- * Reads the `quay serve` web endpoint out of a `server status --json` body.
- * Returns `http://<host>:<port>/` only when the `web` service is present and its
- * liveness probe says it is alive; any other shape — no services array, no web
- * entry, a dead probe, a missing host/port — is `null`. A dashboard that simply
- * is not running is not an error, so the caller reads this without a warning.
+ * The state carrier `quay serve` publishes under the project's `.quay/`: which services
+ * its one server process hosts and on which host/port each is bound. Read directly in
+ * place of `quay server status --json`, which answers the same question only after
+ * serially spawning one subprocess per driver kind — several seconds of work for the
+ * single `web` entry the panel links to.
  */
-function summarizeDashboardUrl(value: unknown): string | null {
+const QUAY_SERVER_STATE_FILE = 'server.json';
+
+/**
+ * Resolves the `web` service's recorded bind address from a parsed `.quay/server.json`
+ * body, or `null` when there is no usable one: no `services` array, no `web` entry, or a
+ * `web` entry without a non-empty `host` and a positive `port`.
+ *
+ * The carrier's own `up` flag is deliberately NOT consulted: it is a write-time claim, and
+ * a killed server leaves it `true` on disk. Liveness is established by a live probe
+ * instead, so a stale carrier cannot produce a link to a dashboard that is not there.
+ */
+function readWebServiceAddress(value: unknown): { host: string; port: number } | null {
   const web = asArray(asRecord(value)?.services)
     .map((service) => asRecord(service))
     .find((service) => service?.name === 'web');
@@ -620,14 +644,23 @@ function summarizeDashboardUrl(value: unknown): string | null {
     return null;
   }
 
-  const alive = Boolean(readCount(asRecord(web.liveness)?.alive));
   const host = typeof web.host === 'string' && web.host ? web.host : null;
   const port = readCount(web.port);
-  if (!alive || !host || port <= 0) {
+  if (!host || port <= 0) {
     return null;
   }
 
-  return `http://${host}:${port}/`;
+  return { host, port };
+}
+
+/**
+ * The address to dial and link to for a recorded bind host. A wildcard binding
+ * (`0.0.0.0` / `::` / `*`) is not itself a destination — it is reachable on loopback, and
+ * a browser cannot open `http://0.0.0.0:…/`. quay's own `server status` probe makes the
+ * same substitution before dialling.
+ */
+function probeAddress(host: string): string {
+  return host === '0.0.0.0' || host === '::' || host === '*' ? '127.0.0.1' : host;
 }
 
 function summarizeConfigIssues(value: unknown): QuayConfigIssueCounts | null {
@@ -704,8 +737,48 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
     return { projectId, projectPath, hasQuayConfig: detectQuayConfig(projectPath) };
   };
 
+  /**
+   * Resolves a project's `quay serve` dashboard URL without spawning a CLI, from the two
+   * things the panel actually needs: the `web` service's recorded host/port, read out of
+   * the `.quay/server.json` carrier, and a live probe of that address to confirm something
+   * is still answering there.
+   *
+   * Every absence resolves `null` and is never a warning, because a machine with no
+   * dashboard running is a normal state rather than a failed command: no carrier file (no
+   * server was ever started here), a carrier that cannot be read or parsed, no `web`
+   * entry, a `web` entry without a usable host/port, and a `web` entry whose probe does not
+   * answer (a stopped or SIGKILLed server whose carrier was left behind).
+   */
+  const readDashboardUrl = async (projectPath: string): Promise<string | null> => {
+    let text: string;
+    try {
+      text = await dependencies.readFile.readText(
+        path.join(projectPath, '.quay', QUAY_SERVER_STATE_FILE),
+      );
+    } catch {
+      return null;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      return null;
+    }
+
+    const address = readWebServiceAddress(parsed);
+    if (!address) {
+      return null;
+    }
+
+    const host = probeAddress(address.host);
+    const alive = await dependencies.probeWebService(host, address.port);
+    return alive ? `http://${host}:${address.port}/` : null;
+  };
+
   const collectSnapshot = async (projectId: string, projectPath: string): Promise<QuaySnapshot> => {
     const warnings: string[] = [];
+    const quayDir = path.join(projectPath, '.quay');
 
     /**
      * Runs one command and reads its JSON body. A non-zero exit is not on its
@@ -713,13 +786,20 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
      * list and then exits 1 to signal that issues exist, and that list is exactly
      * the reading we want. So stdout is parsed first, and the exit status only
      * decides the outcome when nothing parseable came back.
+     *
+     * The warning is *returned* rather than pushed, so that the caller can append the
+     * collected warnings in a fixed order even though the reads below run concurrently —
+     * a shared array written from each read would order the panel's banner by whichever
+     * child happened to finish first.
      */
-    const readJson = async (args: readonly string[]): Promise<unknown> => {
+    const readJson = async (
+      args: readonly string[],
+    ): Promise<{ value: unknown; warning: string | null }> => {
       const result = await runQuayCommand(projectPath, args);
 
       if (result.stdout.trim()) {
         try {
-          return parseJson(result.stdout);
+          return { value: parseJson(result.stdout), warning: null };
         } catch {
           // Fall through: an unparseable body is reported below.
         }
@@ -730,70 +810,67 @@ export function createQuayService(dependencies: QuayServiceDependencies) {
       // failure this was (missing CLI vs. timeout vs. non-zero exit), rather than
       // the one generic "quay did not answer" the four situations used to collapse to.
       const detail = result.failureKind ? `[${result.failureKind}] ${reason}` : reason;
-      warnings.push(`${args.join(' ')}: ${result.ok ? 'returned non-JSON output' : detail}`);
-      return null;
+      return {
+        value: null,
+        warning: `${args.join(' ')}: ${result.ok ? 'returned non-JSON output' : detail}`,
+      };
     };
 
-    /**
-     * Same read as `readJson`, but never records a warning. The dashboard URL is
-     * an optional extra: a machine without `quay serve` running has no web
-     * service to report, and that absence must not paint the panel's
-     * "some commands did not answer" banner.
-     */
-    const readJsonQuietly = async (args: readonly string[]): Promise<unknown> => {
-      const result = await runQuayCommand(projectPath, args);
-      if (!result.stdout.trim()) {
-        return null;
-      }
-      try {
-        return parseJson(result.stdout);
-      } catch {
-        return null;
-      }
-    };
-
-    const tasks = summarizeTasks(await readJson(['task', 'list', '--json']));
-    const goals = summarizeGoals(await readJson(['goal', 'list', '--json']));
-    const adrs = summarizeAdrs(await readJson(['adr', 'list', '--json']));
-    const driver = summarizeDriver(await readJson(['driver', 'status', '--kind', 'worker', '--json']));
-    const configIssues = summarizeConfigIssues(await readJson(['config', 'validate', '--json']));
-    const dashboardUrl = summarizeDashboardUrl(await readJsonQuietly(['server', 'status', '--json']));
-
-    // The Tests and Fan-in cards read quay's own carrier files under the trusted
-    // project root — never a path from the request. A missing file is a normal
-    // empty reading, so these reads never push a warning.
-    const quayDir = path.join(projectPath, '.quay');
-    const currentSuite = await readCurrentSuiteState(
-      dependencies.readFile,
-      path.join(quayDir, QUAY_SUITE_STATE_FILE),
-    );
-    const recentRounds = summarizeTestRounds(
-      await readCarrierFileTail(
+    // Every section is independent of every other, so they are gathered in ONE parallel
+    // pass: the cold path then costs the slowest single read instead of their sum. That
+    // sum was the defect — six strictly serial `await`s over a 2.5k-task store put ~9.5 s
+    // in front of a panel open, while the slowest single read is ~3 s. The carrier reads
+    // (Tests, Fan-in, dashboard) sit under the trusted project root, never a request path;
+    // a missing file there is a normal empty reading and never a warning.
+    const [
+      tasksRead,
+      goalsRead,
+      adrsRead,
+      driverRead,
+      configRead,
+      currentSuite,
+      recentRoundRecords,
+      fanInRecords,
+      dashboardUrl,
+    ] = await Promise.all([
+      readJson(['task', 'list', '--json']),
+      readJson(['goal', 'list', '--json']),
+      readJson(['adr', 'list', '--json']),
+      readJson(['driver', 'status', '--kind', 'worker', '--json']),
+      readJson(['config', 'validate', '--json']),
+      readCurrentSuiteState(dependencies.readFile, path.join(quayDir, QUAY_SUITE_STATE_FILE)),
+      readCarrierFileTail(
         dependencies.readFile,
         path.join(quayDir, QUAY_ROUND_HISTORY_FILE),
         QUAY_RECENT_LIST_LIMIT,
       ),
-    );
-    const fanInAttempts = summarizeFanInAttempts(
-      await readCarrierFileTail(
+      readCarrierFileTail(
         dependencies.readFile,
         path.join(quayDir, QUAY_WORKER_OUTCOME_FILE),
         QUAY_RECENT_LIST_LIMIT,
       ),
-    );
+      readDashboardUrl(projectPath),
+    ]);
+
+    // Fixed order, matching the panel's reading order, so the banner is deterministic.
+    for (const read of [tasksRead, goalsRead, adrsRead, driverRead, configRead]) {
+      if (read.warning) {
+        warnings.push(read.warning);
+      }
+    }
 
     return {
       projectId,
       projectPath,
       generatedAt: new Date(dependencies.now()).toISOString(),
       cached: false,
-      driver,
-      tasks,
-      goals,
-      adrs,
-      configIssues,
-      tests: { current: currentSuite, recentRounds },
-      fanIn: { recent: fanInAttempts },
+      driver: summarizeDriver(driverRead.value),
+      tasks: summarizeTasks(tasksRead.value),
+      goals: summarizeGoals(goalsRead.value),
+      adrs: summarizeAdrs(adrsRead.value),
+      configIssues: summarizeConfigIssues(configRead.value),
+      tests: { current: currentSuite, recentRounds: summarizeTestRounds(recentRoundRecords) },
+      fanIn: { recent: summarizeFanInAttempts(fanInRecords) },
       dashboardUrl,
       warnings,
     };

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 
 import {
@@ -40,12 +41,37 @@ function createDependencies(overrides: Partial<ServiceDependencies> = {}): Servi
     resolveProjectPathById: (projectId: string) => (projectId === 'project-1' ? PROJECT_PATH : null),
     runCommand: async () => ({ ok: true, code: 0, stdout: '', stderr: '' }),
     readFile: createFileReader(),
+    // Default: nothing answers on the recorded address, so the dashboard is absent — the
+    // same "no dashboard running" state a machine that never ran `quay serve` is in.
+    probeWebService: async () => false,
     now: () => 0,
     snapshotTtlMs: 30_000,
     commandTimeoutMs: 8_000,
     ...overrides,
   };
 }
+
+/**
+ * A `.quay/server.json` body in the shape `quay serve` publishes (its `services[]` carry the
+ * `name`/`host`/`port` the panel links to). Default argument is the one live `web` entry the
+ * dashboard fixture reads.
+ */
+function serverStateCarrier(services: unknown[] = [{ name: 'web', host: '172.28.0.1', port: 3651, up: true }]): string {
+  return JSON.stringify({ schemaVersion: 1, pid: 1, startedAt: '2026-01-01T00:00:00.000Z', services });
+}
+
+/**
+ * The commands `collectSnapshot` is expected to spawn, as exact argv strings. The dashboard
+ * is NOT among them: it reads the `.quay/server.json` carrier and probes the recorded address
+ * in-process, so `server status --json` no longer costs a subprocess (nor is it whitelisted).
+ */
+const EXPECTED_SNAPSHOT_COMMANDS = [
+  'adr list --json',
+  'config validate --json',
+  'driver status --kind worker --json',
+  'goal list --json',
+  'task list --json',
+];
 
 /** A runner that answers each whitelisted read-only command with a fixture JSON document. */
 function createFixtureRunner(counter: { calls: number }): QuayCommandRunner {
@@ -63,9 +89,6 @@ function createFixtureRunner(counter: { calls: number }): QuayCommandRunner {
       last_record_ts: '2026-01-01T00:00:00.000Z',
     },
     'config validate --json': [{ severity: 'error', field: 'loop.board', message: 'missing' }],
-    'server status --json': {
-      services: [{ name: 'web', host: '172.28.0.1', port: 3651, liveness: { alive: true } }],
-    },
   };
 
   return async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
@@ -137,9 +160,11 @@ test('runQuayCommand executes a whitelisted read-only command', async () => {
   assert.deepEqual(seen, [[PROJECT_PATH, 'adr', 'list', '--json']]);
   assert.equal(isReadOnlyQuayCommand(['driver', 'status', '--kind', 'promotion', '--json']), true);
   assert.equal(isReadOnlyQuayCommand(['driver', 'status', '--json']), false);
-  // The dashboard URL probe is a read-only verb on the whitelist, and only in
-  // its exact spelling: an extra argument must still be refused.
-  assert.equal(isReadOnlyQuayCommand(['server', 'status', '--json']), true);
+  // `server status --json` is no longer on the whitelist at all: it was the one source of
+  // the optional dashboard link, and it cost ~4s of driver-kind subprocesses to answer.
+  // The panel reads the `.quay/server.json` carrier instead, so the command is now refused
+  // before it could ever reach a child — structurally, not merely by not being called.
+  assert.equal(isReadOnlyQuayCommand(['server', 'status', '--json']), false);
   assert.equal(isReadOnlyQuayCommand(['server', 'status']), false);
   assert.equal(isReadOnlyQuayCommand(['server', 'start']), false);
 });
@@ -150,6 +175,17 @@ test('getQuaySnapshot deduplicates concurrent calls and reuses a fresh snapshot'
   const service = createQuayService(createDependencies({
     now: () => nowMs,
     runCommand: createFixtureRunner(counter),
+    // The dashboard link comes from the carrier plus a live probe, not from a spawned
+    // `server status`; both are stubbed here so the composed URL is still asserted below.
+    readFile: createFileReader({
+      readText: async (filePath) => {
+        if (filePath === path.join(PROJECT_PATH, '.quay', 'server.json')) {
+          return serverStateCarrier();
+        }
+        throw new Error('ENOENT');
+      },
+    }),
+    probeWebService: async (host, port) => host === '172.28.0.1' && port === 3651,
   }));
 
   // Two concurrent opens of the same project must share one CLI pass, not two.
@@ -158,7 +194,7 @@ test('getQuaySnapshot deduplicates concurrent calls and reuses a fresh snapshot'
     service.getQuaySnapshot('project-1'),
   ]);
 
-  const perPassCommands = 6; // task + goal + adr + driver + config + server
+  const perPassCommands = 5; // task + goal + adr + driver + config (the dashboard no longer spawns)
   assert.equal(counter.calls, perPassCommands, 'two concurrent calls spawn the CLI once per command');
   assert.equal(first, second, 'the in-flight promise is shared, not recomputed');
 
@@ -240,48 +276,209 @@ test('getQuaySnapshot returns null for an unknown project', async () => {
   assert.equal(await service.getQuaySnapshot('missing'), null);
 });
 
-test('getQuaySnapshot leaves dashboardUrl null and warns nothing when no live web service answers', async () => {
-  const cases: Array<{ name: string; serverResult: QuayCommandResult }> = [
-    {
-      name: 'web service reported but not alive',
-      serverResult: {
-        ok: true,
-        code: 0,
-        stdout: JSON.stringify({
-          services: [{ name: 'web', host: '127.0.0.1', port: 3651, liveness: { alive: false } }],
-        }),
-        stderr: '',
+/**
+ * The reading this test is the permanent record of (2026-10-07): the cold snapshot was ~9.5s
+ * because `collectSnapshot` `await`-ed six independent CLI reads in series, and one of them —
+ * `server status --json` — cost ~4s of its own driver-kind subprocesses to yield a single
+ * optional dashboard URL. Two criteria are asserted here, deliberately not by wall clock alone:
+ *
+ *  - STRUCTURAL: the injected runner records the highest number of calls it ever had in
+ *    flight at once. Each call parks on a timer before answering, so if the collector overlaps
+ *    them the peak reaches five; if it awaits them in series the peak is one, no matter how the
+ *    host schedules. This is the assertion a re-serialised collector cannot pass.
+ *  - WALL CLOCK, as a second witness: five overlapping `COMMAND_DELAY_MS` waits finish in about
+ *    one delay, while a serial collector needs their sum.
+ *
+ * The command set is asserted exactly, so "made it faster by dropping a section" fails too.
+ */
+test('collectSnapshot overlaps its independent CLI reads instead of awaiting them in series', async () => {
+  const COMMAND_DELAY_MS = 200;
+  const seen: string[] = [];
+  let inFlight = 0;
+  let peakInFlight = 0;
+
+  const service = createQuayService(createDependencies({
+    runCommand: async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
+      seen.push(args.join(' '));
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, COMMAND_DELAY_MS));
+        return { ok: true, code: 0, stdout: '[]', stderr: '' };
+      } finally {
+        inFlight -= 1;
+      }
+    },
+  }));
+
+  const startedAt = performance.now();
+  const snapshot = await service.getQuaySnapshot('project-1');
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.ok(snapshot);
+  // All five independent reads must be in flight at once. Under the serial collector this is 1.
+  assert.equal(peakInFlight, EXPECTED_SNAPSHOT_COMMANDS.length, 'the independent reads must overlap');
+  // Nothing was dropped to fake the speedup: the very same five commands still run, once each.
+  assert.deepEqual([...seen].sort(), EXPECTED_SNAPSHOT_COMMANDS);
+  // Second witness: one delay, not five. A serial pass cannot get under `COMMAND_DELAY_MS * 3`
+  // (it needs `COMMAND_DELAY_MS * 5`), and an overlapped pass cannot approach the former.
+  assert.ok(
+    elapsedMs < COMMAND_DELAY_MS * 3,
+    `expected an overlapped pass (< ${COMMAND_DELAY_MS * 3}ms), took ${Math.round(elapsedMs)}ms`,
+  );
+});
+
+test('the dashboard link is read from the .quay/server.json carrier, never by spawning the CLI', async () => {
+  const seen: string[] = [];
+  const readPaths: string[] = [];
+  const service = createQuayService(createDependencies({
+    runCommand: async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
+      seen.push(args.join(' '));
+      return { ok: true, code: 0, stdout: '[]', stderr: '' };
+    },
+    readFile: createFileReader({
+      readText: async (filePath) => {
+        readPaths.push(filePath);
+        if (filePath === path.join(PROJECT_PATH, '.quay', 'server.json')) {
+          return serverStateCarrier();
+        }
+        throw new Error('ENOENT');
       },
+    }),
+    probeWebService: async (host, port) => host === '172.28.0.1' && port === 3651,
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+
+  assert.equal(snapshot?.dashboardUrl, 'http://172.28.0.1:3651/');
+  // The carrier under the project root is where the link came from — not a `server status` body.
+  assert.ok(
+    readPaths.includes(path.join(PROJECT_PATH, '.quay', 'server.json')),
+    'the dashboard must be read from the .quay/server.json carrier',
+  );
+  // `server status --json` is neither spawned nor even whitelisted any more.
+  assert.equal(seen.includes('server status --json'), false, 'the dashboard must not cost a subprocess');
+  assert.deepEqual([...seen].sort(), EXPECTED_SNAPSHOT_COMMANDS);
+  assert.deepEqual(snapshot?.warnings, []);
+});
+
+test('a wildcard bind host is probed — and linked — on loopback, not at the wildcard literal', async () => {
+  const probed: Array<{ host: string; port: number }> = [];
+  const service = createQuayService(createDependencies({
+    runCommand: async () => ({ ok: true, code: 0, stdout: '[]', stderr: '' }),
+    readFile: createFileReader({
+      readText: async () => serverStateCarrier([{ name: 'web', host: '0.0.0.0', port: 3651, up: true }]),
+    }),
+    probeWebService: async (host, port) => {
+      probed.push({ host, port });
+      return true;
+    },
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+
+  assert.deepEqual(probed, [{ host: '127.0.0.1', port: 3651 }]);
+  assert.equal(snapshot?.dashboardUrl, 'http://127.0.0.1:3651/');
+});
+
+test('the dashboard link is null — and warns nothing — when no live web service answers', async () => {
+  const cases: Array<{ name: string; carrier: string | null; probeAlive?: boolean }> = [
+    { name: 'no carrier file at all', carrier: null },
+    { name: 'carrier that is not JSON', carrier: '{ not json' },
+    {
+      name: 'carrier with no web service entry',
+      carrier: serverStateCarrier([{ name: 'control', host: '127.0.0.1', port: 13029, up: true }]),
     },
     {
-      name: 'no web service entry',
-      serverResult: {
-        ok: true,
-        code: 0,
-        stdout: JSON.stringify({
-          services: [{ name: 'control', host: '127.0.0.1', port: 21353, liveness: { alive: true } }],
-        }),
-        stderr: '',
-      },
+      name: 'web entry with no usable host or port',
+      carrier: serverStateCarrier([{ name: 'web', up: true }]),
     },
     {
-      name: 'server status command failed',
-      serverResult: { ok: false, code: null, stdout: '', stderr: '', error: 'spawn quay ENOENT' },
+      name: 'web service recorded but unreachable',
+      carrier: serverStateCarrier([{ name: 'web', host: '127.0.0.1', port: 3651, up: true }]),
+      probeAlive: false,
     },
   ];
 
   for (const scenario of cases) {
+    let probeCalls = 0;
     const service = createQuayService(createDependencies({
-      runCommand: async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> =>
-        (args.join(' ') === 'server status --json'
-          ? scenario.serverResult
-          : { ok: true, code: 0, stdout: '[]', stderr: '' }),
+      runCommand: async () => ({ ok: true, code: 0, stdout: '[]', stderr: '' }),
+      readFile: createFileReader({
+        readText: async () => {
+          if (scenario.carrier === null) {
+            throw new Error('ENOENT');
+          }
+          return scenario.carrier;
+        },
+      }),
+      probeWebService: async () => {
+        probeCalls += 1;
+        return scenario.probeAlive ?? true;
+      },
     }));
 
     const snapshot = await service.getQuaySnapshot('project-1');
     assert.equal(snapshot?.dashboardUrl, null, scenario.name);
     assert.deepEqual(snapshot?.warnings, [], `${scenario.name}: an absent dashboard is not a warning`);
+    if (scenario.name !== 'web service recorded but unreachable') {
+      assert.equal(probeCalls, 0, `${scenario.name}: a carrier with no usable web address must not be probed`);
+    }
   }
+});
+
+/**
+ * The task ledger's counts are an aggregate of the WHOLE `task list --json` array, and the
+ * collector must keep asking for that whole array. This is the guard against "speeding up" the
+ * cold path by adding `--page-size`: the paginated `--json` is a bare array carrying no total, so
+ * paging would silently turn a real ledger ("2583 tasks") into the page size ("10 tasks"). The
+ * reading is load-bearing, so the argv is pinned to prove the collector does not — and must not —
+ * ask for a page.
+ */
+test('the task counts aggregate the whole list, and the collector asks for it unpaged', async () => {
+  // Six tasks over five statuses, with a repeated status so the per-status fold is exercised.
+  const tasks = [
+    { id: 't-ready-1', title: 'R1', status: 'ready', updatedAt: 6 },
+    { id: 't-todo', title: 'T', status: 'todo', updatedAt: 5 },
+    { id: 't-done-1', title: 'D1', status: 'done', updatedAt: 4 },
+    { id: 't-done-2', title: 'D2', status: 'done', updatedAt: 3 },
+    { id: 't-nh', title: 'NH', status: 'needs-human', updatedAt: 2 },
+    { id: 't-sup', title: 'S', status: 'superseded', updatedAt: 1 },
+  ];
+  const taskListArgv: string[][] = [];
+  const service = createQuayService(createDependencies({
+    runCommand: async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
+      if (args[0] === 'task' && args[1] === 'list') {
+        taskListArgv.push([...args]);
+      }
+      const key = args.join(' ');
+      return { ok: true, code: 0, stdout: key === 'task list --json' ? JSON.stringify(tasks) : '[]', stderr: '' };
+    },
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+
+  // The counts are the true aggregate of the whole six-task array, not of any page of it.
+  assert.equal(snapshot?.tasks?.total, 6, 'total counts every task in the array');
+  assert.deepEqual(snapshot?.tasks?.byStatus, {
+    ready: 1,
+    todo: 1,
+    done: 2,
+    'needs-human': 1,
+    superseded: 1,
+  });
+  assert.equal(snapshot?.tasks?.ready, 1);
+  assert.equal(snapshot?.tasks?.needsHuman, 1);
+  assert.equal(snapshot?.tasks?.done, 2);
+
+  // ...and the collector asked for the whole array: no `--page-size`, which would truncate it
+  // (and the paginated `--json` carries no total to count from).
+  assert.deepEqual(taskListArgv, [['task', 'list', '--json']]);
+  assert.equal(
+    taskListArgv.some((argv) => argv.includes('--page-size')),
+    false,
+    'a paged task list would silently shrink the ledger counts',
+  );
 });
 
 test('getQuaySnapshot caps the recent lists and orders them most-recent-first', async () => {

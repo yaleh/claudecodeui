@@ -2,7 +2,7 @@
 id: gap-quay-tab-cold-snapshot-serial-cli-spawns
 title: Quay tab 冷缓存快照 9.5s：collectSnapshot 串行 spawn 6 条 quay CLI，其中 server
   status 3.9s 只为取一个可选 dashboard URL（该读数失败还被静默吞掉）
-status: ready
+status: done
 labels:
   - gap
   - defect
@@ -51,12 +51,12 @@ extra:
 
 ## AC
 
-- [ ] AC1 并发性（结构判据，不靠墙钟稳定性）：`server/modules/quay/tests/quay.service.test.ts` 新增用例，给注入的 fake runner 每条命令加固定人为延迟（如 100ms），断言 collector 总耗时 < 各命令延迟之和（如 < 250ms 而非 ~600ms），且 runner 记录到的命令集合与改前逐字相同（防「漏读某一段」冒充加速）。
-- [ ] AC2 dashboard 读数不再 spawn CLI：同文件断言 collector 从不对 `['server','status','--json']` 调用 runner；且 `dashboardUrl` 仍能正确解析，并含负例（carrier 缺 `web` 服务 / 不可达 ⇒ `null`，且不产生 warning）。
-- [ ] AC3 假形态承重（实测红文案写进完成记录）：临时把并发改回串行后 AC1 用例**必须变红**，还原后转绿；临时让 dashboard 读数重新走 `server status` 后 AC2 用例**必须变红**，还原后转绿。
-- [ ] AC4 端到端冷路径实测：对真实运行的服务与真实 `quay` store（2575 任务）请求 `/api/quay/<id>/snapshot?refresh=1`，`time_total` < 6s；把 before(9.5s) / after 两个数字写进完成记录。（不依赖 quay 仓库那两条 CLI 侧任务是否已落地。）
-- [ ] AC5 工具链：`npm run typecheck` 退出码 0；`server/modules/quay/tests/` 下两个测试文件全绿。⛔ **不得新增 `server/**/*.test.ts`**（仓库有按文件数 pin 的测试，新增会让它全线变红）；按 `docs/operations/process-isolation-and-memory-caps.md` 的单文件方式跑，不做无界 `--test` 扇出。
-- [ ] AC6 计数不回归（防上面那条纠正被违反）：同文件断言——喂给 `summarizeTasks` 一个含多种 status 的完整数组时，`total`/`byStatus`/`ready`/`needsHuman`/`done` 等于该数组的真实聚合；并断言 collector 发出的 `task list` argv **不含** `--page-size`（该读数是全量计数所必需，不是遗漏）。
+- [x] AC1 并发性（结构判据，不靠墙钟稳定性）：`server/modules/quay/tests/quay.service.test.ts` 新增用例，给注入的 fake runner 每条命令加固定人为延迟（如 100ms），断言 collector 总耗时 < 各命令延迟之和（如 < 250ms 而非 ~600ms），且 runner 记录到的命令集合与改前逐字相同（防「漏读某一段」冒充加速）。
+- [x] AC2 dashboard 读数不再 spawn CLI：同文件断言 collector 从不对 `['server','status','--json']` 调用 runner；且 `dashboardUrl` 仍能正确解析，并含负例（carrier 缺 `web` 服务 / 不可达 ⇒ `null`，且不产生 warning）。
+- [x] AC3 假形态承重（实测红文案写进完成记录）：临时把并发改回串行后 AC1 用例**必须变红**，还原后转绿；临时让 dashboard 读数重新走 `server status` 后 AC2 用例**必须变红**，还原后转绿。
+- [x] AC4 端到端冷路径实测：对真实运行的服务与真实 `quay` store（2575 任务）请求 `/api/quay/<id>/snapshot?refresh=1`，`time_total` < 6s；把 before(9.5s) / after 两个数字写进完成记录。（不依赖 quay 仓库那两条 CLI 侧任务是否已落地。）
+- [x] AC5 工具链：`npm run typecheck` 退出码 0；`server/modules/quay/tests/` 下两个测试文件全绿。⛔ **不得新增 `server/**/*.test.ts`**（仓库有按文件数 pin 的测试，新增会让它全线变红）；按 `docs/operations/process-isolation-and-memory-caps.md` 的单文件方式跑，不做无界 `--test` 扇出。
+- [x] AC6 计数不回归（防上面那条纠正被违反）：同文件断言——喂给 `summarizeTasks` 一个含多种 status 的完整数组时，`total`/`byStatus`/`ready`/`needsHuman`/`done` 等于该数组的真实聚合；并断言 collector 发出的 `task list` argv **不含** `--page-size`（该读数是全量计数所必需，不是遗漏）。
 
 ## DoD
 
@@ -68,3 +68,25 @@ extra:
 - server/modules/quay/quay.module.ts
 - server/modules/quay/tests/quay.service.test.ts
 - tasks/gap-quay-tab-cold-snapshot-serial-cli-spawns.md
+
+## Evidence
+
+**AC1（并发结构判据，绿）** —— `quay.service.test.ts::collectSnapshot overlaps its independent CLI reads instead of awaiting them in series`：注入 fake runner 每条命令 200ms 固定延迟，断言 `peakInFlight === 5`（五条独立命令同时在飞）且 `elapsedMs < COMMAND_DELAY_MS * 3`（600ms 串行下界 vs 实测 200.7ms）。命令集合与改前逐字相同（`EXPECTED_SNAPSHOT_COMMANDS` 五条，`perPassCommands = 5`）。
+
+**AC2（dashboard 不再 spawn CLI，绿）** —— `the dashboard link is read from the .quay/server.json carrier, never by spawning the CLI`：`dashboardUrl === 'http://172.28.0.1:3651/'`，`readPaths` 含 `.quay/server.json`，`seen.includes('server status --json') === false`，`warnings` 为 `[]`。负例覆盖 `no carrier file` / `not JSON` / `no web entry` / `no usable host/port` / `unreachable`，均得 `dashboardUrl === null` 且无 warning；另有 `isReadOnlyQuayCommand(['server','status','--json']) === false` 与 wildcard-bind 探活用例（`0.0.0.0`/`::`/`*` → 环回）。
+
+**AC3（假形态承重，两次实测红文案）** ——
+- 把 `collectSnapshot` 的 `Promise.all` 改回逐条 `await` 后，AC1 用例变红，实测文案：`AssertionError [ERR_ASSERTION]: the independent reads must overlap / 1 !== 5`（`peakInFlight` 读到 1）。还原后转绿。
+- 把 dashboard 读数改回 `['server','status','--json']` 走 runner 后，AC2 用例变红，实测文案：`AssertionError [ERR_ASSERTION]: the dashboard must not cost a subprocess / true !== false`（`seen.includes('server status --json')` 读到 `true`）。还原后转绿。
+- 两次还原后 `git status --short` 仅余 `M server/modules/quay/tests/quay.service.test.ts`，源码回到已提交态。
+
+**AC4（端到端冷路径，真实服务 + 真实 store）** —— 用本仓库 `server/index.ts` 起真实服务（`SERVER_PORT` 随机、`HOME`/`DATABASE_PATH` 临时、`WORKSPACES_ROOT=/data/home/yale/work`），注册用户 + 真实登记 `/data/home/yale/work/quay`（2575 任务）为项目，对 `/api/quay/<id>/snapshot?refresh=1` 连测三次：
+- **before**（`git show a2b174a7^` 的 `quay.service.ts` + `quay.module.ts`）：`9.527137s / 9.501927s / 9.635763s`（与立案时 9.5s 吻合）。
+- **after**（本分支修复）：`2.931573s / 3.264446s / 3.037061s`，三条均 < 6s。
+- 两次读数体量一致（response ~11383B），**载荷逐字相同**：`tasks {total:2591, byStatus:{done:2510, superseded:75, ready:4, 'needs-human':1, todo:1}, ready:4, needsHuman:1, done:2510}`；`goals.total 234`；`adrs.total 36`；`driver` running；`dashboardUrl "http://172.28.0.1:20119/"`（真实 `quay serve` web face 存活）；`warnings []`。
+
+**AC5（工具链，绿）** —— `npm run typecheck` 退出码 0（三个 tsc 工程）。`quay.service.test.ts` 18/18 通过、`quay-process.test.ts` 7/7 通过（单文件方式，`scripts/with-memory-cap.sh`，非无界扇出）。未新增任何 `server/**/*.test.ts`。
+
+**AC6（计数不回归，绿）** —— `the task counts aggregate the whole list, and the collector asks for it unpaged`：六任务五 status 的完整数组喂入后 `total === 6`、`byStatus {ready:1,todo:1,done:2,'needs-human':1,superseded:1}`、`ready===1`、`needsHuman===1`、`done===2`；并断言 collector 的 argv 逐字为 `[['task','list','--json']]` 且 `argv.some(a => a.includes('--page-size')) === false`。
+
+**关于 DoD 的浏览器读数**：AC4 判定式已明确为 curl `time_total < 6s`，本节即按该式在**真实运行服务 + 真实 store**（非替身）上测得 before 9.5s → after ~2.9–3.3s；DoD 声明的一致性（四卡渲染、`warnings[]` 不新增、Task ledger 计数逐字不变）由上述**逐字相同的载荷**直接证实——before/after 两次响应的 `tasks`/`goals`/`adrs`/`driver`/`dashboardUrl`/`warnings` 完全一致，差别只在耗时。本会话未提供 MCP 浏览器工具，未另做浏览器 Network 面板截图；如需该形式的读数，宜由带 MCP 浏览器的会话按 AC4 的同一服务与 store 复测。
