@@ -1,7 +1,7 @@
 ---
 id: gap-mcp-ui-device-settings
 title: Settings 增加本设备的 MCP 导航策略（接受/询问/拒绝，默认询问）与设备名，存 localStorage，并补全各语言 i18n
-status: ready
+status: done
 labels:
   - gap
 parent: null
