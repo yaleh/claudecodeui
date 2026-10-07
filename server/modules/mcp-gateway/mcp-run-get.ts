@@ -75,9 +75,9 @@ export type McpRunGetOutcome = 'settled' | 'awaitingPermission' | 'timeout';
 /** Why a by-id read found no run. The three are reported with distinct prose. */
 export type McpRunGetMissReason = 'expired' | 'unknown' | 'restarted';
 
-const EXPLANATION_EXPIRED = '该运行曾存在，但已超出保留期，结果不再可取。';
-const EXPLANATION_UNKNOWN = '该 runId 从未被发出过。';
-const EXPLANATION_RESTARTED = '服务已重启，该运行属于上一次启动。';
+const EXPLANATION_EXPIRED = 'This run existed but is past its retention window; its result can no longer be retrieved.';
+const EXPLANATION_UNKNOWN = 'This runId was never issued.';
+const EXPLANATION_RESTARTED = 'The service restarted; this run belongs to a previous boot.';
 
 const EXPLANATION_BY_REASON: Record<McpRunGetMissReason, string> = {
   expired: EXPLANATION_EXPIRED,
@@ -86,11 +86,11 @@ const EXPLANATION_BY_REASON: Record<McpRunGetMissReason, string> = {
 };
 
 /** The note carried when a session's activity store has no snapshot for it. */
-const NO_ACTIVITY_NOTE = '该会话无活动记录。';
+const NO_ACTIVITY_NOTE = 'This session has no activity record.';
 /** The note carried when a settled run's session yields no assistant message. */
-const NO_ASSISTANT_MESSAGE_NOTE = '该运行已结束，但该会话没有可读的助手消息。';
+const NO_ASSISTANT_MESSAGE_NOTE = 'This run has ended, but the session has no readable assistant message.';
 /** The note carried when a miss cannot name a session to fall back to. */
-const NO_FALLBACK_SESSION_NOTE = '无法确定会话，无从回退。';
+const NO_FALLBACK_SESSION_NOTE = 'No session can be determined, so there is nothing to fall back to.';
 
 // --------------------------- injected services ---------------------------
 

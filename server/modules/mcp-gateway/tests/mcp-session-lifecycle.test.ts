@@ -55,7 +55,7 @@
  *       the run's registry status becomes `aborted`, and the host's pid is
  *       unchanged with the host still live;
  *   (e) `session_interrupt` on an idle session reports `aborted: false` with a
- *       message containing 「没有可中止的运行」; the positive control is (d)'s
+ *       message containing "no run to abort"; the positive control is (d)'s
  *       running turn reading `aborted: true`;
  *   (f) a token lacking `cloudcli:session:control` is denied, exactly one
  *       `denied` audit row is written, and `abort` is never called.
@@ -855,7 +855,7 @@ test('(e) session_interrupt on an idle session reports aborted:false with the no
       assert.equal(idle.isError, false, 'an idle interrupt must not error');
       assert.equal(idle.payload?.aborted, false, 'an idle session must report aborted: false');
       assert.ok(
-        String(idle.payload?.message).includes('没有可中止的运行'),
+        String(idle.payload?.message).includes('no run to abort'),
         'the idle reading must literally say there was no run to abort',
       );
 

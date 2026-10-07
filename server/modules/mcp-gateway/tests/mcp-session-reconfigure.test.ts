@@ -30,7 +30,7 @@
  *       over the WebSocket `chat.send` path is silently ignored (row unchanged,
  *       no error);
  *   (d) a provider with no `liveReconfigure` answers `next-turn` /
- *       `liveSupported=false` with a message naming 不支持在线重配置 and 下一轮,
+ *       `liveSupported=false` with a message naming "live reconfiguration" and "next",
  *       and touches no live verb;
  *   (e) a token lacking `cloudcli:session:control` is denied, one `denied` audit
  *       row is written, and no write or driver call happens.
@@ -724,8 +724,8 @@ test('(d) a provider without liveReconfigure reports next-turn and 不支持在�
     assert.equal(cfg.isError, false, 'a provider without live reconfig is not an error');
     assert.equal(cfg.payload?.applied, 'next-turn', 'the change must be reported as next-turn');
     assert.equal(cfg.payload?.liveSupported, false, 'the provider must be reported as not live-capable');
-    assert.match(String(cfg.payload?.message), /不支持在线重配置/, 'the message must say live reconfiguration is unsupported');
-    assert.match(String(cfg.payload?.message), /下一轮/, 'the message must say the change lands next turn');
+    assert.match(String(cfg.payload?.message), /live reconfiguration/, 'the message must say live reconfiguration is unsupported');
+    assert.match(String(cfg.payload?.message), /next/, 'the message must say the change lands next turn');
     assert.equal(harness.counts.reconfigurePatches.length, 0, 'the runtime reconfigure must not be called');
     assert.equal(harness.process.setModels.length, 0, 'setModel must not be called');
     assert.equal(harness.process.setPermissionModes.length, 0, 'setPermissionMode must not be called');

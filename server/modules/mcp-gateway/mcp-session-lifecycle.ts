@@ -198,11 +198,11 @@ export type SessionInterruptPayload = {
 };
 
 /**
- * The idle reading `session_interrupt` returns. The phrase 「没有可中止的运行」 is
+ * The idle reading `session_interrupt` returns. The phrase "no run to abort" is
  * load-bearing: it is what AC-250's criterion matches, and what tells a caller
  * the `false` is "nothing was running" rather than "the stop failed".
  */
-const NO_RUN_TO_ABORT_MESSAGE = '该会话当前没有正在运行的运行，没有可中止的运行。';
+const NO_RUN_TO_ABORT_MESSAGE = 'This session currently has no run in flight, so there is no run to abort.';
 
 /** Reads and validates `session_create`'s arguments. */
 export function readSessionCreateInput(args: Record<string, unknown>): McpSessionCreateInput {

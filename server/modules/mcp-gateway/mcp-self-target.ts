@@ -179,32 +179,32 @@ export function isSelfTargetTurn(
     return {
       blocked: false,
       suffix: null,
-      reason: `阶段为 ${turn.phase}，不是 tool，放行。`,
+      reason: `Phase is ${turn.phase}, not tool; allowed.`,
     };
   }
   const toolName = turn.toolName;
   if (toolName === null) {
-    return { blocked: false, suffix: null, reason: '处于 tool 阶段但没有工具名，放行。' };
+    return { blocked: false, suffix: null, reason: 'In the tool phase but with no tool name; allowed.' };
   }
   const split = splitGatewayToolName(toolName);
   if (split === null) {
     return {
       blocked: false,
       suffix: null,
-      reason: `${toolName} 不是 mcp__<别名>__<工具名> 形状，放行。`,
+      reason: `${toolName} is not of the form mcp__<alias>__<tool>; allowed.`,
     };
   }
   if (!writeToolNames.includes(split.name)) {
     return {
       blocked: false,
       suffix: null,
-      reason: `${toolName} 的后缀 ${split.name} 不在网关写工具名集合中，放行。`,
+      reason: `The suffix ${split.name} of ${toolName} is not in the gateway write-tool name set; allowed.`,
     };
   }
   return {
     blocked: true,
     suffix: split.name,
-    reason: `目标会话正在执行网关写工具 ${toolName}（别名 ${split.alias}），拒绝自指写操作。`,
+    reason: `The target session is executing gateway write tool ${toolName} (alias ${split.alias}); the self-target write is refused.`,
   };
 }
 
@@ -251,8 +251,8 @@ export function buildSelfTargetGuard(
       code: SELF_TARGET_CODE,
       suffix: reading.suffix ?? '',
       message:
-        `目标会话 ${targetSessionId} 正在执行网关写工具 ${turn.toolName ?? ''}，` +
-        `对它的写操作（${op}）被拒绝，以免自指卡死。`,
+        `Target session ${targetSessionId} is executing gateway write tool ${turn.toolName ?? ''}; ` +
+        `the write operation (${op}) against it is refused to avoid a self-target deadlock.`,
     };
   };
 }

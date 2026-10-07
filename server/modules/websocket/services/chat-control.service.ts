@@ -815,7 +815,7 @@ export function createChatControlService(deps: ChatControlDependencies) {
       return {
         ok: false,
         code: 'APPROVAL_EXPIRED_OR_NOT_FOUND',
-        message: '该审批请求已过期或不存在（可能已超时被自动拒绝）。',
+        message: 'The approval request has expired or does not exist (it may have timed out and been auto-denied).',
       };
     }
 

@@ -150,8 +150,8 @@ export type SessionBackgroundPayload = {
   message?: string;
 };
 
-/** The sentence a session with no live host is told. Load-bearing words: 没有宿主. */
-const NO_HOST_MESSAGE = '该会话当前没有宿主，没有后台任务或计划。';
+/** The sentence a session with no live host is told. Load-bearing words: "no host". */
+const NO_HOST_MESSAGE = 'This session currently has no host, so it has no background tasks or schedules.';
 
 /** Reads and validates `session_background`'s arguments. */
 export function readSessionBackgroundInput(args: Record<string, unknown>): McpSessionBackgroundInput {
