@@ -118,6 +118,7 @@ for f in server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts; do [ 
 - server/modules/mcp-gateway/tests/mcp-run-get.test.ts
 - server/modules/mcp-gateway/tests/mcp-overview.test.ts
 - server/modules/mcp-gateway/tests/mcp-english-only.test.ts
+- server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts
 - server/modules/debug-agent/tests/debug-agent-control-queue.test.ts
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-ac287-not-found-semantics.md (self-touch)
@@ -151,9 +152,16 @@ Consequently the branch's own criteria were re-pointed at the English sentences 
 
 Result: `mcp-english-only.test.ts` 10/10 green.
 
+**AC-284's own criterion migrated (7th AC8 file).** `mcp-error-envelope.test.ts` is AC-284's achieved criterion (landed on develop; outside AC-287's original `## Touches` — now declared). Its header explicitly framed two of its ten probe classes — `审批或排队消息不存在` / `运行不存在` — as pinned *pending AC-287's conversion*, so AC-287's landing invalidates the pins; both were migrated from `kind:'exempt'` into `kind:'envelope'`, strength raised:
+
+- `审批或排队消息不存在`: exempt (pinned "not an error", `reading:'not-an-error'`) → `kind:'envelope'`, `tool:'session_cancel_queued'`, args `{session:'sess-1', messageUuid:'no-such-uuid'}`, `expect:'QUEUED_MESSAGE_NOT_FOUND'` — asserts the code, strictly stronger than the retired `isError === false` pin.
+- `运行不存在`: exempt (pinned "not plain text", `reading:'not-plain-text'`) → `kind:'envelope'`, `tool:'run_get'`, `expect:'RUN_NOT_FOUND'`. This required wiring `run_get` in the criterion's own `readTools` bag — it was deliberately left unwired ("Overview / run_get / quay_snapshot stay unwired on purpose"), so the probe had been reading `MCP_TOOL_NOT_IMPLEMENTED` (verbatim: `{"isError":true,"structuredContent":{"code":"MCP_TOOL_NOT_IMPLEMENTED","message":"run_get is registered by AC-245 but its behaviour is delivered by AC-248.",...}}`), not its named class. The bag now supplies a `runGet` deps bundle whose `runs.getRunById` answers every id `{status:'unknown', reason:'unknown'}` (the "never issued" reading), so the class probe genuinely reads `RUN_NOT_FOUND`. The `exempt` arm is kept as the documented escape hatch (the class-coverage test still guards that any entry states a reason) though no class uses it now.
+
+Result: `mcp-error-envelope.test.ts` 7/7 green; the class walk now prints `error-envelope class 运行不存在 -> RUN_NOT_FOUND (run_get, probe)`.
+
 **Count pin re-synced (supersedes the AC9 note's numbers).** The AC9 note's `N = 244` / `known=3 unknown=241` / `known=1 unknown=243` were the **pre-merge** branch readings. Merging develop adds `mcp-english-only.test.ts`, so on the merged tree `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` → **N = 245**; pins written `known=3 unknown=242` (`server/shared/tests/quay-test-script.test.ts:154`) and `known=1 unknown=244` (`:203`). `npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` → **11/11, exit 0**.
 
-**Diff vs Touches (supersedes the AC11 note's file list).** `git diff --name-status develop...HEAD` = **22** files; the one outside the AC11 note's list is `server/modules/mcp-gateway/tests/mcp-english-only.test.ts`, now declared in `## Touches`. The other 21 are as the AC11 note lists (with `mcp-run-get.test.ts` etc. as `M`, `mcp-not-found-semantics.test.ts` as `A`).
+**Diff vs Touches (supersedes the AC11 note's file list).** `git diff --name-status develop...HEAD` = **23** files; the two outside the AC11 note's list are `server/modules/mcp-gateway/tests/mcp-english-only.test.ts` and `server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts`, both now declared in `## Touches`. The other 21 are as the AC11 note lists (with `mcp-run-get.test.ts` etc. as `M`, `mcp-not-found-semantics.test.ts` as `A`). No file outside `## Touches` is written.
 
 ### AC1 — red-first
 
@@ -238,7 +246,8 @@ Restore: `git checkout -- server/modules/mcp-gateway/mcp-overview-tools.ts` → 
 - `mcp-overview.test.ts`(d): old no-quay `isError === false` retained and now also asserts `status === 'no_quay_config'`; **added** a missing-project probe asserting `isError === true` / `code === 'PROJECT_NOT_FOUND'` / `details.project === missingId`, plus a positive control that an existing project with config still succeeds.
 - `debug-agent/tests/debug-agent-control-queue.test.ts`(d): old `assert.equal(reading.verdict, 'unknown')` for a dequeued uuid → new `assert.equal(reading.verdict, 'already-started', 'a message already started cannot be withdrawn')`; kept `assert.notEqual(reading.verdict, 'withdrawn')`.
 - `mcp-english-only.test.ts` (AC-289's criterion): see the Post-merge reconciliation section above — three probes migrated to the error shapes, strength raised, 10/10 green.
-- Scoped gate `bash scripts/test.sh --for-task gap-ac287-not-found-semantics` → exit 0, `# pass 8 / # fail 0` (8 `*.test.*` files in `## Touches`), green after the develop merge.
+- `mcp-error-envelope.test.ts` (AC-284's criterion): see the Post-merge reconciliation section above — two class probes migrated from the exempt arm into the envelope arm, strength raised (envelope code asserted, not merely "not an error"/"not plain text"), 7/7 green.
+- Scoped gate `bash scripts/test.sh --for-task gap-ac287-not-found-semantics` → exit 0, `# pass 9 / # fail 0` (9 `*.test.*` files in `## Touches`), green after the develop merge.
 
 ### AC9 — count pin
 
@@ -252,9 +261,9 @@ See the Post-merge reconciliation section: pre-merge `N = 244` (pins `known=3 un
 
 ### AC11 — actual diff vs `## Touches`
 
-`git diff --name-status develop...HEAD` = **22** files (all declared in `## Touches`, which now also carries `server/modules/mcp-gateway/tests/mcp-english-only.test.ts`):
+`git diff --name-status develop...HEAD` = **23** files (all declared in `## Touches`, which now also carries `server/modules/mcp-gateway/tests/mcp-english-only.test.ts` and `server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts`):
 
-`server/modules/debug-agent/debug-agent.host-driver.ts`, `.../tests/debug-agent-control-queue.test.ts`, `server/modules/mcp-gateway/index.ts`, `.../mcp-approvals.ts`, `.../mcp-error-envelope.ts`, `.../mcp-overview-tools.ts`, `.../mcp-run-get.ts`, `.../mcp-session-cancel-queued.ts`, `.../mcp-tool-error-codes.ts`, `.../tests/mcp-approvals.test.ts`, `.../tests/mcp-cancel-queued.test.ts`, `.../tests/mcp-english-only.test.ts`, `.../tests/mcp-not-found-semantics.test.ts (new)`, `.../tests/mcp-overview.test.ts`, `.../tests/mcp-run-get.test.ts`, `server/modules/providers/index.ts`, `.../list/claude/claude-runtime.provider.ts`, `.../services/provider-runtime.service.ts`, `server/modules/websocket/services/chat-control.service.ts`, `.../chat-websocket.service.ts`, `server/shared/tests/quay-test-script.test.ts`, `server/shared/types.ts`.
+`server/modules/debug-agent/debug-agent.host-driver.ts`, `.../tests/debug-agent-control-queue.test.ts`, `server/modules/mcp-gateway/index.ts`, `.../mcp-approvals.ts`, `.../mcp-error-envelope.ts`, `.../mcp-overview-tools.ts`, `.../mcp-run-get.ts`, `.../mcp-session-cancel-queued.ts`, `.../mcp-tool-error-codes.ts`, `.../tests/mcp-approvals.test.ts`, `.../tests/mcp-cancel-queued.test.ts`, `.../tests/mcp-english-only.test.ts`, `.../tests/mcp-error-envelope.test.ts`, `.../tests/mcp-not-found-semantics.test.ts (new)`, `.../tests/mcp-overview.test.ts`, `.../tests/mcp-run-get.test.ts`, `server/modules/providers/index.ts`, `.../list/claude/claude-runtime.provider.ts`, `.../services/provider-runtime.service.ts`, `server/modules/websocket/services/chat-control.service.ts`, `.../chat-websocket.service.ts`, `server/shared/tests/quay-test-script.test.ts`, `server/shared/types.ts`.
 
 Declared in `## Touches` but **unmodified**: `server/modules/mcp-gateway/mcp-gateway.read-tools.ts` (its `quay_snapshot` outputSchema is `{ snapshot: z.unknown().optional() }` — no `status` enum to sync) and `server/modules/websocket/index.ts` (no new websocket-barrel export was needed; `MissingApprovalReason` rides `@/shared/types.js`). No file outside `## Touches` is written. `tasks/gap-ac287-not-found-semantics.md` is the self-touch (this write).
 
