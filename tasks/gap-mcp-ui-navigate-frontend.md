@@ -40,27 +40,56 @@ depends_on:
 
 **要交付：** 新 hook `src/modules/chat/hooks/useUiNavigate.ts` 与提示条组件 `src/modules/chat/components/UiNavigatePrompt.tsx`（遵守 `$frontend-module-standards`），在 `WebSocketContext.tsx` 挂接 `ui.navigate`；新增键的 i18n 文案补全各语言（`src/modules/i18n/locales/*/chat.json` 12 种语言）。
 
+**补记（2026-10-07，实现完成后逐条核实）：**
+
+**1. 定位入口的核对结论（本任务的第一步，也是 AC5）。** 两个文件都读过了：
+
+- `useSessionStore.ts` **无需改动**，它的两枚入口正好够用：`loadWindowAround(sessionId, anchorId, { before, after })` 走既有的 `?around=` 窗口读（服务端只回该锚点周围的切片），`jumpToLatest(sessionId)` 翻到尾部。它自己是「取窗口」，不做「把窗口里的某一行移进视口」。
+- 真正的「跳到某条消息」入口**已经存在**，在 `useChatSessionState.ts` 的 `jumpToMessage(anchorId)`：按 `transcriptAnchorId ?? id`（即 `anchorIdOf`）在已加载窗口里解析锚点，缺失时才 `loadWindowAround`，再经 rAF 把持久行包装 `[data-message-anchor-id]` 滚进视口。侧边栏搜索跳转与轮次导轨本来就走这条路径，**所以本次直接复用，没有新增定位实现**——Proposal 里「是否已有可复用入口尚未核实」的问题，结论是「有，且就是 sidebar search / rail 用的那一条」。
+- 对 `useChatSessionState.ts` 的唯一改动：`jumpToMessage` 的返回值由 `void` 变成 `Promise<boolean>`（该消息已在转写中且视口正被移向它 → `true`；会话或锚点缺失、锚点不在窗口、或抛错 → `false`）。`MESSAGE_NOT_FOUND` 只有靠这个布尔值才判定得出来——「会话打开了但那条消息找不到」与「定位成功」在别处是同一种静默。既有调用方都不读返回值，改动向后兼容。
+
+**2. 挂接点与 Proposal 的偏差（已记录，不是遗漏）。** Proposal 写的是「在 `WebSocketContext.tsx` 挂接 `ui.navigate`」。实现前核实：`WebSocketProvider` 位于 Router **之外**，本身不持有任何路由或转写状态，而「执行导航 + 定位消息」恰恰需要这两样，它没有 `useNavigate` 也没有 `jumpToMessage`。因此 hook 改由 **`ChatInterface.tsx`** 挂载：那里同时持有 `subscribe`、`sendMessage`、`onNavigateToSession`、`currentSessionId`、`jumpToMessage`、`scrollToBottomAndReset`，提示条也渲染在那里（`MarkdownWorkspaceContext.Provider` 之前）。**`WebSocketContext.tsx` 与 `useSessionStore.ts` 因此一行未改**；两者仍列在 Touches 里，只是为了记录这次核对。
+
+- 顺带核实的模块依赖方向：chat → settings 是一条新边（settings → chat 早已存在），`.oxlintrc.json` 的 boundaries 只约束「跨模块必须走 barrel」、没有环检测规则，且 `settings/index.ts` 已导出 `writeMcpNavigationPolicy`；真正渲染 `ChatInterface` 的 `ProjectMainRegion` 测试（`chatInterfaceEscapeAbort.test.tsx`）也仍然通过。
+
+**3. 提示条里「目标会话标题」的边界。** 标题按「当前选中项目的 session 列表 → 当前打开的会话」两级解析（`ChatInterface.resolveUiNavigateSessionTitle`）。目标会话属于**另一个项目**时解析不到：那份列表在 project-workspace 的 `ProjectsState` 里，而 project-workspace 已经 import chat，反向 import 会成环，故不回退到跨模块取数。此时提示条显示「另一个会话」而不是猜一个名字——请求方与定位说明仍然照常显示。e2e 里跨项目那一臂就是这个情形，同项目那一臂则断言标题确实出现。
+
+**4. DoD 实证（真实运行的前端，非测试桩）。** `e2e/ui-navigate.spec.ts`：真实 Chromium + 真实后端 + 真实 Vite（`playwright.config.ts` 起的隔离数据目录），账号经向导创建，起始会话与目标会话都经侧边栏自己的链接打开。它在前端启动前包一层 `window.WebSocket`，把一帧模拟的 `ui.navigate` 通过 `dispatchEvent(new MessageEvent('message', …))` 交给应用自己的 socket，实测到：
+
+- 策略未设置（默认 `ask`）时提示条出现，含请求方 `playwright-probe` 与定位说明，**且此时页面没有跳转**；
+- 点「跳转」后 URL 变为 `/session/e2e-transcript-jump`，`Turn 121` 那一行**整行**落在转写视口内（`Turn 121` 距尾部 3600 行，尾页不可能自带它）；
+- 点「总是接受」写入本设备策略并立即跳转，随后再触发一次：直接跳转、无提示条，且回帧是 `ui.navigate_ack{status:'applied'}`——「没问过」的判据是 ack 的 status 不是 `shown`，而不是「提示条此刻不可见」（一闪而过的提示条同样不可见）；
+- Settings → API & Tokens 里 `mcp-navigation-policy-accept` 为选中态。
+
+后端半边（`ui.navigate_ack` / `ui.navigate_result` 的路由，以及 `ui.navigate` 的发出方）属 `gap-mcp-ui-open-session`，本构建的服务端会把未知帧型回成 `protocol_error`、而客户端会把它渲染成转写里的一行错误，所以该 spec 只**捕获**前端发出的回帧、不真的发给服务端（前端仍然调真正的 `sendMessage`，被断言的正是它产出的那一帧）。这一点写在 spec 的注释里。
+
 ## AC
 
-- [ ] `npx vitest run src/modules/chat/tests/uiNavigate.test.tsx` 退出码 0：策略 `reject` 时不渲染提示条且回 `declined`/`policy`；`accept` 时直接导航并回 `applied`，且输入框有草稿时同样直接导航、草稿内容保持；`ask` 时先回 `shown` 并渲染提示条，点「跳转」后导航并发 `applied`，点「忽略」发 `ignored`。
-- [ ] 同一测试文件断言：提示条 30 秒无操作发 `expired`；新请求到来时旧提示条发 `superseded` 且只剩一个提示条；点「总是接受」把本设备策略写成 `accept` 并立即跳转，点「总是拒绝」写成 `reject` 并发 `declined`。
-- [ ] 同一测试文件断言：`at: { messageId }` 存在时调用定位入口，不存在时仍打开会话且 ack 带 `MESSAGE_NOT_FOUND`；`at: { latest: true }` 翻到底部。
-- [ ] 12 种语言的 `chat.json` 都含提示条新增的键（逐文件 `grep` 或沿用现有 i18n 完整性测试的方式断言），`npm run typecheck` 与 `npx oxlint src/modules/chat` 退出码 0。
-- [ ] Proposal 末尾已补记对 `useSessionStore.ts` / `useChatSessionState.ts` 定位入口的核对结论，且实现与该结论一致。
+- [x] `npx vitest run src/modules/chat/tests/uiNavigate.test.tsx` 退出码 0：策略 `reject` 时不渲染提示条且回 `declined`/`policy`；`accept` 时直接导航并回 `applied`，且输入框有草稿时同样直接导航、草稿内容保持；`ask` 时先回 `shown` 并渲染提示条，点「跳转」后导航并发 `applied`，点「忽略」发 `ignored`。
+- [x] 同一测试文件断言：提示条 30 秒无操作发 `expired`；新请求到来时旧提示条发 `superseded` 且只剩一个提示条；点「总是接受」把本设备策略写成 `accept` 并立即跳转，点「总是拒绝」写成 `reject` 并发 `declined`。
+- [x] 同一测试文件断言：`at: { messageId }` 存在时调用定位入口，不存在时仍打开会话且 ack 带 `MESSAGE_NOT_FOUND`；`at: { latest: true }` 翻到底部。
+- [x] 12 种语言的 `chat.json` 都含提示条新增的键（逐文件 `grep` 或沿用现有 i18n 完整性测试的方式断言），`npm run typecheck` 与 `npx oxlint src/modules/chat` 退出码 0。
+- [x] Proposal 末尾已补记对 `useSessionStore.ts` / `useChatSessionState.ts` 定位入口的核对结论，且实现与该结论一致。
 
 ## DoD
 
 在真实运行的前端里：本设备策略为「询问」时，用一个模拟的 `ui.navigate` 帧触发，提示条出现，点「跳转」后打开目标会话并滚到目标消息；点「总是接受」后再触发一次，直接跳转且无提示条；Settings 里能看到策略已变为「接受」。仅有测试通过不算完成。
 
+（实证：`e2e/ui-navigate.spec.ts`，2026-10-07 通过，退出码 0；细节见 Proposal 补记第 4 条。）
+
 ## Touches
 
 - src/modules/chat/hooks/useUiNavigate.ts
 - src/modules/chat/components/UiNavigatePrompt.tsx
+- src/modules/chat/ChatInterface.tsx
 - src/modules/chat/hooks/useSessionStore.ts
 - src/modules/chat/hooks/useChatSessionState.ts
+- src/modules/settings/hooks/useMcpNavigationSettings.ts
+- src/modules/settings/index.ts
 - src/shared/context/WebSocketContext.tsx
 - src/shared/types.ts
 - src/modules/chat/tests/uiNavigate.test.tsx
+- e2e/ui-navigate.spec.ts
 - src/modules/i18n/locales/de/chat.json
 - src/modules/i18n/locales/en/chat.json
 - src/modules/i18n/locales/es/chat.json
