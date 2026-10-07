@@ -43,14 +43,14 @@ extra:
 
 ## AC
 
-- [ ] 前置读数已取得并写进完成记录：resident 路径每个回合结束时前端是否收到 `complete`（打印 `residentTurnComplete=<every-turn|not-every-turn>`）；若为 `not-every-turn`，则本任务同时落「回合结束触发尾部刷新」，且下面各项在该实现下成立。
-- [ ] Claude 归一化：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0，且该文件里新增用例断言——多回合夹具里每个回合恰有**一条**带 `forkAnchorId` 的 assistant 消息，其值等于该回合最后一条带文本的 assistant 行的 uuid；夹在 tool_use 与 tool_result 之间的 assistant 行**没有** `forkAnchorId`；用户消息**没有** `forkAnchorId` 且其 `transcriptAnchorId` 与改前逐字相同（不回归编辑/outline 的锚点）。
-- [ ] 运行中回合：同文件用例断言，末尾回合在会话运行中读出时**没有** `forkAnchorId`，会话空闲后读出**有**（正控制，防「永远不写」）。
-- [ ] Codex 归一化：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/codex-sessions.test.ts` 退出码 0，且新增用例断言该回合最后一条 assistant 消息的 `forkAnchorId` 等于该回合 turnId，用户消息不带 `forkAnchorId`。
-- [ ] fork 产物语义（真 SDK）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-fork.test.ts` 退出码 0，且新增用例在一份含 tool_use 的 transcript 夹具上，用 `forkAnchorId` 作为 `upToAnchorId` fork，产物末行是该 assistant 文本行，且产物里没有悬空 tool_use（打印 `danglingToolUse=0 lastRow=assistant`）。
-- [ ] 前端：`npx vitest run src/modules/chat/tests/forkFromAssistantReply.test.tsx` 退出码 0（新文件），断言——fork 按钮只出现在带 `forkAnchorId` 的 assistant 文本消息上；用户气泡上**没有** fork 按钮但仍有「编辑重发」；点击后 `api.forkSession` 以 `{ upToAnchorId: <forkAnchorId> }` 调用；会话处于运行中时按钮不渲染。
-- [ ] 假形态承重：(a) 把 Claude 的写入改回「给 user 行写 forkAnchorId」⇒ 上面 Claude 用例必须红；(b) 在前端把按钮条件改回读 `transcriptAnchorId` ⇒ 前端用例必须红；(c) 把「运行中隐藏」去掉 ⇒ 前端用例必须红。各自还原后转绿，完成记录写出三条的实测红文案。
-- [ ] `npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 退出码均为 0（新测试的跨模块 import 全部经 barrel）。
+- [x] 前置读数已取得并写进完成记录：resident 路径每个回合结束时前端是否收到 `complete`（打印 `residentTurnComplete=<every-turn|not-every-turn>`）；若为 `not-every-turn`，则本任务同时落「回合结束触发尾部刷新」，且下面各项在该实现下成立。
+- [x] Claude 归一化：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0，且该文件里新增用例断言——多回合夹具里每个回合恰有**一条**带 `forkAnchorId` 的 assistant 消息，其值等于该回合最后一条带文本的 assistant 行的 uuid；夹在 tool_use 与 tool_result 之间的 assistant 行**没有** `forkAnchorId`；用户消息**没有** `forkAnchorId` 且其 `transcriptAnchorId` 与改前逐字相同（不回归编辑/outline 的锚点）。
+- [x] 运行中回合：同文件用例断言，末尾回合在会话运行中读出时**没有** `forkAnchorId`，会话空闲后读出**有**（正控制，防「永远不写」）。
+- [x] Codex 归一化：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/codex-sessions.test.ts` 退出码 0，且新增用例断言该回合最后一条 assistant 消息的 `forkAnchorId` 等于该回合 turnId，用户消息不带 `forkAnchorId`。
+- [x] fork 产物语义（真 SDK）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-fork.test.ts` 退出码 0，且新增用例在一份含 tool_use 的 transcript 夹具上，用 `forkAnchorId` 作为 `upToAnchorId` fork，产物末行是该 assistant 文本行，且产物里没有悬空 tool_use（打印 `danglingToolUse=0 lastRow=assistant`）。
+- [x] 前端：`npx vitest run src/modules/chat/tests/forkFromAssistantReply.test.tsx` 退出码 0（新文件），断言——fork 按钮只出现在带 `forkAnchorId` 的 assistant 文本消息上；用户气泡上**没有** fork 按钮但仍有「编辑重发」；点击后 `api.forkSession` 以 `{ upToAnchorId: <forkAnchorId> }` 调用；会话处于运行中时按钮不渲染。
+- [x] 假形态承重：(a) 把 Claude 的写入改回「给 user 行写 forkAnchorId」⇒ 上面 Claude 用例必须红；(b) 在前端把按钮条件改回读 `transcriptAnchorId` ⇒ 前端用例必须红；(c) 把「运行中隐藏」去掉 ⇒ 前端用例必须红。各自还原后转绿，完成记录写出三条的实测红文案。
+- [x] `npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 退出码均为 0（新测试的跨模块 import 全部经 barrel）。
 
 ## DoD
 
@@ -60,13 +60,98 @@ extra:
 
 - server/modules/providers/list/claude/claude-sessions.provider.ts
 - server/modules/providers/list/codex/codex-sessions.provider.ts
+- server/modules/providers/services/sessions.service.ts
+- server/modules/providers/services/session-history-cache.service.ts
 - server/shared/types.ts
 - src/shared/types.ts
 - src/modules/chat/hooks/useChatMessages.ts
 - src/modules/chat/transcript/MessageComponent.tsx
+- src/modules/chat/transcript/ChatMessagesPane.tsx
 - src/modules/chat/ChatInterface.tsx
 - server/modules/providers/tests/claude-sessions.test.ts
 - server/modules/providers/tests/codex-sessions.test.ts
 - server/modules/providers/tests/session-fork.test.ts
+- server/modules/providers/tests/claude-resident-process.test.ts
 - src/modules/chat/tests/forkFromAssistantReply.test.tsx (new)
+- playwright.config.ts
+- e2e/transcript-fork-from-answer.spec.ts (new)
 - tasks/gap-fork-from-assistant-reply-anchor.md
+
+## 完成记录
+
+### 前置读数（AC1）：`residentTurnComplete=every-turn`
+
+读数取自真 resident 进程 + 真 WS：`npx tsx --tsconfig server/tsconfig.json --test --test-name-pattern "three real chat.send rounds" server/modules/providers/tests/claude-resident-process.test.ts` → 退出 0，stdout：
+
+```
+[resident] completesBeforeRounds=0 completesPerRound=1,1,1
+residentTurnComplete=every-turn
+```
+
+该用例的 socket 就是前端的替身（客户端收到 `complete` 后由 `useChatRealtimeHandlers.ts:511` → `:545 requestLatestMessages` 刷新尾部），三个回合各收到**恰好 1** 个终止帧，且没有落在回合窗口之外的帧。为了让读数留在树里而不只是散文，本任务给该用例加了逐回合计数与这一行打印（只加打印，不加断言，不改其通过条件）。
+
+静态佐证：`claude-host-driver.provider.ts` 在每一回合结束都写终止帧——有人值守路径 `createCompleteMessage`（:4306 附近），无人值守路径 `finishUnattendedTurn`（:3655 附近）。
+
+⇒ **本任务不需要另加「回合结束触发尾部刷新」**，AC1 的 `not-every-turn` 分支不触发。
+
+### 各 AC 读数
+
+| AC | 命令 | 结果 |
+| --- | --- | --- |
+| 2 | `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` | 退出 0，`tests 28 / pass 28 / fail 0` |
+| 3 | 同上 | 新增用例 `a running session withholds the final turn's fork anchor, then restores it` 在其中通过（运行中为空、空闲后有值，即正控制） |
+| 4 | `... --test server/modules/providers/tests/codex-sessions.test.ts` | 退出 0，`tests 12 / pass 12 / fail 0` |
+| 5 | `... --test server/modules/providers/tests/session-fork.test.ts` | 退出 0，`tests 8 / pass 8 / fail 0`，stdout `danglingToolUse=0 lastRow=assistant` |
+| 6 | `npx vitest run src/modules/chat/tests/forkFromAssistantReply.test.tsx` | 退出 0，`2 passed` |
+| 8 | `npm run typecheck` / `npm run lint` / `npx oxlint server/ src/` | 三个退出码均为 0 |
+
+AC2 新增用例名：`each turn ends with one fork anchor on its final assistant answer`。
+AC4 新增用例名：`a Codex turn anchors its last assistant answer with the turn id`。
+AC5 新增用例名：`a fork cut at an assistant forkAnchorId ends at that reply with no dangling tool_use`。
+
+### AC7 假形态实测红文案（各自还原后转绿）
+
+**(a) Claude 写入改回「给 user 行写 `forkAnchorId`」**（把归一化里的 `forkAnchorUuids.has(rowUuid)` + 末条 assistant 文本行，换成 `isClaudePromptRow(raw)` + `role === 'user'`）：
+
+```
+ℹ tests 2 / ℹ pass 0 / ℹ fail 2
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
++     'user', 'first question', 'u1'
+-     'assistant', 'first answer', 'a2'
++     'user', 'second question', 'u3'
+-     'assistant', 'second answer', 'a3'
+  actual: [ [ 'user', 'first question', 'u1' ], [ 'user', 'second question', 'u3' ] ],
+  expected: [ [ 'assistant', 'first answer', 'a2' ], [ 'assistant', 'second answer', 'a3' ] ],
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
++   'u1', 'u3'
+-   'a2'
+```
+
+**(b) 前端按钮条件改回读 `transcriptAnchorId`**：
+
+```
+Test Files  1 failed (1) / Tests  2 failed (2)
+AssertionError: the turn-ending answer must offer the fork control; answer row DOM: <div class="w-full">…  (forkFromAssistantReply.test.tsx:372)
+AssertionError: once the turn ends, the same answer offers the fork control — so the absence was the running state, not a row that cannot draw it  (forkFromAssistantReply.test.tsx:435)
+```
+
+**(c) 去掉「运行中隐藏」（`&& !isSessionRunning`）**：
+
+```
+Test Files  1 failed (1) / Tests  1 failed | 1 passed (2)
+AssertionError: a reply on a running turn must offer no fork control; answer row DOM: <div class="w-full">…  (forkFromAssistantReply.test.tsx:418)
+```
+
+### DoD 实际读数
+
+真实服务实例 + 真实 Chromium，判据文件 `e2e/transcript-fork-from-answer.spec.ts`（新），夹具由 `playwright.config.ts` 的 `seedForkAnchorTranscript` 在 server 启动前写入隔离 HOME；跑法 `npx playwright test e2e/transcript-fork-from-answer.spec.ts`，**1 passed (13.9s)**。走的是**出厂路径全程**：按钮自己的 `onClick` → `ChatInterface.handleForkFromMessage` → `api.forkSession` → `POST /api/providers/sessions/:id/fork` → `sessionsService.forkSessionById` → SDK 真 `forkSession`。
+
+- **(1) 已读**：两个回合的最终回复各**恰有 1 个** `Fork from here` 按钮；两条用户提示上**各 0 个**。夹具的第一个回合带工具调用（thinking + `tool_use` + 其 `tool_result`），第二个回合是纯文本。
+- **(2) 已读**：点第一回合回复上的按钮后，目录里出现**恰一个**新 transcript，直接读该文件：末条 message 行是 `[{type:'text', text:'The first answer, about the release notes.'}]`，全文不含第二个回合的提示或回答，且没有悬空 tool_use（`fork-tool-1` 的 `tool_result` 仍在分支里）。新会话确实打开（地址离开了源会话、指向一个新的 36 位 id）。
+- **(3) 未读**：需要在 fork 里再发一条消息并由**真模型**作答（DoD 明文要求读回复文本）。本 worker 环境没有可用的真模型端点，夹具是离线 transcript。**没有**用假模型或断言代替——该读数缺，如实记在这里。
+- **(4) 未读（浏览器）**：需要在真浏览器里有一个**正在跑的回合**。本任务的离线夹具没有活回合，故未在浏览器读；其组件级等价读数（运行中不渲染、回合结束后同一行渲染出来，且后者是正控制）由 AC6 覆盖并已在上面给出。
+- **resident 重复 (1)(2)**：本环境没有可用的 resident 会话来重复；未读。
+
+关于 (3) 与分支上下文的关系，能说的是 (2) 已经直接读到了**分支将要被 resume 的那份文件**——它正是 CLI 会送进模型的上下文——末行停在第一回合的回复。这**不等于** (3)：DoD 要的是模型答复的文本，而那是本环境取不到的读数。
