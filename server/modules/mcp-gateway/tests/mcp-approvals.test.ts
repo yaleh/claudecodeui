@@ -8,9 +8,9 @@
  * no longer in the registry is, since AC-287, an `isError` envelope
  * `APPROVAL_NOT_FOUND` whose `details.reason` tells a timed-out request
  * (`expired`) apart from one this runtime never minted (`never_issued`) — the
- * envelope's sentence still carries `已过期或不存在` — WITHOUT calling the
- * resolver, and a token lacking `cloudcli:approve` is refused before the handler
- * with a `denied` audit row.
+ * envelope's sentence still says the request "expired or does not exist" —
+ * WITHOUT calling the resolver, and a token lacking `cloudcli:approve` is
+ * refused before the handler with a `denied` audit row.
  *
  * Everything below is real except the approval SOURCE. A real express 4
  * application carries the production `/mcp` mount behind the production token
@@ -38,7 +38,7 @@
  *   (c) an `AskUserQuestion`'s `answers` arrives as the decision's `updatedInput`;
  *   (d) a removed (timed-out) and a never-seen requestId are APPROVAL_NOT_FOUND
  *       errors with distinct `details.reason` (`expired` / `never_issued`), the
- *       sentence 已过期或不存在 on both, and no resolver call;
+ *       sentence "expired or does not exist" on both, and no resolver call;
  *   (e) a read-only token's `approval_answer` is refused with one `denied` audit
  *       row and no resolver call; the `cloudcli:approve` token's call succeeds;
  *   (f) `approvals_list({})`'s pending session set equals `overview()`'s
@@ -636,14 +636,14 @@ test('(d) expired and never-seen request ids are APPROVAL_NOT_FOUND, reasons apa
         'the two causes are distinguished, not collapsed into one code',
       );
       assert.equal(
-        String(expired.payload?.message ?? expired.text).includes('已过期或不存在'),
+        String(expired.payload?.message ?? expired.text).includes('expired or does not exist'),
         true,
-        'the expired envelope still says 已过期或不存在',
+        'the expired reading says the request expired or does not exist',
       );
       assert.equal(
-        String(never.payload?.message ?? never.text).includes('已过期或不存在'),
+        String(never.payload?.message ?? never.text).includes('expired or does not exist'),
         true,
-        'the never-seen envelope still says 已过期或不存在',
+        'the never-seen reading says the request expired or does not exist',
       );
       assert.equal(resolveCountFor(harness.resolveCalls, R_NORMAL), 0, 'an expired request never reaches the resolver');
       assert.equal(resolveCountFor(harness.resolveCalls, 'req-never'), 0, 'a never-seen request never reaches the resolver');

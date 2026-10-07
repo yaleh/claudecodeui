@@ -1,7 +1,7 @@
 ---
 id: AC-289
 title: 面向调用方的服务端文案统一为英文：message、note、explanation、description 字段里不再有中文
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-024
 criterion: for f in server/modules/mcp-gateway/tests/mcp-english-only.test.ts;
@@ -25,6 +25,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-06T18:14:30.752Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

@@ -822,8 +822,9 @@ test('(c) run_get: expired, never-issued and restarted are RUN_NOT_FOUND errors 
     assert.equal(restartedDetails.reason, 'expired', 'a run from a previous boot is no longer reachable — expired');
     assert.equal(restartedDetails.bootId, BOOT_TWO, 'the restarted reading names the CURRENT boot');
 
-    // The three sentences stay distinct: the restarted one really says 重启.
-    assert.match(String(restarted.payload?.message), /重启/, 'the restarted sentence must say the service restarted');
+    // The three sentences stay distinct: the restarted one really says the
+    // service restarted (AC-289: caller-facing copy is English-only).
+    assert.match(String(restarted.payload?.message), /restarted/i, 'the restarted sentence must say the service restarted');
     assert.notEqual(expired.payload?.message, never.payload?.message, 'the expiry and never-issued sentences differ');
 
     // Each miss carries the fallback read of its session, verbatim.

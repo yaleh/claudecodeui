@@ -20,9 +20,10 @@
  *    longer pending is an ERROR (AC-287): `isError: true` with
  *    `code: APPROVAL_NOT_FOUND` and `details.reason` distinguishing a request
  *    that timed out (`expired`) from one this process never minted
- *    (`never_issued`). The sentence still contains 已过期或不存在; it is now the
- *    envelope's `message`. The control service has already guaranteed
- *    `resolveToolApproval` was not called.
+ *    (`never_issued`). The control plane's English sentence ("the approval
+ *    request has expired or does not exist") is now the envelope's `message`.
+ *    The control service has already guaranteed `resolveToolApproval` was not
+ *    called.
  *
  * Everything is injected ({@link McpApprovalsDeps}): production wires the one
  * process control service and a real clock (`server/index.ts`); the criterion

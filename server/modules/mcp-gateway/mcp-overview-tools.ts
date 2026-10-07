@@ -181,9 +181,10 @@ export type OverviewPayload = {
 };
 
 /** The note reported for a project whose directory has no `.quay/config.yml`. */
-export const NO_QUAY_NOTE = '该项目没有 quay';
+export const NO_QUAY_NOTE = 'This project has no quay';
 /** The note reported for a project whose snapshot is not cached. */
-export const UNKNOWN_QUAY_NOTE = '未知：该项目没有缓存快照（overview 不装载；请用 quay_snapshot 刷新）';
+export const UNKNOWN_QUAY_NOTE =
+  'Unknown: this project has no cached snapshot (overview does not load it; use quay_snapshot to refresh)';
 
 /** How many recent sessions one overview reads when mapping ids to titles/projects. */
 const OVERVIEW_SESSION_PAGE = 500;

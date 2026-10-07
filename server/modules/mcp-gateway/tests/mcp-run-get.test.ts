@@ -34,7 +34,8 @@
  *       and both carry a fallback read of the session's recent messages;
  *   (g) a run whose boot differs from the current process is a RUN_NOT_FOUND
  *       error reporting the coarse reason `'expired'` while its sentence says
- *       "服务已重启", with a fallback read of its own session's recent messages.
+ *       the service restarted, with a fallback read of its own session's recent
+ *       messages.
  *
  * The false forms (AC10) mutate the implementation after this criterion is
  * green; they are recorded in the task's change notes.
@@ -554,8 +555,8 @@ test('(f) expired and never-issued are RUN_NOT_FOUND errors, explained different
     assert.equal(unknownPayload.reason, 'never_issued', 'an id never handed out reads never_issued');
     assert.notEqual(expiredPayload.reason, unknownPayload.reason, 'the two causes are distinguished, not collapsed');
     assert.notEqual(expired.payload?.message, unknown.payload?.message, 'the two explanations must be different text');
-    assert.match(String(expired.payload?.message), /保留期/, 'the expired explanation must say the run aged out');
-    assert.match(String(unknown.payload?.message), /从未/, 'the never-issued explanation must say the id was never issued');
+    assert.match(String(expired.payload?.message), /retention/, 'the expired explanation must say the run aged out');
+    assert.match(String(unknown.payload?.message), /never issued/, 'the never-issued explanation must say the id was never issued');
 
     assert.deepEqual(
       (expiredPayload.fallback as AnyRecord).messages,
@@ -598,10 +599,10 @@ test('(g) a run from a previous boot is RUN_NOT_FOUND (reason expired) saying re
     assert.equal(second.isError, true, 'a restarted run is an error');
     assert.equal(second.payload?.code, 'RUN_NOT_FOUND', 'the restarted error carries RUN_NOT_FOUND');
     assert.equal(secondPayload.reason, 'expired', 'a previous boot\'s run reports the coarse expired reason');
-    assert.match(String(second.payload?.message), /重启/, 'the explanation must say the service restarted');
+    assert.match(String(second.payload?.message), /restarted/i, 'the explanation must say the service restarted');
     assert.doesNotMatch(
       String(second.payload?.message),
-      /保留期/,
+      /retention/,
       'the restarted sentence is its own text, not the plain retention-expired one',
     );
     assert.equal(secondPayload.bootId, BOOT_TWO, 'the details name the boot that answered');

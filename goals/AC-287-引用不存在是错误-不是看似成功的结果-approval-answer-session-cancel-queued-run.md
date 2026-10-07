@@ -15,7 +15,11 @@ expect: "约定：结果表示「一个存在的实体的状态」，错误表�
   `QUEUED_MESSAGE_NOT_FOUND`，而「消息已被取出开始执行」仍是成功结果，带明确的 `outcome` 枚举，且枚举写进
   outputSchema；(c) `run_get` 对未知或过期的 `runId` 返回错误
   `RUN_NOT_FOUND`，`details.reason` 为 `expired` 或 `never_issued`，并带回退读取到的最近消息；(d)
-  `quay_snapshot` 对不存在的项目返回 `TARGET_NOT_FOUND`，对存在但没有 quay 配置的项目返回成功结果 `status:
+  `quay_snapshot` 对不存在的项目返回错误 `PROJECT_NOT_FOUND`（2026-10-07 订正：本条原写
+  `TARGET_NOT_FOUND`。该字面量在本仓已不可满足——同族已达成判据 AC-284 要求「一类问题一个 code」，其判据在
+  `server/modules/mcp-gateway/*.ts` 里扫到该字面量即红；AC-285 的 `MCP_ERROR_CODES`
+  键集与其期望集双向深等，也不含该名。经人 yale 裁定，按本仓唯一规范码 `PROJECT_NOT_FOUND`
+  对齐；语义未变，仍是「引用不存在即错误」），对存在但没有 quay 配置的项目返回成功结果 `status:
   no_quay_config`，两种情况不再混为一谈；(e)
   「已开始执行」「已完成」这类真实状态仍然是成功结果，不被误改成错误。取假形态（先提交实现再变异，逐条记录变异 diff、逐字失败行与恢复命令）：(i) 让
   `approval_answer` 的不存在仍回 `ok:false` 成功 ⇒ (a) 必须红；(ii) 把「已开始执行」改成错误 ⇒ (e)

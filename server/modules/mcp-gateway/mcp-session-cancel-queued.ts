@@ -104,19 +104,20 @@ export type SessionCancelQueuedPayload = {
   message: string;
 };
 
-/** The sentence each SUCCESS outcome carries. The two are AC-271's own words, verbatim. */
+/** The English sentence each SUCCESS outcome carries (AC-289: caller-facing copy is English-only). */
 const OUTCOME_MESSAGES: Record<SessionCancelQueuedOutcome, string> = {
-  cancelled: '该排队消息已撤回，不会成为一轮。',
-  'already-started': '该消息已不在队列（已被取出开始执行），无法再撤回。',
+  cancelled: 'The queued message was withdrawn and will not become a turn.',
+  'already-started':
+    'The message is no longer in the queue (it was taken out to start executing) and can no longer be withdrawn.',
 };
 
 /**
  * The sentence the `QUEUED_MESSAGE_NOT_FOUND` error carries — AC-271's own
  * wording for a uuid this session's queue never held, now stated as the error it
- * is (AC-287).
+ * is (AC-287). English-only (AC-289): it is caller-facing copy.
  */
 const QUEUED_MESSAGE_NOT_FOUND_MESSAGE =
-  '该会话队列里没有这个消息 uuid（可能从未存在、属于别的会话，或没有常驻宿主）。';
+  'The session queue has no message with this uuid (it may never have existed, belong to another session, or there is no resident host).';
 
 /** Reads and validates `session_cancel_queued`'s arguments. */
 export function readSessionCancelQueuedInput(args: Record<string, unknown>): McpSessionCancelQueuedInput {

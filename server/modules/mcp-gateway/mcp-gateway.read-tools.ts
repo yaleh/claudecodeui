@@ -266,7 +266,7 @@ const DAY_MS = 24 * HOUR_MS;
  * Renders one instant as a relative phrase beside its ISO timestamp.
  *
  * Both readings come from the SAME instant, which is the point: a client that
- * only draws "3 分钟前" cannot tell a stale reading from a fresh one, and a
+ * only draws "3 minutes ago" cannot tell a stale reading from a fresh one, and a
  * client that only draws the ISO forces a human to subtract. `now` is injected
  * so the relative half is exactly predictable rather than merely plausible.
  *
@@ -277,13 +277,13 @@ export function formatMcpTime(ms: number, now: () => number): McpTime {
   const elapsed = Math.max(0, now() - ms);
   let relative: string;
   if (elapsed < MINUTE_MS) {
-    relative = '刚刚';
+    relative = 'just now';
   } else if (elapsed < HOUR_MS) {
-    relative = `${Math.floor(elapsed / MINUTE_MS)} 分钟前`;
+    relative = `${Math.floor(elapsed / MINUTE_MS)} minutes ago`;
   } else if (elapsed < DAY_MS) {
-    relative = `${Math.floor(elapsed / HOUR_MS)} 小时前`;
+    relative = `${Math.floor(elapsed / HOUR_MS)} hours ago`;
   } else {
-    relative = `${Math.floor(elapsed / DAY_MS)} 天前`;
+    relative = `${Math.floor(elapsed / DAY_MS)} days ago`;
   }
 
   return { relative, iso: new Date(ms).toISOString() };
@@ -704,7 +704,7 @@ const TOOL_BODIES = {
         // is no host" is a reading, and a missing field is not.
         hostNote:
           live === null || binding === null
-            ? '没有宿主：该会话当前没有宿主进程（按次进程模式且未运行）。'
+            ? 'No host: this session currently has no host process (per-invocation process mode and not running).'
             : null,
         run:
           run === null
