@@ -2,7 +2,7 @@
 id: gap-resident-edit-send-truncates-in-place
 title: resident 会话的「编辑重发」在原会话内真正截断：关 host（rewind）→ 带 resumeSessionAt 重拉起 →
   追加替换消息，不新建会话
-status: ready
+status: needs-human
 labels:
   - gap
   - defect
@@ -46,14 +46,14 @@ extra:
 
 ## AC
 
-- [ ] 前置读数已取得并写进完成记录：真 claude 进程上 resident 形态的 `resume` + `resumeSessionAt` 实测，打印 `residentResumeAt=accepted sameFile=true sharedParent=true`；任一项不是该值则不动产品代码，park needs-human。
-- [ ] host 驱动透传：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-process.test.ts` 退出码 0，且新增用例断言——带 `resumeAnchorId=X` 启动 resident host 时，交给 SDK 的启动选项含 `resumeSessionAt===X` 且含 `resume===provider_session_id`；带 `resumeFromScratch` 时**不含** `resume` 也不含 `resumeSessionAt`；不带这两个选项时启动选项与改前逐字相同（不回归普通 resident 启动）。
-- [ ] 编辑重建（resident）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-edit-send.test.ts` 退出码 0，且新增用例在一个 `lifecycle_mode='resident'` 且 host 存活的会话上发 `chat.edit-send`，断言——旧 host 先被 `rewind` 关闭（`closeReason==='rewind'`）、关闭完成**之后**才起新 host；新 host 的启动选项带编辑目标之前最近 assistant 行的 uuid 作为 `resumeAnchorId`；会话的 app id、`provider_session_id`、`lifecycle_mode` 在重建前后逐字相同；`sessionsDb` 里没有新增会话行；`history_truncated` 帧先于重建发出。
-- [ ] 同一用例的正控制：对 per-run 会话发 `chat.edit-send`，走原路径、**不**调用 `rewind`，`extraRuntimeOptions` 与改前逐字相同（防「所有会话一律走重建」）。
-- [ ] 失败语义：同文件用例断言——重建过程中重拉起失败时，本次 run 以 `complete` 结束（不是永远 processing），并有一条 `EDIT_REWIND_FAILED` 协议错误；会话行未被改动。
-- [ ] 读取侧不回归：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0（该文件已有 `dropSupersededPromptBranches` 的用例，不得被本任务改红；仅在该文件里新增「resident 重建产生的同父双 prompt 夹具读出后只剩替换那条」用例，如需新增则声明在 Touches）。
-- [ ] 假形态承重（实测红文案写进完成记录）：临时把 `handleChatEditSend` 里 resident 分支改回「直接追加、不 rewind」后，重建用例**必须变红**，还原后转绿；临时去掉 host 驱动对 `resumeSessionAt` 的映射后，透传用例**必须变红**，还原后转绿。
-- [ ] 工具链：`npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 均退出码 0。
+- [ ] 前置读数已取得并写进完成记录：真 claude 进程上 resident 形态的 `resume` + `resumeSessionAt` 实测，打印 `residentResumeAt=accepted sameFile=true sharedParent=true`；任一项不是该值则不动产品代码，park needs-human。— **未过**：实测 `residentResumeAt=accepted sameFile=true sharedParent=false`，见完成记录。按本行自带的逃生条款 park needs-human。
+- [x] host 驱动透传：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-resident-process.test.ts` 退出码 0，且新增用例断言——带 `resumeAnchorId=X` 启动 resident host 时，交给 SDK 的启动选项含 `resumeSessionAt===X` 且含 `resume===provider_session_id`；带 `resumeFromScratch` 时**不含** `resume` 也不含 `resumeSessionAt`；不带这两个选项时启动选项与改前逐字相同（不回归普通 resident 启动）。— 10/10 exit 0（用例 (h)(i)(j)）。
+- [x] 编辑重建（resident）：`npx tsx --tsconfig server/tsconfig.json --test server/modules/websocket/tests/chat-edit-send.test.ts` 退出码 0，且新增用例在一个 `lifecycle_mode='resident'` 且 host 存活的会话上发 `chat.edit-send`，断言——旧 host 先被 `rewind` 关闭（`closeReason==='rewind'`）、关闭完成**之后**才起新 host；新 host 的启动选项带编辑目标之前最近 assistant 行的 uuid 作为 `resumeAnchorId`；会话的 app id、`provider_session_id`、`lifecycle_mode` 在重建前后逐字相同；`sessionsDb` 里没有新增会话行；`history_truncated` 帧先于重建发出。— 13/13 exit 0。
+- [x] 同一用例的正控制：对 per-run 会话发 `chat.edit-send`，走原路径、**不**调用 `rewind`，`extraRuntimeOptions` 与改前逐字相同（防「所有会话一律走重建」）。— 同文件正控制用例通过。
+- [x] 失败语义：同文件用例断言——重建过程中重拉起失败时，本次 run 以 `complete` 结束（不是永远 processing），并有一条 `EDIT_REWIND_FAILED` 协议错误；会话行未被改动。— 同文件用例通过。
+- [x] 读取侧不回归：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-sessions.test.ts` 退出码 0（该文件已有 `dropSupersededPromptBranches` 的用例，不得被本任务改红；仅在该文件里新增「resident 重建产生的同父双 prompt 夹具读出后只剩替换那条」用例，如需新增则声明在 Touches）。— 28/28 exit 0；本任务未改读取侧，故未新增该夹具（原因见完成记录）。
+- [x] 假形态承重（实测红文案写进完成记录）：临时把 `handleChatEditSend` 里 resident 分支改回「直接追加、不 rewind」后，重建用例**必须变红**，还原后转绿；临时去掉 host 驱动对 `resumeSessionAt` 的映射后，透传用例**必须变红**，还原后转绿。— 两条红文案见完成记录。
+- [x] 工具链：`npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 均退出码 0。— 三者 exit 0。
 
 ## DoD
 
@@ -68,3 +68,80 @@ extra:
 - server/modules/providers/tests/claude-resident-process.test.ts
 - server/modules/providers/tests/claude-sessions.test.ts
 - tasks/gap-resident-edit-send-truncates-in-place.md
+
+## 完成记录
+
+**结论：机制已落地并逐条验证；但 DoD 读数 (b) 在真实实例上不成立，且 AC-1 的文字读数复现不出来 —— 按 AC-1 自带的逃生条款 park needs-human。**
+
+commit `2ea22cec`（branch `task/gap-resident-edit-send-truncates-in-place`，已 pre-merge develop，无冲突）。改动文件即 Touches 前四项；`claude-host-driver.provider.ts` 声明但未改动（透传走共用映射 `mapCliOptionsToSDK`，未复制第二份）。
+
+### 1. AC-1 前置读数（真 claude 进程，resident 形态）
+
+DoD 故事形态（消息一 → 等回合结束 → 消息二 → 中途 abort → 真实 `chat.edit-send` 改写重发）：
+
+    residentResumeAt=accepted sameFile=true sharedParent=false
+
+- `accepted`：新进程带 `--resume <provider_session_id> --resume-session-at <assistant uuid>` 正常起来，CLI 无拒绝文案。
+- `sameFile=true`：后续行仍追加到同一个 jsonl。
+- `sharedParent=false`：被 abort 的 prompt 与被替换的 prompt **不**共享同一个 `parentUuid`。
+  任务文字预期为 `true`；实测 `false` ⇒ 按本 AC 该条不动产品代码、park needs-human。
+
+（早先一次「不等回合结束」的形态量到过 `sharedParent=true`；那正是差别所在——见下。）
+
+### 2. 为什么 `sharedParent=false`（真 CLI 的文件形态）
+
+run 4 实测 jsonl 的行链（报告留档 `/tmp/dod-run4.log`）：
+
+    assistant  563a602f  "记住了"                              ← 截断点（resumeThroughId）
+    attachment c0345d84  parent=563a602f  prompt_snapshot      ┐ 回合结束块（stop hook）
+    system     b028bedb  parent=c0345d84  stop_hook_summary   ┘
+    user       7bd121c5  parent=b028bedb  "暗号乙=绿色青蛙。…"   ← 被 abort 的 prompt
+    user       5f453e5c  parent=7bd121c5  [Request interrupted by user]
+    user       a8f8298b  parent=563a602f  "暗号乙=蓝色鲸鱼。…"   ← 替换 prompt
+    assistant  9b5d420f  parent=a8f8298b  "好的"
+
+替换 prompt 锚在 assistant 截断点上（`resume-session-at` 截断后直接追加）；被 abort 的 prompt 锚在**回合结束块**上（它发送时文件的叶子就是那个块）。于是两者共祖先（`sameBranchPoint=true`）、不共 `parentUuid`（`literalSibling=false`）。只有「不等回合结束就发第二条」时块还没写，两条才成为字面兄弟 —— 而 DoD 的步骤 (1) 明写「等其回合结束」，块必然已写。
+
+全库旁证（`~/.claude/projects` 下 6143 份 transcript）：155 份含 `stop_hook_summary`、37 份存在「同父双 prompt」，两者交集只有 **1** 份（36/37 的同父形态都**没有** stop hook 块）。即 resident（永远有回合结束块）在结构上产生不出字面同父。
+
+### 3. DoD 三处读数（真实服务实例：临时 HOME + 临时 DATABASE_PATH + 真 claude 进程 + 真实 `chat.edit-send` 帧）
+
+(a) **成立**。同一 app 会话行；`provider_session_id` 前后同为 `bdd0e26a-903a-4beb-afdb-0bf421794183`；`lifecycle_mode` 前后均 `resident`；会话总数 1→1；无新会话行。重建本身：旧 host 以 `closeReason='rewind'` 关闭，新 host 新 pid（`hostChanged=true pidChanged=true`）。
+
+(b) **不成立**。
+- jsonl：`literalSibling=false`（`sameBranchPoint=true`），行链见上。
+- 路由：`GET /api/providers/sessions/:id/messages` 返回 11 条，`dropSupersededAbortedPrompt=false`、`replacementPresent=true`。被 abort 的 prompt 仍在序列里：
+
+      ["记住暗号：暗号甲=紫色河马。…", "…", "记住了",
+       "暗号乙=绿色青蛙。然后请从 1 数到 300…",   ← 被 abort 的 prompt 仍在（处理痕迹亦在）
+       "暗号乙=蓝色鲸鱼。只回复「好的」。", "…", "好的"]
+
+- 根因：`dropSupersededPromptBranches`（`claude-sessions.provider.ts:644`）只按**字面 `parentUuid`** 聚合 user prompt 行、剪掉同父里早写的兄弟；回合结束块挡在 assistant 与下一条 prompt 之间，聚合键对不上，剪不动。⇒ 方案里「被替换的分支靠**既有的** `dropSupersededPromptBranches` 在读取时剪掉」这个前提被实测否证。
+
+(c) **成立**。再问「我之前告诉过你哪些暗号？只列出暗号本身」，模型答 `暗号甲=紫色河马 / 暗号乙=蓝色鲸鱼` —— **没有** `绿色青蛙`。即：进程上下文确实被真正截断（不只是界面把旧消息藏起来），且替换与更早的上下文都在。
+
+⇒ 机制本身有效：**上下文截断成立，漏在读取侧**。
+
+### 4. 为什么没有顺手改读取侧
+
+把「按字面 `parentUuid` 聚合」放宽成「按最近 assistant 祖先（分支点）聚合」，在 6143 份真实 transcript 上离线模拟：**28 份结果改变，其中 20 份多剪、10 份少剪**，且多剪的样本里有**没有** stop hook 块的会话（典型的「abort 后另发一条新消息」合法形态会被误剪）。读取侧改动既不在本任务 Touches，也不是安全的收窄（双向改变），故未取，留给人的裁定。
+
+### 5. 假形态承重（AC-7，本树实测）
+
+- 把 `handleChatEditSend` 的 resident 分支改回「直接追加、不 rewind」：`chat-edit-send.test.ts` **13 tests / 9 pass / 4 fail / exit 1**；红文案 `AssertionError: actual: [], expected: [ 'edit-session' ]`（×3，rewind 未落到宿主 seam）与 `actual: 1, expected: 0`。还原后 13/13 exit 0。
+- 去掉 `mapCliOptionsToSDK` 对 `resumeSessionAt` 的映射：`claude-resident-process.test.ts` **10 tests / 9 pass / 1 fail / exit 1**；红文案 `AssertionError: the launch resumes at the turn the edit keeps — actual: undefined, expected: 'anchor-before-the-edit'`。还原后 10/10 exit 0。
+
+### 6. 工具链
+
+pre-merge develop 后在合并树上重跑：三个判据文件 10/10、13/13、28/28 均 exit 0；`npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 均 exit 0（余下 warning 均为改动前既有、且不在本任务触及文件里）。
+
+### 7. 需要人裁定的问题
+
+resident 重建已让**进程上下文**真正截断（读数 (c) 成立），但读取侧 `dropSupersededPromptBranches` 剪不掉被 abort 的分支（读数 (b) 不成立），因此前端在 `complete` 后重读 transcript 仍会显示被暂停的消息——**现象未完全消除**，且这需要改一个本任务 Touches 之外的共用读取路径。
+
+请裁定下列之一：
+1. 批准把读取侧剪枝放宽到「分支点」，并接受其在 6143 份真实 transcript 上 28 份（双向）的行为改变（可再收窄成「仅当存在一条更晚的 prompt 直接锚在分支点上」以消除「abort 后另发」误剪，但仍是新判据、需另行验证）；
+2. 以别的判据重划本任务（例如把 (b) 的判据从「共享 `parentUuid`」改为「替换 prompt 锚在被 abort 那条的截断点上」，并把读取侧单列一条）；
+3. 接受「上下文已截断」为本次交付边界，把「读取侧剪枝」另立一条 gap 任务。
+
+（本行 park，不改产品代码；已落地的重建机制在工作树上、commit `2ea22cec`。）
