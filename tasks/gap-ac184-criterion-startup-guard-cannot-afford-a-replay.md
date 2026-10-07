@@ -53,12 +53,12 @@ Call log:
 
 ## AC
 
-- [ ] AC1 静态算式可检：改后的常数下，以「首跳用满 `NAVIGATION_PROBE_MS` 且其落点探针用满」为最坏情形，`首跳界 + 落点探针 + 重放一跳 + 重放落点探针 ≤ 改后的 STARTUP_PROBE_DEADLINE_MS` 成立。验证：把改后的常数与逐字算式入档（`grep -n "STARTUP_PROBE_DEADLINE_MS\|NAVIGATION_PROBE_MS\|STARTUP_PROBE_MS\|STARTUP_RELOAD_PROBE_MS" e2e/activity-dock-truthful.spec.ts`）。
-- [ ] AC2 慢首跳真的自愈（承重）：在 `beforeAll` 的启动导航前注入一个**只在第一次文档请求**上把响应拖过 `NAVIGATION_PROBE_MS`、其后再正常服务的确定性 route（或等价的确定性慢首跳注入），`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` 仍 `EXIT=0`，且逐字日志里能读出 **≥2 次导航尝试**（首跳 + 至少一次 `page.reload()`）后落点成功。登记注入 diff、逐字日志、`echo $?`、wall；随后还原并证明零残留（`git status --porcelain` 回到注入前）。
-- [ ] AC3 take-fake 必须红（承重）：只在把守卫**还原成改前预算算术**（`STARTUP_PROBE_DEADLINE_MS=12_000` 且首跳界 `8_000`）时，**同一**慢首跳注入下守卫以非零退出、且日志只有 **1 跳**（无重放）、红落在守卫自己的署名错误（:560 一族）。登记变异 diff、逐字失败行、`echo $?`；`git checkout -- e2e/activity-dock-truthful.spec.ts` 还原后判据回到 `EXIT=0`。验证：变异跑与还原跑的 `echo $?`。
-- [ ] AC4 坞的判定面一字未改：`git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -c "^-.*expect("` 为 **0**；`git diff develop -- playwright.config.ts` 为空；判据命令逐字不变；(i)–(v) 五条读数与 `dock.wall ≤ 20_000` 的断言原样。验证：上述各命令的逐字输出。
-- [ ] AC5 负载下连续绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` 连续 ≥5 次全部 `exit 0`、每次 `dock.wall ≤ 20_000ms`、整跑墙钟留在本族天花板内（单 spec < 55s / < `playwright.config.ts` 的 `timeout: 60_000`）；其中至少一次与 ≥4 份兄弟 e2e spec 并发。如实登记：并发那次若兄弟 spec 自己红，须点名归因、不计入本条。验证：逐次 `echo $?` + wall。
-- [ ] AC6 静态门：`npm run typecheck` 退出 0；本 spec 的 scoped lint 读数入档。验证：命令与退出码。
+- [x] AC1 静态算式可检：改后的常数下，以「首跳用满 `NAVIGATION_PROBE_MS` 且其落点探针用满」为最坏情形，`首跳界 + 落点探针 + 重放一跳 + 重放落点探针 ≤ 改后的 STARTUP_PROBE_DEADLINE_MS` 成立。验证：把改后的常数与逐字算式入档（`grep -n "STARTUP_PROBE_DEADLINE_MS\|NAVIGATION_PROBE_MS\|STARTUP_PROBE_MS\|STARTUP_RELOAD_PROBE_MS" e2e/activity-dock-truthful.spec.ts`）。
+- [x] AC2 慢首跳真的自愈（承重）：在 `beforeAll` 的启动导航前注入一个**只在第一次文档请求**上把响应拖过 `NAVIGATION_PROBE_MS`、其后再正常服务的确定性 route（或等价的确定性慢首跳注入），`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` 仍 `EXIT=0`，且逐字日志里能读出 **≥2 次导航尝试**（首跳 + 至少一次 `page.reload()`）后落点成功。登记注入 diff、逐字日志、`echo $?`、wall；随后还原并证明零残留（`git status --porcelain` 回到注入前）。
+- [x] AC3 take-fake 必须红（承重）：只在把守卫**还原成改前预算算术**（`STARTUP_PROBE_DEADLINE_MS=12_000` 且首跳界 `8_000`）时，**同一**慢首跳注入下守卫以非零退出、且日志只有 **1 跳**（无重放）、红落在守卫自己的署名错误（:560 一族）。登记变异 diff、逐字失败行、`echo $?`；`git checkout -- e2e/activity-dock-truthful.spec.ts` 还原后判据回到 `EXIT=0`。验证：变异跑与还原跑的 `echo $?`。
+- [x] AC4 坞的判定面一字未改：`git diff develop -- e2e/activity-dock-truthful.spec.ts | grep -c "^-.*expect("` 为 **0**；`git diff develop -- playwright.config.ts` 为空；判据命令逐字不变；(i)–(v) 五条读数与 `dock.wall ≤ 20_000` 的断言原样。验证：上述各命令的逐字输出。
+- [x] AC5 负载下连续绿：`npx playwright test e2e/activity-dock-truthful.spec.ts -g "AC-184"` 连续 ≥5 次全部 `exit 0`、每次 `dock.wall ≤ 20_000ms`、整跑墙钟留在本族天花板内（单 spec < 55s / < `playwright.config.ts` 的 `timeout: 60_000`）；其中至少一次与 ≥4 份兄弟 e2e spec 并发。如实登记：并发那次若兄弟 spec 自己红，须点名归因、不计入本条。验证：逐次 `echo $?` + wall。
+- [x] AC6 静态门：`npm run typecheck` 退出 0；本 spec 的 scoped lint 读数入档。验证：命令与退出码。
 
 ## DoD
 
@@ -72,3 +72,113 @@ Call log:
 - `tasks/gap-ac184-criterion-startup-guard-cannot-afford-a-replay.md`（自触）
 - `e2e/activity-dock-truthful.spec.ts`（改 `navigateBounded` 的预算算术与逐跳署名日志；坞断言零改动）
 - `goals/AC-184-真实浏览器-服务端不可达时坞显示连接中断-不再出现-thinking-计时冻结-停止按钮置灰并说明-恢复后回到真实状态.md`（只读：criterion/expect 的逐字来源）
+
+## Change notes (worker)
+
+分支 `task/gap-ac184-criterion-startup-guard-cannot-afford-a-replay`：`c106c2e9` e2e(activity-dock-truthful): fit a replay inside the startup guard's budget；随后 `d010d5e3` merge develop（纯合并）。AC 状态经 Provider ABI（`task_check` + `task_write`）登记；`git diff --name-only develop HEAD` = 仅 `e2e/activity-dock-truthful.spec.ts`。
+
+### AC1 — 改后的常数与逐字算式
+
+`e2e/activity-dock-truthful.spec.ts`（`grep -n "STARTUP_PROBE_DEADLINE_MS\|NAVIGATION_PROBE_MS\|STARTUP_PROBE_MS\|STARTUP_RELOAD_PROBE_MS"`）：
+
+```
+455:const STARTUP_PROBE_MS = 5_000;
+457:const STARTUP_RELOAD_PROBE_MS = 3_000;
+468:const NAVIGATION_PROBE_MS = 5_000;
+502:const STARTUP_PROBE_DEADLINE_MS = 20_000;
+```
+
+同一文件 `STARTUP_PROBE_DEADLINE_MS` 的头注释里逐字写出了最坏情形算式（:483–488）：
+
+```
+first hop        NAVIGATION_PROBE_MS      = 5_000
++ first landing    STARTUP_PROBE_MS         = 5_000
++ replay hop       NAVIGATION_PROBE_MS      = 5_000
++ replay landing   STARTUP_RELOAD_PROBE_MS  = 3_000
+  ──────────────────────────────────────────────────
+  worst case                                = 18_000  ≤  STARTUP_PROBE_DEADLINE_MS = 20_000
+```
+
+最坏情形 18_000 ≤ 20_000 成立 ⇒ 首跳即便用满自己的界、其落点探针也用满，仍留得下**一整次**重放（重放一跳 5_000 + 重放落点探针 3_000 = 8_000 的余量）。改前是 8_000+8_000 = 16_000 > 12_000（超支 4_000）⇒ attempt 2 从未开始。
+
+### AC2 — 慢首跳真的自愈（注入 diff、逐字日志、`$?`、wall）
+
+注入 diff（`/tmp/ac184-ac2-injection.diff`，31 行）加在 `beforeAll` 的启动导航**之前**：第一次请求 `/src/main.tsx`（`index.html` 的入口模块 `<script type="module" src="/src/main.tsx">`）时按住 `NAVIGATION_PROBE_MS + STARTUP_PROBE_MS + 2_000 = 12_000ms` 再放行，其后正常服务。按住**入口模块**（而非文档本身）⇒ 文档已提交（`page.reload()` 能重问根），但 `load` 事件到不了 ⇒ 首跳 `page.goto(...,'load')` 必然超时。这是 AC2 明许的「等价的确定性慢首跳注入」。
+
+逐字日志（`EXIT=0`；`1 passed (25.7s)`）：
+
+```
+[e2e] ac2-injection: holding the first load of http://127.0.0.1:4615/src/main.tsx for 12000ms
+[e2e] client startup: hop 1 (page.goto /) begins with 5000ms of navigation budget
+[e2e] client startup: hop 1 (page.goto) did not finish navigating in 5000ms: page.goto: Timeout 5000ms exceeded.
+[e2e] client startup: hop 2 (page.reload /) begins with 5000ms of navigation budget
+[e2e] client startup: hop 2 (page.reload) navigated in 1201ms
+[e2e] client startup: the project row for activity-dock-workspace landed after 11612ms (attempt 2, page.reload)
+```
+
+⇒ **2 次导航尝试**（首跳 `page.goto` 超时 + 一次 `page.reload`）后落点成功，判据 `EXIT=0`。
+
+还原与零残留：`git checkout -- e2e/activity-dock-truthful.spec.ts` ⇒ `git status --porcelain` 0 行（注入前状态）。
+
+### AC3 — take-fake 必须红（变异 diff、逐字失败行、`$?`）
+
+变异 diff（`/tmp/ac184-ac3-mutation.diff`）只把预算还原成改前算术：`STARTUP_PROBE_MS = 8_000`、`NAVIGATION_PROBE_MS = 8_000`、`STARTUP_PROBE_DEADLINE_MS = 12_000`（逐跳署名日志保留），加**同一**注入（此时按住 `8_000 + 8_000 + 2_000 = 18_000ms`）。
+
+逐字日志（只有 **1 跳**，全文无 `hop 2`）：
+
+```
+[e2e] client startup: hop 1 (page.goto /) begins with 8000ms of navigation budget
+[e2e] ac2-injection: holding the first load of http://127.0.0.1:19329/src/main.tsx for 18000ms
+[e2e] client startup: hop 1 (page.goto) did not finish navigating in 8000ms: page.goto: Timeout 8000ms exceeded.
+Error: the project row for activity-dock-workspace never rendered, so this run's client never came up to a document that stays (the navigation itself failed: page.goto: Timeout 8000ms exceeded.
+Call log:
+  - navigating to "http://127.0.0.1:19329/", waiting until "load"
+): the page shows ""; console errors: <none>; failed requests: <none>
+  at navigateBounded (.../e2e/activity-dock-truthful.spec.ts:598:13)
+1 failed
+```
+
+`EXIT=1`（`timeout … > /tmp/ac184-ac3.log 2>&1; echo "EXIT=$?"` ⇒ `1`），红落在守卫自己的署名错误（改前该 throw 在 :560，本条重写后同一处 :598）。还原后 `git checkout -- e2e/activity-dock-truthful.spec.ts` ⇒ 判据回到 `EXIT=0`（见 AC5 的 run=1..7 与最终树复跑）。
+
+### AC4 — 坞的判定面一字未改（最终树上重跑，逐字读数）
+
+```
+AC4a removed-expect count (must be 0): 0
+AC4b playwright.config.ts diff lines (must be 0): 0
+AC4c dock anchors (dock.wall|dock.state|dock.words|dock.frozen|dock.composer) touched (must be 0): 0
+AC4d criterion-command lines changed (must be 0): 0
+AC4e retries|.skip|test.fail|AC-184 lines touched (must be 0): 0
+```
+
+判据用例逐字仍在 `e2e/activity-dock-truthful.spec.ts:679`：`test('AC-184 the dock tells the truth when the app socket is partitioned', async () => {`；用例体预算原样在 :781：`expect(wall, 'the case body must land inside its own budget').toBeLessThanOrEqual(20_000);`。(i)–(v) 五条读数原样输出（`dock.state.before/after`、`dock.words.hit`、`dock.frozen.samples`、`dock.composer.stop.disabled`）。`git diff develop HEAD -- e2e/activity-dock-truthful.spec.ts` = 50 insertions / 12 deletions，全部落在 `navigateBounded` 的预算算术、常数注释与逐跳署名日志。
+
+### AC5 — 负载下连续绿（逐次 `EXIT` + wall，`tee` 入 `/tmp/ac184-ac5.log`）
+
+```
+run=1 EXIT=0 wall=31s dock.wall=14511ms (30.2s)
+run=2 EXIT=0 wall=26s dock.wall=14509ms (25.2s)
+run=3 EXIT=0 wall=26s dock.wall=14511ms (25.3s)
+run=4 EXIT=0 wall=27s dock.wall=14510ms (26.0s)
+run=5 EXIT=0 wall=26s dock.wall=14511ms (25.4s)
+run=6 EXIT=0 wall=26s dock.wall=14513ms (25.1s)
+run=7 EXIT=0 wall=27s dock.wall=14514ms (26.1s)
+run=8(concurrent) EXIT=0 wall=31s dock.wall=14513ms (29.6s)
+```
+
+8/8 `EXIT=0`；每次 `dock.wall` 14509–14514ms ≤ 20_000ms；整跑 25.1–30.2s < 55s 单 spec 天花板（在 `playwright.config.ts` 的 `timeout: 60_000` 内）。run 8 与 **4 份**兄弟 e2e spec 并发：criterion `EXIT=0`，兄弟 `ac184-sib2-*.exit` 全部 `0` —— `resident-shell-tab` 1 passed (34.9s)、`resident-running-view` 3 passed (52.8s)、`resident-status-bar` 4 passed (38.3s)、`activity-dock-background` 3 passed (32.8s) ⇒ **无兄弟红需归因**。改后树上的最终复跑：`FINAL_CRITERION EXIT=0 wall=26s dock.wall=14512ms (25.3s)`。
+
+### AC6 — 静态门
+
+```
+$ npm run typecheck
+> tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json
+TYPECHECK_EXIT=0
+```
+
+scoped lint（`npx oxlint e2e/activity-dock-truthful.spec.ts`）`EXIT=1`，唯一诊断是一条**改前既有**、与本任务无关的：
+
+```
+e2e/activity-dock-truthful.spec.ts:948:7: error eslint(no-unused-vars): Variable 'CONSOLIDATION_SCENARIO' is declared but never used.
+```
+
+基线证明：对 develop 版本（`git show develop:e2e/activity-dock-truthful.spec.ts`）跑同一 lint，得同一条诊断（行号 :910）⇒ 本条 diff 新增诊断 **0** 条；`e2e/` 不在 `npm run lint` 的路径集内，未为它扩面。
