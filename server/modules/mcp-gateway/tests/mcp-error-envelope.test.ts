@@ -43,12 +43,14 @@
  * mount — `createMcpServer` rebuilds the registry per request from the same deps —
  * so the name set the reader sees is the name set the prober calls.
  *
- * The classes this task CANNOT envelope (they are probed and their current shape
- * pinned, not silently skipped):
- *   - 审批或排队消息不存在 / 运行不存在: converting these from "looks like success"
- *     to errors is AC-287's, explicitly outside this task's scope. Here they are
- *     pinned to "still not a plain-text failure", so a regression into the old
- *     shape reds without this task overstepping into AC-287's conversion.
+ * The classes this task CANNOT envelope: none remain. Two used to be pinned here
+ *   - 审批或排队消息不存在 / 运行不存在: converting them from "looks like success"
+ *     to errors was explicitly AC-287's job, outside this task's scope. AC-287 has
+ *     now landed, so both moved into the envelope arm above and the mount's read
+ *     bag wires `run_get` so the 运行不存在 probe reads `RUN_NOT_FOUND` rather than
+ *     the `MCP_TOOL_NOT_IMPLEMENTED` an unwired mount answers. The `exempt` arm is
+ *     kept as the documented escape hatch for a class a future mount cannot
+ *     envelope; today no class uses it.
  *
  * 未知工具 USED to be the third: the SDK's `McpServer` rejected an unregistered
  * name with a JSON-RPC `-32602` before any gateway code ran. AC-288 installs the
@@ -194,7 +196,7 @@ const sessionHostControl = {
   },
 };
 
-/** The read bag. Overview / run_get / quay_snapshot stay unwired on purpose. */
+/** The read bag. Overview / quay_snapshot stay unwired on purpose. */
 const readTools = {
   projects: {
     getProjectsWithSessions: async () => [],
@@ -210,6 +212,22 @@ const readTools = {
   },
   hosts: { snapshot: () => [], liveHostForSession: () => null },
   runs: { listRunningRuns: () => [] },
+  // `run_get` is wired HERE on purpose (AC-287 landed): the by-id read is what
+  // routes the 运行不存在 class to its real RUN_NOT_FOUND envelope. Every id is
+  // answered `unknown`/`unknown` — the "never issued" reading the class probe
+  // pins. Without this bag the name answers the `MCP_TOOL_NOT_IMPLEMENTED`
+  // refusal (AC-240/244/245) and the class probe would pin the wrong shape.
+  runGet: {
+    runs: {
+      getRunById: () => ({ status: 'unknown' as const, reason: 'unknown' as const }),
+      getRunBootId: () => null,
+    },
+    activity: { snapshot: () => null },
+    sessions: { fetchHistory: async () => ({ messages: [] }) },
+    now: () => 0,
+    sleep: async () => undefined,
+    bootId: () => 'boot-fixture',
+  },
   now: () => Date.now(),
 } as unknown as McpReadToolDeps;
 
@@ -499,21 +517,28 @@ const CLASS_PROBES: Record<ProbeClass, ClassProbe> = {
     args: { session: 'sess-1', message: 'hello' },
     expect: 'SESSION_BUSY',
   },
+  // AC-287 landed: the "no such uuid" reading this exemption used to pin as a
+  // normal payload is now a real envelope. The class moves into the envelope arm
+  // — the assertion is strictly STRONGER than the retired `isError === false`
+  // pin (it now asserts the code, not merely "not an error").
   审批或排队消息不存在: {
-    kind: 'exempt',
+    kind: 'envelope',
+    mount: 'probe',
     tool: 'session_cancel_queued',
     args: { session: 'sess-1', messageUuid: 'no-such-uuid' },
-    reason:
-      'AC-287 converts the "no such uuid" reading from a success payload to an error; AC-284 must not, so the reading is pinned as "still a normal payload, never a plain-text failure"',
-    reading: 'not-an-error',
+    expect: 'QUEUED_MESSAGE_NOT_FOUND',
   },
+  // AC-287 landed: a by-id read that names no run is now a real envelope, so this
+  // class moves into the envelope arm. The fixture's `readTools.runGet` is wired
+  // (above) precisely so the probe reads RUN_NOT_FOUND rather than an unwired
+  // mount's MCP_TOOL_NOT_IMPLEMENTED refusal — the assertion is strictly STRONGER
+  // than the retired "not plain text" pin (it now asserts the code).
   运行不存在: {
-    kind: 'exempt',
+    kind: 'envelope',
+    mount: 'probe',
     tool: 'run_get',
     args: { runId: 'zzz-no-such-run' },
-    reason:
-      "AC-287 converts run_get's not-found from a success-looking answer to an error; AC-284 must not, so the reading is pinned as \"never a plain-text failure\"",
-    reading: 'not-plain-text',
+    expect: 'RUN_NOT_FOUND',
   },
 };
 
@@ -798,18 +823,20 @@ test('each class probe reads the shape its class promises', async () => {
       continue;
     }
 
-    // The exemptions AC-284 kept. Each pins the CURRENT shape so a silent change
-    // reds, while naming the owner of the conversion AC-284 does not perform.
-    // (未知工具 was one of these until AC-288 gave the gateway its own dispatcher
-    // and moved it into the envelope arm above.)
+    // The exemption arm: a class a mount cannot envelope pins its CURRENT shape
+    // so a silent change reds, naming the owner of the conversion the criterion
+    // does not perform. It is presently unused — AC-288 (未知工具) and AC-287
+    // (审批或排队消息不存在, 运行不存在) moved their classes into the envelope arm
+    // above — but kept as the documented escape hatch (the class-coverage test
+    // still guards that any entry here states a reason).
     const reading = await call(probeClient, probe.tool, probe.args);
     if (probe.reading === 'not-an-error') {
       assert.equal(
         reading.isError,
         false,
-        `${probeClass}: AC-287 owns converting this to an error; today it must remain a normal payload`,
+        `${probeClass}: this class is not yet an error; it must remain a normal payload`,
       );
-      say(`class ${probeClass} -> normal payload (${probe.tool}), AC-287 owns the conversion`);
+      say(`class ${probeClass} -> normal payload (${probe.tool}), a later task owns the conversion`);
     } else {
       // 'not-plain-text': whatever it answers, a failure must never be a bare
       // text body — that is the regression AC-284 exists to prevent.
