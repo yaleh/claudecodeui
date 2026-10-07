@@ -163,8 +163,36 @@ const DRAFT = 'keep this draft through a refused recognition attempt 7f2a';
  * `useVoiceInput` refuses to upload a blob under 800 bytes ("Recording too short"), which this clears by an
  * order of magnitude, and the trim is switched off on every leg — so the bytes uploaded are the bytes the
  * recorder produced, with no second codec in between.
+ *
+ * ONE CAPTURE IS ONE ATTEMPT, NOT A GUARANTEE, and treating it as one is the defect this file's recording step
+ * was fixed for: the app sends NOTHING when a capture ends with no audio frames, so a fixed window that came up
+ * empty left the leg waiting out its whole upload predicate for a request the app was never going to make. See
+ * `recordUntil`, which replays the capture instead of trusting this one.
  */
 const CAPTURE_MS = 1_500;
+
+/**
+ * How long one attempt's own capture is given to show its upload before the step records again.
+ *
+ * The upload a capture DOES produce is issued by the stop click and answered by this leg's stand-in in this same
+ * process, so the question "did frames reach the wire" is settled within a few hundred ms of the stop — while a
+ * capture that produced no frames settles it by sending nothing at all, ever. This window is deliberately
+ * several times the cost of the answer so that a host under load reads as slow rather than as empty.
+ */
+const POST_OBSERVE_MS = 4_000;
+
+/**
+ * The whole recording-evidence step's own ceiling, replay included — DERIVED FROM THE LEG'S OWN BUDGET.
+ *
+ * Each recording leg sets its own `test.setTimeout` — 45_000 for the refusal leg, 50_000 for the written one —
+ * and everything else the leg does inside that budget is already bounded by this file: the preamble before the
+ * recording (openLeg's navigation, the composer open, the health poll) is at most 15_000 (that poll's own
+ * timeout) and the assertions after it (the refusal sentence's 10_000 visibility wait, the composer readbacks)
+ * at most 12_000. The step therefore gets `45_000 - 15_000 - 12_000 = 18_000` of the smallest leg budget, and is
+ * set below that — 12_000 — which also keeps one replay of a slow attempt inside the goal gate's 60s wall
+ * alongside the other leg and the file's shared preamble.
+ */
+const RECORD_EVIDENCE_BUDGET_MS = 12_000;
 
 /** The proxy hop the app is expected to take for a provider declaring `transport: 'proxy-only'`. */
 const PROXY_PATH = /\/api\/voice\/transcribe/;
@@ -747,20 +775,101 @@ const rereadHealth = async (page: Page) => {
 };
 
 /**
- * Records one pass of the fixture through the app's voice button.
+ * Records one pass of the fixture through the app's voice button, and reports whether the recorder came up.
  *
  * There is no event to wait on for "the recorder has captured enough" — the upload does not exist until the
  * stop — so the wait is the capture duration itself.
+ *
+ * THE RETURN VALUE IS THE RECORDER'S, NOT THE CAPTURE'S. The stop button appearing says the engine started
+ * (`useVoiceInput` sets its state only after `engine.start` resolves); it does NOT say a frame was ever
+ * produced, and a capture with no frames is one the app answers with silence. That distinction is what the
+ * caller below reports on failure, so a recorder that never came up is a `false` here rather than a thrown
+ * timeout inside the capture — the step is bounded, and its failure has to be legible.
  */
-const recordOnce = async (page: Page) => {
+const recordOnce = async (page: Page): Promise<boolean> => {
   const record = page.getByRole('button', { name: 'Voice input' });
   await expect(record).toBeVisible({ timeout: 15_000 });
   await record.click();
   // Recording really started: the button renames itself for as long as the recorder is running.
   const stop = page.getByRole('button', { name: 'Stop recording' });
-  await expect(stop).toBeVisible({ timeout: 10_000 });
+  const started = await appears(stop, 10_000);
+  if (!started) {
+    return false;
+  }
   await page.waitForTimeout(CAPTURE_MS);
   await stop.click();
+  return true;
+};
+
+/** One attempt's own reading: what the step saw after that attempt's capture. */
+type RecordAttempt = { attempt: number; started: boolean; evidence: number };
+
+/**
+ * Takes a leg's recording evidence — bounded, replayable, and legible when it runs out.
+ *
+ * WHY THIS IS A LOOP AND NOT ONE CAPTURE. The app deliberately sends NOTHING when a capture produced no audio
+ * frames: `useVoiceInput`'s no-VAD tail queues the recording only when it holds whole chunks, and its own
+ * comment says a stop with nothing buffered "sends no request and reports no error". A fixed capture window is
+ * therefore not a guarantee that a request will exist, and under host load a 1.5s window can end with zero
+ * frames — which used to leave the leg waiting out a 15s predicate for an upload the app was never going to
+ * make, indistinguishable from the app having dropped a recording it held. So one capture is ONE ATTEMPT: if
+ * the attempt's own observation window shows no evidence, the step records again — a whole fresh capture — and
+ * keeps doing that until its deadline, which is derived from this leg's own budget (see the constant).
+ *
+ * IT STOPS AT THE FIRST ATTEMPT THAT SHOWS EVIDENCE, which is what keeps a replay from raising the count: the
+ * assertion after this is still "exactly one upload", and a second capture is never taken once the first has
+ * been answered.
+ *
+ * Every attempt is logged — its index, the leg's own evidence count, and whether the recorder came up — and the
+ * summary line carries the attempt count and the deadline the step was given. When the budget runs out with
+ * nothing on the wire, the failure is thrown HERE, with the same three readings, so "the recorder never came
+ * up" and "it came up and uploaded nothing" are told apart by the message rather than both surfacing as one
+ * bare timeout above the spec.
+ */
+const recordUntil = async (leg: Leg, evidence: () => number, what: string): Promise<void> => {
+  const page = leg.page;
+  const deadline = Date.now() + RECORD_EVIDENCE_BUDGET_MS;
+  const attempts: RecordAttempt[] = [];
+  let postedAtLeastOnce = false;
+  for (;;) {
+    const before = evidence();
+    const started = await recordOnce(page);
+    // The observation window is bounded by BOTH this attempt's window and the step's deadline, so the step
+    // cannot spend its budget waiting on the last attempt past its own ceiling.
+    const observeUntil = Math.min(Date.now() + POST_OBSERVE_MS, deadline);
+    while (evidence() === before && Date.now() < observeUntil) {
+      await page.waitForTimeout(100);
+    }
+    const seen = evidence();
+    attempts.push({ attempt: attempts.length + 1, started, evidence: seen });
+    console.log(`record-attempt=${attempts.length} posts=${seen} started=${started}`);
+    if (seen > before) {
+      postedAtLeastOnce = true;
+      break;
+    }
+    if (Date.now() >= deadline) {
+      break;
+    }
+  }
+  console.log(
+    `record-attempts=${attempts.length}`
+      + ` per-attempt-posts=[${attempts.map((attempt) => attempt.evidence).join(',')}]`
+      + ` deadline-ms=${RECORD_EVIDENCE_BUDGET_MS}`,
+  );
+  if (postedAtLeastOnce) {
+    return;
+  }
+  // Exhausted with nothing on the wire. Three readings, because the two ways this ends are different defects:
+  // the cumulative count answers "did anything at all arrive", `recorder-started` answers "did the engine come
+  // up", and the page text is what the page was saying while it didn't.
+  const body = await page.locator('body').innerText().catch(() => '<unreadable>');
+  throw new Error(
+    `${leg.name}: the recording never reached the ${what} after ${attempts.length} attempt(s)`
+      + `\n  cumulative proxyPosts=${evidence()}`
+      + `\n  recorder-started=${attempts.some((attempt) => attempt.started)}`
+      + ` per-attempt-started=[${attempts.map((attempt) => attempt.started).join(',')}]`
+      + `\n  page text: ${JSON.stringify(body.slice(0, 400))}`,
+  );
 };
 
 /**
@@ -998,12 +1107,12 @@ test('AC-142 written: a proxied provider is selected in settings and the written
   await page.keyboard.press('Escape');
   await expect(composer(page)).toBeVisible({ timeout: 10_000 });
 
-  // (4) One recording, and the four readings about it.
-  await recordOnce(page);
-  await expect.poll(
-    () => leg.proxyPosts.length,
-    { timeout: 15_000, message: 'the recording never reached the proxy stand-in' },
-  ).toBe(1);
+  // (4) One recording, and the four readings about it. The evidence step replays a capture that produced no
+  // frames and does not return until this leg's own stand-in has answered, so the count below is a plain
+  // assertion: a poll here would be waiting for something the step already guarantees, and would put the old
+  // 15s-of-nothing back in the failure path this task exists to remove.
+  await recordUntil(leg, () => leg.proxyPosts.length, 'proxy stand-in');
+  expect(leg.proxyPosts.length, 'the recording evidence step returned without an upload on the wire').toBe(1);
 
   const post = leg.proxyPosts[0];
   const composerLength = (await composer(page).inputValue()).length;
@@ -1070,11 +1179,9 @@ test('AC-142 refusal: a refused recognition shows the sentence its code selects 
     { timeout: 15_000, message: 'the page never read a health payload naming the saved provider as effective' },
   ).toBe(true);
 
-  await recordOnce(page);
-  await expect.poll(
-    () => leg.proxyPosts.length,
-    { timeout: 15_000, message: 'the recording never reached the proxy stand-in' },
-  ).toBe(1);
+  // The recording, with the same bounded-and-replayable evidence step as the written leg: a capture that
+  // produced no frames uploads nothing, and the step records again rather than waiting a fixed predicate out.
+  await recordUntil(leg, () => leg.proxyPosts.length, 'proxy stand-in');
 
   // (b) The page's own words AFTER it: the sentence this envelope's code selects, and nothing from the two
   // other classes. Read off the whole page rather than off the bubble alone, so the assertion is about what the
@@ -1174,12 +1281,10 @@ test('control leg: a directly connected provider really reaches the workspace ho
   await page.keyboard.press('Escape');
   await expect(composer(page)).toBeVisible({ timeout: 10_000 });
 
-  await recordOnce(page);
-  // The request is what this leg is about, so the wait is on the ledger rather than on the composer.
-  await expect.poll(
-    () => leg.aliyuncsLedger.length,
-    { timeout: 15_000, message: 'the directly connected provider never addressed the workspace host' },
-  ).toBeGreaterThan(0);
+  // The request is what this leg is about, so the evidence the step waits on is the ledger rather than the
+  // composer — and it is the same bounded, replayable step, because a zero-frame capture starves this leg's
+  // reading by exactly the same mechanism.
+  await recordUntil(leg, () => leg.aliyuncsLedger.length, 'workspace host');
 
   const composerLength = (await composer(page).inputValue()).length;
   console.log(
