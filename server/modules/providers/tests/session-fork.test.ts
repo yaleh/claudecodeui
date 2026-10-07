@@ -8,6 +8,7 @@ import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/datab
 import { ClaudeSessionsProvider } from '@/modules/providers/list/claude/claude-sessions.provider.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import { sessionHostManager } from '@/modules/session-hosts/index.js';
 import type { IProviderFork } from '@/shared/interfaces.js';
 
 const SOURCE_ID = 'fork-source';
@@ -125,6 +126,62 @@ test('a fork inherits the model, effort, and permission mode of the conversation
     // mode that conversation was running in rather than snapping back to the
     // provider default.
     assert.equal(forked?.permission_mode, 'plan');
+  });
+});
+
+test('a fork inherits the lifecycle mode of the conversation it branched from, without starting a host', async () => {
+  await withForkableClaude(async ({ directory }) => {
+    seedSource(directory);
+    sessionsDb.setSessionLifecycleMode(SOURCE_ID, 'resident');
+
+    const hostsBefore = sessionHostManager.snapshot().length;
+    const result = await sessionsService.forkSessionById(SOURCE_ID);
+
+    const sourceMode = sessionsDb.getSessionLifecycleMode(SOURCE_ID);
+    const forkedMode = sessionsDb.getSessionLifecycleMode(result.sessionId);
+    const forkedRow = sessionsDb.getSessionById(result.sessionId);
+    // A host "started by the fork" is one that serves the new session: nothing
+    // else in this path opens a host, so a non-zero count here is exactly the
+    // regression this reading exists to catch.
+    const hostsStartedByFork = sessionHostManager
+      .snapshot()
+      .filter((host) => host.bindings.has(result.sessionId)).length;
+    const hostsAfter = sessionHostManager.snapshot().length;
+
+    console.log(
+      `sourceMode=${sourceMode} forkedMode=${forkedMode} hostsStartedByFork=${hostsStartedByFork}`,
+    );
+
+    assert.equal(sourceMode, 'resident', 'the source must really be resident for this to be a test');
+    // The branch continues the same conversation, so it continues under the same
+    // lifecycle mode rather than snapping back to the column default. AC-169's
+    // "a fork does not inherit" was overturned by the human ruling of
+    // 2026-10-07 (see docs/proposals/claude-resident-sessions.md §13.5).
+    assert.equal(forkedMode, 'resident', 'a fork must inherit the source lifecycle mode');
+    assert.equal(forkedRow?.forked_from_session_id, SOURCE_ID, 'the fork must point back at its source');
+    // The mode is a stored preference, not a running process: forking copies the
+    // value and starts nothing, so no host serves the new session until its
+    // first turn is sent.
+    assert.equal(hostsStartedByFork, 0, 'forking must not start a host for the new session');
+    assert.equal(hostsAfter, hostsBefore, 'forking must not change the host population');
+  });
+});
+
+test('a fork of a per-run session stays per-run', async () => {
+  await withForkableClaude(async ({ directory }) => {
+    seedSource(directory);
+
+    const result = await sessionsService.forkSessionById(SOURCE_ID);
+
+    const sourceMode = sessionsDb.getSessionLifecycleMode(SOURCE_ID);
+    const forkedMode = sessionsDb.getSessionLifecycleMode(result.sessionId);
+
+    console.log(`sourceMode=${sourceMode} forkedMode=${forkedMode}`);
+
+    // Positive control against "always write resident": a per-run source has no
+    // mode to hand down, so the branch stays per-run.
+    assert.equal(sourceMode, 'per-run');
+    assert.equal(forkedMode, 'per-run', 'a per-run source must not produce a resident fork');
   });
 });
 

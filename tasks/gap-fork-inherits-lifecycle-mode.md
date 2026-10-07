@@ -1,7 +1,7 @@
 ---
 id: gap-fork-inherits-lifecycle-mode
 title: fork 继承源会话的 lifecycle_mode（resident 源 → resident fork）：推翻 AC-169 判据 (3)「分叉不继承」
-status: ready
+status: done
 labels:
   - gap
 parent: null
