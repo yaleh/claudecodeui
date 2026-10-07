@@ -2,7 +2,7 @@
 id: gap-mcp-sessions-list-limit-ignored
 title: sessions_list 的输入 schema 没有 limit，调用方传 limit 被静默丢弃并返回最多 200 条：声明并执行
   limit，超界给 INVALID_ARGUMENT
-status: ready
+status: done
 labels:
   - gap
   - defect

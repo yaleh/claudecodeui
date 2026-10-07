@@ -93,7 +93,8 @@ export const MCP_STAGE3_READ_TOOLS = [
   {
     name: 'sessions_list',
     requiredScope: READ_SCOPE,
-    description: 'List sessions, optionally filtered by project and by state (running / idle / resident).',
+    description:
+      'List sessions, optionally filtered by project and by state (running / idle / resident). `limit` caps how many sessions are returned, from 1 to 200; `total` still reports the full filtered count, so a caller can tell the list was truncated.',
   },
   {
     name: 'session_get',
@@ -502,6 +503,15 @@ function optionalPositiveInteger(value: unknown, fallback: number): number {
 /** How many recent sessions one `sessions_list` page reads. */
 const SESSION_LIST_PAGE_SIZE = 200;
 
+/**
+ * The largest `limit` `sessions_list` accepts. It IS {@link SESSION_LIST_PAGE_SIZE}:
+ * the reads already cap a page there, so a caller cannot ask for more rows than
+ * the page can hold — a larger `limit` would promise sessions the read never saw.
+ * Declared on the tool's input schema so the bound is advertised and enforced
+ * (an out-of-range value is an `INVALID_ARGUMENT`, never a silent truncation).
+ */
+const MCP_SESSION_LIST_MAX_LIMIT = SESSION_LIST_PAGE_SIZE;
+
 /** `session_read` returns this many messages when the caller names no limit. */
 const DEFAULT_LATEST_LIMIT = 5;
 
@@ -787,6 +797,11 @@ const TOOL_BODIES = {
     inputSchema: {
       project: z.string().optional(),
       state: z.enum(['running', 'idle', 'resident', 'any']).optional(),
+      // Bounded HERE, not clamped by the handler: 0, a negative, a fraction or
+      // a value past the cap is an `INVALID_ARGUMENT` naming `limit`, so a typo
+      // is loud instead of silently answered with a page of the wrong size. The
+      // SAME schema is advertised on `tools/list` (AC-288 (f)).
+      limit: z.number().int().min(1).max(MCP_SESSION_LIST_MAX_LIMIT).optional(),
     },
     outputSchema: { sessions: z.array(sessionSchema), total: z.number() },
     async handle(args, deps) {
@@ -795,7 +810,7 @@ const TOOL_BODIES = {
       const rows = project === null ? readRecentSessionRows(deps) : await readProjectSessionRows(deps, project);
       const running = new Set(deps.runs.listRunningRuns().map((run) => run.sessionId));
 
-      const sessions = rows
+      const filtered = rows
         .map((row) => toSessionReading(row, deps, running))
         .filter((session) => {
           // An empty result is a legitimate answer, not a failure: "no session
@@ -807,7 +822,13 @@ const TOOL_BODIES = {
           return true;
         });
 
-      return { sessions, total: sessions.length };
+      // Filter FIRST, then cut the page: `limit` bounds the returned list, while
+      // `total` reports the filtered count BEFORE the cut, which is how a caller
+      // learns the answer was truncated rather than complete. An absent `limit`
+      // falls back to the filtered length — the whole page, so the no-limit
+      // reading is byte-for-byte what it was before `limit` was declared.
+      const limit = optionalPositiveInteger(args.limit, filtered.length);
+      return { sessions: filtered.slice(0, limit), total: filtered.length };
     },
   },
   session_get: {
