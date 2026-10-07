@@ -227,6 +227,135 @@ export type UiVisibleContextDevice = {
 };
 
 // ---------------------------
+//----------------- UI NAVIGATION ------------
+/**
+ * Where in the target session the browser should land.
+ *
+ * `{ latest: true }` is the default the tool fills in: the transcript's tail.
+ * `{ messageId }` scrolls to one message, the id coming from a
+ * `ui_visible_context` / `session_read` reading rather than being guessed. A
+ * `turn` (position by user-turn index) is deliberately absent — it has to agree
+ * with the outline index, which is a later task's question.
+ */
+export type UiNavigationPosition = { latest: true } | { messageId: string };
+
+/**
+ * The frame the server writes to one device's tabs to ask them to open a session
+ * and land at a position.
+ *
+ * It is the OPPOSITE direction from `ui.state_request`: the server is not asking
+ * a question, it is delivering an instruction, and `navigationId` is what the
+ * browser echoes back so the answer can be matched to the instruction that
+ * minted it. The frame carries no identity of its own — the server knows which
+ * socket it wrote to, and the browser answers with its own `deviceId` /
+ * `tabId`.
+ */
+export type UiNavigateFrame = {
+  type: 'ui.navigate';
+  navigationId: string;
+  sessionId: string;
+  at: UiNavigationPosition;
+};
+
+/**
+ * How a browser received a `ui.navigate` — the DELIVERY ack.
+ *
+ *  - `shown`: the tab is showing the user a confirmation bar (the device's
+ *    policy is "ask"); the tool reports `pending_user`.
+ *  - `applied`: the tab navigated immediately (policy "accept", or a policy that
+ *    requires no confirmation); the tool reports `applied`.
+ *  - `declined`: the tab refused the instruction (policy "reject").
+ *
+ * The ack says nothing about a LATER decision: an `ask` tab answers `shown` now
+ * and reports what the user chose through `ui.navigate_result`.
+ */
+export type UiNavigationAck = 'shown' | 'applied' | 'declined';
+
+/**
+ * The frame a tab answers a `ui.navigate` with, immediately on delivery.
+ *
+ * `navigationId` and the two identity fields are echoed so the server can match
+ * the ack to the instruction it wrote and record which tab received it.
+ */
+export type UiNavigateAckFrame = {
+  type: 'ui.navigate_ack';
+  navigationId: string;
+  deviceId: string;
+  tabId: string;
+  status: UiNavigationAck;
+};
+
+/**
+ * The final outcome of a navigation, as a tab reports it after the user decided.
+ *
+ * Only an `ask` device reaches this frame later than the ack: it answered
+ * `shown`, and this is the user's verdict (or the reason none was reached). An
+ * `accept` / `reject` device's ack IS its final outcome and no result frame
+ * follows.
+ *
+ *  - `applied`  — the browser opened the session (this is what writes the
+ *    "last opened" pointer);
+ *  - `declined` — the user said no;
+ *  - `ignored`  — the user dismissed the prompt without answering;
+ *  - `superseded` — a newer navigation to the same tab arrived first;
+ *  - `expired`  — the prompt timed out unanswered.
+ */
+export type UiNavigationFinalStatus = 'applied' | 'declined' | 'ignored' | 'superseded' | 'expired';
+
+/** The frame a tab reports a navigation's final outcome with. */
+export type UiNavigateResultFrame = {
+  type: 'ui.navigate_result';
+  navigationId: string;
+  deviceId: string;
+  tabId: string;
+  status: UiNavigationFinalStatus;
+};
+
+/**
+ * A navigation's status as a caller reads it.
+ *
+ * `pending_user` is the one non-terminal value: the bar is up and the user has
+ * not decided yet. Everything else is final and is what `ui_visible_context`'s
+ * `navigations[]` reports.
+ */
+export type UiNavigationStatus =
+  | 'applied'
+  | 'declined'
+  | 'pending_user'
+  // The delivery window closed with no ack: nobody was listening, or the tab that
+  // was is gone. Distinct from every browser-reported verdict because it says
+  // nothing about what the user wanted — only that the instruction did not land.
+  | 'unresponsive'
+  | UiNavigationFinalStatus;
+
+/**
+ * One navigation as the server remembers it in memory.
+ *
+ * This is the record `ui_open_session` returns (the delivery reading) and the
+ * one `ui_visible_context`'s `navigations[]` lists (the as-of-now reading): the
+ * same row, mutated in place when the browser reports a final outcome. It is
+ * never persisted — a navigation is about a live socket, and a restart makes
+ * every unanswered record meaningless.
+ */
+export type UiNavigationRecord = {
+  navigationId: string;
+  /** The device the instruction was addressed to. */
+  deviceId: string;
+  deviceName: string;
+  /** The tab that acknowledged it; null while nothing has answered. */
+  tabId: string | null;
+  sessionId: string;
+  at: UiNavigationPosition;
+  /** The MCP client that asked (`clientId`), or null for a personal access token. */
+  requestedBy: string | null;
+  /** Epoch ms the instruction was written. */
+  requestedAt: number;
+  /** Epoch ms of the last status change. */
+  updatedAt: number;
+  status: UiNavigationStatus;
+};
+
+// ---------------------------
 //----------------- PROVIDER MESSAGE MODEL ------------
 /**
  * Providers supported by the unified server runtime.

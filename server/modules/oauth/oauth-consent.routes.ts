@@ -65,6 +65,9 @@ const SCOPE_DESCRIPTIONS: Record<string, string> = {
   'cloudcli:session:create': 'Start new sessions (the session runs commands)',
   'cloudcli:session:control': 'Interrupt runs, start and close sessions, stop background tasks',
   'cloudcli:approve': 'Answer pending tool approvals',
+  // gap-mcp-ui-open-session: the first scope that lets a client change what the
+  // user's screen shows — it opens a session in one of their connected browsers.
+  'cloudcli:navigate': 'Open a session in one of your browsers',
 };
 
 /** A CSRF ledger entry's absolute expiry, in epoch milliseconds. */

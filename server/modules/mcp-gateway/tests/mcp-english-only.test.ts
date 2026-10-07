@@ -15,7 +15,7 @@
  * needed beyond the audit table the audited wrapper writes.
  *
  * Readings, one leg each:
- *   (a) `tools/list` names 20 tools. Every tool has a success probe; every tool
+ *   (a) `tools/list` names 21 tools. Every tool has a success probe; every tool
  *       with declared arguments also has a failure probe (the argument-less
  *       tools — `ui_last_opened_session` and `ui_clients_list` — have no
  *       validation branch to drive and are exempted with reasoned entries —
@@ -502,6 +502,32 @@ function makeWriteTools(control: ReturnType<typeof makeControl>): McpWriteToolDe
     },
     sessionInterrupt: { control },
     sessionHostControl,
+    // gap-mcp-ui-open-session: wired so `ui_open_session` has a real success path
+    // — one connected device, so the omitted `client` is auto-selected, and a
+    // navigation that lands. Every field of the payload is an ASCII identifier,
+    // so (a)'s walk reads the same nothing-to-translate answer a real browser
+    // would produce for an English-titled session.
+    uiOpenSession: {
+      listUiClients: () => [
+        {
+          deviceId: 'dev-1',
+          deviceName: 'laptop',
+          tabs: [{ tabId: 'tab-1', deviceName: 'laptop', connectedAt: FIXED_NOW - 120 * 1000 }],
+        },
+      ],
+      navigate: async () => ({
+        navigationId: 'nav-1',
+        deviceId: 'dev-1',
+        deviceName: 'laptop',
+        tabId: 'tab-1',
+        sessionId: 'sess-1',
+        at: { latest: true },
+        requestedBy: null,
+        requestedAt: FIXED_NOW,
+        updatedAt: FIXED_NOW,
+        status: 'applied',
+      }),
+    },
   } as unknown as McpWriteToolDeps;
 }
 
@@ -792,6 +818,10 @@ const SUCCESS_TABLE: Record<string, AnyRecord> = {
   // No arguments either: the success path is the INJECTED round trip answering
   // with one device; listing every connected device is the only question it asks.
   ui_clients_list: {},
+  // gap-mcp-ui-open-session: `session` is resolved by the AC-246 target gate
+  // against the `sess-1` fixture, and `client` is omitted so the single injected
+  // device is auto-selected and the injected navigation lands `applied`.
+  ui_open_session: { session: 'sess-1' },
 };
 
 /**
@@ -828,6 +858,9 @@ const FAILURE_TABLE: Record<string, { args: AnyRecord; expect: string }> = {
   // `client` is a declared optional string, so a wrong-typed one is a shallow
   // validation failure like the rest — no device resolution is reached.
   ui_visible_context: { args: { client: 5 }, expect: 'INVALID_ARGUMENT' },
+  // `session` is a declared string, so a wrong-typed one is the same shallow
+  // validation failure — no device resolution and no navigation is reached.
+  ui_open_session: { args: { session: 5 }, expect: 'INVALID_ARGUMENT' },
 };
 
 /**
@@ -1014,7 +1047,7 @@ test('(a) the success and failure tables cover exactly the tools the registry li
   const listed = await listClient.listTools();
   const registryNames = listed.tools.map((tool) => tool.name).sort();
 
-  assert.equal(registryNames.length, 20, `tools/list must return the full 20-tool set, got ${registryNames.join(', ')}`);
+  assert.equal(registryNames.length, 21, `tools/list must return the full 21-tool set, got ${registryNames.join(', ')}`);
   assert.deepEqual(
     Object.keys(SUCCESS_TABLE).sort(),
     registryNames,
@@ -1053,7 +1086,7 @@ test('(a) every tool description and parameter description is English', async ()
       }
     }
   }
-  assert.ok(scanned >= 20, `every one of the 20 tools must declare a description, scanned ${scanned}`);
+  assert.ok(scanned >= 21, `every one of the 21 tools must declare a description, scanned ${scanned}`);
   say(`(a) scanned ${scanned} tool/parameter descriptions, all English`);
 });
 

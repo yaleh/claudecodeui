@@ -54,6 +54,7 @@
  * | `session_interrupt`   | none   | false    | true        | false      | true      | terminates the run in flight; the work it held is lost |
  * | `session_start`       | none   | false    | false       | true       | true      | launches the resident host; "already running is a success" |
  * | `session_close`       | none   | false    | true        | false      | true      | terminates the resident host; its leases are gone and are not recovered |
+ * | `ui_open_session`     | none   | false    | false       | true       | false     | asks ONE browser to open a session; discards nothing and drives no provider agent |
  * | `session_cancel_queued`| none  | false    | true        | true       | false     | withdraws a queued message irreversibly; a repeat finds it gone |
  * | `session_reconfigure` | none   | false    | false       | true       | false     | writes a stored preference; repeating the same value is a no-op |
  * | `session_background`  | none   | false    | true        | false      | true      | its `stopTaskId` branch stops a held task (the list branch alone is a read) |
@@ -82,10 +83,11 @@ import type { McpStage4WriteToolName } from './mcp-gateway.write-tools.js';
 /**
  * Every tool name the gateway can register, derived from the three tables so a
  * name can never exist in a table but be missing here (a miss is a compile
- * error on the {@link MCP_TOOL_ANNOTATIONS} record), plus the four resident
- * tools that register alongside `MCP_STAGE6_RESIDENT_TOOLS` rather than in it:
- * `session_reconfigure` (AC-272), `session_background` (AC-273) and
- * `approvals_list` / `approval_answer` (AC-274).
+ * error on the {@link MCP_TOOL_ANNOTATIONS} record), plus the tools that register
+ * alongside their table rather than in it: `session_reconfigure` (AC-272),
+ * `session_background` (AC-273), `approvals_list` / `approval_answer` (AC-274)
+ * and `ui_open_session` (gap-mcp-ui-open-session, registered next to
+ * `MCP_STAGE4_WRITE_TOOLS`).
  */
 export type McpGatewayToolName =
   | McpStage3ReadToolName
@@ -94,7 +96,10 @@ export type McpGatewayToolName =
   | 'session_reconfigure'
   | 'session_background'
   | 'approvals_list'
-  | 'approval_answer';
+  | 'approval_answer'
+  // gap-mcp-ui-open-session: registered alongside `MCP_STAGE4_WRITE_TOOLS` (it
+  // is the sixth write tool but not one of AC-249's five), so it is named here.
+  | 'ui_open_session';
 
 /**
  * The annotation every registered tool declares, keyed by tool name.
@@ -143,6 +148,13 @@ export const MCP_TOOL_ANNOTATIONS: Record<McpGatewayToolName, ToolAnnotations> =
   // terminates the resident host; the manager clears its leases on teardown and
   // they are not recovered, so the close is irreversible.
   session_close: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  // asks ONE browser to open a session. It discards nothing (a declined or
+  // ignored prompt leaves the world as it was) and drives no provider agent: the
+  // effect is confined to THIS server's own connected clients, so the world stays
+  // closed. Idempotent: asking twice for the same session reaches the same screen
+  // state, and the log's second record supersedes the first rather than
+  // accumulating a second effect.
+  ui_open_session: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 
   // -- stage-6 resident tools ------------------------------------------------
   // withdraws a queued message; the text is gone and cannot be restored, while a

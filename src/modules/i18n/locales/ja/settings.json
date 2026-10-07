@@ -556,7 +556,8 @@
       "sessionSend": "セッションへ送信（cloudcli:session:send）",
       "sessionCreate": "セッションを作成（cloudcli:session:create）",
       "sessionControl": "セッションを制御（cloudcli:session:control）",
-      "approve": "承認（cloudcli:approve）"
+      "approve": "承認（cloudcli:approve）",
+      "navigate": "お使いのブラウザでセッションを開く（cloudcli:navigate）"
     }
   },
   "mcpGateway": {

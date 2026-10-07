@@ -31,6 +31,12 @@
  * (`ACCESS_TOKEN_SCOPES`) rather than being re-typed here; the array's order is
  * pinned by the OAuth module's own vocabulary criterion, so the positional read
  * cannot silently select the wrong scope.
+ *
+ * A SIXTH name rides this function without joining the table:
+ * `ui_open_session` (gap-mcp-ui-open-session) is registered after the loop, from
+ * {@link UI_OPEN_SESSION_TOOL_NAME} / {@link McpWriteToolDeps.uiOpenSession}. It
+ * is not one of the five AC-249 pins, and it is not `protect`-wrapped — opening
+ * the caller's own session is explicitly allowed, so `SELF_TARGET` must not fire.
  */
 
 import { z } from 'zod';
@@ -67,13 +73,34 @@ import {
   SESSION_SEND_INPUT_SCHEMA,
 } from './mcp-session-send.js';
 import type { McpSessionSendDeps } from './mcp-session-send.js';
+import {
+  isUiOpenSessionWired,
+  registerMcpUiOpenSessionTool,
+  UI_OPEN_SESSION_INPUT_SCHEMA,
+  UI_OPEN_SESSION_OUTPUT_SCHEMA,
+} from './mcp-ui-open-session.js';
+import type { McpUiOpenSessionDeps } from './mcp-ui-open-session.js';
 
 // --------------------------- scope vocabulary ---------------------------
 
 // Positions within AC-243's vocabulary, in the order the constant declares and
 // `access-token-scopes.test.ts` pins: read, session:send, session:create,
-// session:control, approve.
-const [, SESSION_SEND_SCOPE, SESSION_CREATE_SCOPE, SESSION_CONTROL_SCOPE] = ACCESS_TOKEN_SCOPES;
+// session:control, approve, navigate. `navigate` was appended last so the five
+// reads above keep their index.
+const [, SESSION_SEND_SCOPE, SESSION_CREATE_SCOPE, SESSION_CONTROL_SCOPE, , NAVIGATE_SCOPE] =
+  ACCESS_TOKEN_SCOPES;
+
+/**
+ * `ui_open_session`'s name and description. It is NOT one of AC-249's five — it
+ * is registered alongside them by {@link registerMcpWriteTools} — but the
+ * name/scope pair still lives here, next to the table, so the write-tool name set
+ * has one statement.
+ */
+export const UI_OPEN_SESSION_TOOL_NAME = 'ui_open_session';
+
+/** What `ui_open_session` says it does on `tools/list`. */
+export const UI_OPEN_SESSION_DESCRIPTION =
+  'Open a session in one of the connected browsers and position it, without waiting for the user.';
 
 // --------------------------- the stage-4 write table ---------------------------
 
@@ -165,6 +192,15 @@ export type McpWriteToolDeps = McpSessionSendDeps & {
    * leg (d) proves a newly added write tool is covered without a guard edit.
    */
   selfTarget?: SelfTargetDeps;
+  /**
+   * The `ui_open_session` services (gap-mcp-ui-open-session): the connected-device
+   * roster, the navigation push, and the per-token throttle. Optional so a mount
+   * that predates this task — or a criterion that exercises the other write tools
+   * — is still a valid `McpWriteToolDeps`; when absent the tool keeps its named
+   * `MCP_TOOL_NOT_IMPLEMENTED` refusal, when present `registerMcpWriteTools`
+   * installs the real body. `server/index.ts` binds the process-wide singletons.
+   */
+  uiOpenSession?: McpUiOpenSessionDeps;
 };
 
 // --------------------------- registration ---------------------------
@@ -355,4 +391,18 @@ export function registerMcpWriteTools(seam: McpWriteToolSeam, deps: McpWriteTool
       handler: protect(tool.name, () => notImplemented(tool.name, PLACEHOLDER_OWNER[tool.name])),
     });
   }
+
+  // gap-mcp-ui-open-session: a SIXTH write tool, registered alongside the five
+  // above rather than in `MCP_STAGE4_WRITE_TOOLS` (whose length is AC-249's own
+  // pinned contract). It is deliberately NOT passed through `protect`: opening
+  // the caller's own session neither interrupts nor queues a run, so the
+  // self-target guard must not fire on it. Unwired, it keeps a named refusal so
+  // its name stays on `tools/list` for the annotation / error-code records.
+  registerMcpUiOpenSessionTool(seam, isUiOpenSessionWired(deps) ? deps.uiOpenSession : null, {
+    name: UI_OPEN_SESSION_TOOL_NAME,
+    description: UI_OPEN_SESSION_DESCRIPTION,
+    requiredScope: NAVIGATE_SCOPE,
+    inputSchema: UI_OPEN_SESSION_INPUT_SCHEMA,
+    outputSchema: UI_OPEN_SESSION_OUTPUT_SCHEMA,
+  });
 }

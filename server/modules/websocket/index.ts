@@ -105,6 +105,28 @@ export type {
   UiStateRequestOptions,
   UiStateRequestService,
 } from './services/ui-state-request.service.js';
+// The UI-navigation push (gap-mcp-ui-open-session). `navigate` writes one
+// `ui.navigate` to ONE device's tabs and resolves with the DELIVERY reading
+// (the browser's `ui.navigate_ack` mapped to `applied` / `pending_user` /
+// `declined`, or `unresponsive` on timeout) WITHOUT waiting for the user;
+// `handleAck` / `handleResult` route the two inbound frames;
+// `listNavigations` is the bounded in-memory log `ui_visible_context`'s
+// `navigations[]` reads. `uiNavigationService` is the process-wide instance the
+// chat gateway routes frames into and `server/index.ts` binds as the MCP tool's
+// writer; `createUiNavigationService` is the isolated seam a criterion drives.
+export {
+  createUiNavigationService,
+  listUiNavigations,
+  uiNavigationService,
+  UI_NAVIGATION_DELIVERY_TIMEOUT_MS,
+  UI_NAVIGATION_MAX_RECORDS,
+  UI_NAVIGATION_RETENTION_MS,
+} from './services/ui-navigation.service.js';
+export type {
+  UiNavigationDeps,
+  UiNavigationRequest,
+  UiNavigationService,
+} from './services/ui-navigation.service.js';
 // handleShellConnection: driven by the passthrough-parity test to prove the pty
 // env stays byte-identical when no configured model is selected.
 export { handleShellConnection } from './services/shell-websocket.service.js';

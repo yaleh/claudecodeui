@@ -68,6 +68,7 @@ const REQUIRED_MCP_KEYS = [
   'accessTokens.scopes.sessionCreate',
   'accessTokens.scopes.sessionControl',
   'accessTokens.scopes.approve',
+  'accessTokens.scopes.navigate', // gap-mcp-ui-open-session 新增的 navigate scope
   'accessTokens.form.writeScopeRisk', // 写权限风险提示
   // McpNavigationSection — the per-device navigation-policy / device-name block (namespace
   // `mcpNavigation`). Both strings the section renders in every state, the three policy labels

@@ -112,6 +112,22 @@ export const MCP_TOOL_ERROR_CODES: Record<McpGatewayToolName, readonly McpErrorC
   session_interrupt: [...WRAPPER_CODES, ...SESSION_TARGET_CODES],
   session_start: [...WRAPPER_CODES, ...SESSION_TARGET_CODES],
   session_close: [...WRAPPER_CODES, ...SESSION_TARGET_CODES],
+  // `ui_open_session` resolves its optional `client` against the connected
+  // devices: several matches are refused with `TARGET_AMBIGUOUS` and the
+  // candidates, no match with `CLIENT_NOT_FOUND` carrying the query, an omitted
+  // `client` against several devices with `CLIENT_REQUIRED`, and one against
+  // none with `NO_CLIENT`. It throttles per token with `RATE_LIMITED`. It also
+  // keeps the placeholder refusal when its deps are unwired, hence
+  // `MCP_TOOL_NOT_IMPLEMENTED`.
+  ui_open_session: [
+    ...WRAPPER_CODES,
+    ...SESSION_TARGET_CODES,
+    'CLIENT_REQUIRED',
+    'NO_CLIENT',
+    'CLIENT_NOT_FOUND',
+    'RATE_LIMITED',
+    'MCP_TOOL_NOT_IMPLEMENTED',
+  ],
 
   // -- stage-6 resident tools ------------------------------------------------
   // `session_cancel_queued` raises `FORBIDDEN` when the control service refuses

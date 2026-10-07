@@ -557,7 +557,8 @@
       "sessionSend": "傳送到工作階段（cloudcli:session:send）",
       "sessionCreate": "建立工作階段（cloudcli:session:create）",
       "sessionControl": "控制工作階段（cloudcli:session:control）",
-      "approve": "核准（cloudcli:approve）"
+      "approve": "核准（cloudcli:approve）",
+      "navigate": "在您的瀏覽器中開啟工作階段（cloudcli:navigate）"
     }
   },
   "mcpGateway": {

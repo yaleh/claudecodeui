@@ -162,6 +162,33 @@ export const MCP_ERROR_CODES = {
     message: 'The caller is not allowed to act on this target.',
     retryable: false,
   },
+  // The navigation codes (gap-mcp-ui-open-session). `CLIENT_REQUIRED` is the one
+  // code for "several browsers are connected and the caller named none": the
+  // gateway will not pick a screen on the caller's behalf, exactly as it will not
+  // pick a session (TARGET_AMBIGUOUS). `NO_CLIENT` is the not-found sibling — no
+  // browser is connected at all — and `CLIENT_NOT_FOUND` the per-device miss a
+  // caller gets when it DID name one. One code per category, no parallel
+  // vocabulary.
+  CLIENT_REQUIRED: {
+    code: 'CLIENT_REQUIRED',
+    message: 'Several browsers are connected; name the one to open the session in.',
+    retryable: false,
+  },
+  NO_CLIENT: {
+    code: 'NO_CLIENT',
+    message: 'No browser is connected, so there is no screen to open the session on.',
+    retryable: true,
+  },
+  CLIENT_NOT_FOUND: {
+    code: 'CLIENT_NOT_FOUND',
+    message: 'No connected browser matches the device the caller named.',
+    retryable: false,
+  },
+  RATE_LIMITED: {
+    code: 'RATE_LIMITED',
+    message: 'This token has called the tool too many times in the last minute.',
+    retryable: true,
+  },
   INTERNAL_ERROR: {
     code: 'INTERNAL_ERROR',
     message: 'The handler failed in a way the gateway could not attribute to a known code.',

@@ -33,6 +33,10 @@ import {
   uiStateRequestService,
   type UiStateRequestService,
 } from '@/modules/websocket/services/ui-state-request.service.js';
+import {
+  uiNavigationService,
+  type UiNavigationService,
+} from '@/modules/websocket/services/ui-navigation.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
   getGlobalImageAssetsDir,
@@ -349,6 +353,18 @@ type ChatWebSocketDependencies = {
    * the frame the gateway actually routed.
    */
   uiStateRequests?: UiStateRequestService;
+  /**
+   * Where a connection's `ui.navigate_ack` / `ui.navigate_result` frames are
+   * routed: the open navigation that wrote the instruction, and the in-memory
+   * record the final outcome belongs to.
+   *
+   * Defaults to the process-wide navigation service, which is the one the MCP
+   * tool's `ui_open_session` writes through — one instance per server run, so an
+   * instruction and the answer to it cannot be held by two different logs. The
+   * seam exists so a criterion can hand in its own service and read the frames
+   * the gateway actually routed.
+   */
+  uiNavigations?: UiNavigationService;
 };
 
 /**
@@ -1591,6 +1607,39 @@ function handleUiStateResponse(
 }
 
 /**
+ * Handles `ui.navigate_ack`: a tab saying it received a `ui.navigate`.
+ *
+ * A delivery ack, routed by `navigationId` to the call still waiting for it. A
+ * malformed, unknown or late frame is dropped in silence for the same reason a
+ * stray `ui.state_response` is: the server asked for it, and a harmless leftover
+ * from a slow browser is not a client error.
+ */
+function handleUiNavigateAck(
+  ws: WebSocket,
+  data: AnyRecord,
+  service: UiNavigationService,
+): void {
+  service.handleAck(ws, data);
+}
+
+/**
+ * Handles `ui.navigate_result`: a tab reporting what the user finally decided
+ * about a navigation.
+ *
+ * Routed by `navigationId` to the RECORD — which may be long since returned to
+ * the MCP caller — not to a pending call, because the user decides on their own
+ * schedule. An `applied` result is what writes the "last opened" pointer; an
+ * unknown or pruned id is dropped.
+ */
+function handleUiNavigateResult(
+  ws: WebSocket,
+  data: AnyRecord,
+  service: UiNavigationService,
+): void {
+  service.handleResult(ws, data);
+}
+
+/**
  * Handles `chat.permission-response`: forwards a tool-approval decision to the
  * pending approval resolver (Claude is the only provider with interactive
  * approvals today, but the message is intentionally provider-neutral).
@@ -1659,6 +1708,12 @@ export function handleChatConnection(
   // different tables.
   const uiStateRequests = dependencies.uiStateRequests ?? uiStateRequestService;
 
+  // The navigation log this connection's `ui.navigate_ack` / `ui.navigate_result`
+  // frames are routed into. Resolved the same way — the injected service or the
+  // process-wide one — so an instruction's delivery and its final outcome can
+  // never be held by two different logs.
+  const uiNavigations = dependencies.uiNavigations ?? uiNavigationService;
+
   ws.on('message', async (rawMessage) => {
     try {
       const parsed = parseIncomingJsonObject(rawMessage);
@@ -1699,6 +1754,12 @@ export function handleChatConnection(
           return;
         case 'ui.state_response':
           handleUiStateResponse(ws, data, uiStateRequests);
+          return;
+        case 'ui.navigate_ack':
+          handleUiNavigateAck(ws, data, uiNavigations);
+          return;
+        case 'ui.navigate_result':
+          handleUiNavigateResult(ws, data, uiNavigations);
           return;
         case 'chat.permission-response':
           handlePermissionResponse(data, resolvedDependencies);

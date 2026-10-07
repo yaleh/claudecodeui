@@ -645,7 +645,8 @@
       "sessionSend": "세션으로 전송 (cloudcli:session:send)",
       "sessionCreate": "세션 생성 (cloudcli:session:create)",
       "sessionControl": "세션 제어 (cloudcli:session:control)",
-      "approve": "승인 (cloudcli:approve)"
+      "approve": "승인 (cloudcli:approve)",
+      "navigate": "브라우저에서 세션 열기 (cloudcli:navigate)"
     }
   },
   "mcpGateway": {

@@ -423,7 +423,7 @@ type ToolProbe = { probeClass: ProbeClass; args: AnyRecord; expect: string };
  *
  * Every entry deliberately uses the SHALLOWEST failure the tool has — a missing
  * required argument or a wrong-typed one — so the envelope is produced by the
- * wrapper's validation branch for all 18 at once. The classes that need a
+ * wrapper's validation branch for all 19 at once. The classes that need a
  * particular tool and argument are probed separately in {@link CLASS_PROBES}.
  */
 const PROBE_TABLE: Record<string, ToolProbe> = {
@@ -451,6 +451,9 @@ const PROBE_TABLE: Record<string, ToolProbe> = {
   // `client` is a declared optional string, so a wrong-typed one fails the
   // wrapper's validation before any device resolution runs.
   ui_visible_context: { probeClass: '参数类型错', args: { client: 5 }, expect: 'INVALID_ARGUMENT' },
+  // `session` is a required declared string, so omitting it fails the wrapper's
+  // validation before any device resolution or navigation runs.
+  ui_open_session: { probeClass: '参数缺失', args: {}, expect: 'INVALID_ARGUMENT' },
 };
 
 /**
@@ -662,7 +665,7 @@ test('(d) the probe table covers exactly the tools the registry lists', async ()
   // Non-vacuity: the registry really answered, and answered with the full set —
   // nine read + five write + five resident tools. A mount that registered
   // nothing would fail the equality below, not pass it.
-  assert.equal(registryNames.length, 20, `tools/list must return the full 20-tool set, got ${registryNames.join(', ')}`);
+  assert.equal(registryNames.length, 21, `tools/list must return the full 21-tool set, got ${registryNames.join(', ')}`);
   say(`(d) registry names: ${registryNames.join(', ')}`);
 
   assert.deepEqual(

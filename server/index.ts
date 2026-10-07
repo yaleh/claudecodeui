@@ -26,7 +26,7 @@ import {
     sweepOrphanClaudeSessionScopes,
     uiLastOpenedSessionService,
 } from '@/modules/providers/index.js';
-import { activityStore, BOOT_ID, broadcastHostsChanged, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer, listUiClients, uiStateRequestService } from '@/modules/websocket/index.js';
+import { activityStore, BOOT_ID, broadcastHostsChanged, chatRunRegistry, createActivityRouter, createChatControlService, createUiNavigationService, createWebSocketServer, listUiClients, uiClientRegistry, uiStateRequestService } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -94,6 +94,7 @@ import {
     buildSessionInterruptDeps,
     createMcpGatewayModule,
     createMcpWriteNotification,
+    createUiOpenSessionRateLimiter,
     createSessionHostControl,
     mountMcpGateway,
     mountOAuthMetadata,
@@ -148,6 +149,27 @@ const gitRoutes = createGitModule({
 // a separate control plane behind one protocol.
 const chatControl = createChatControlService({ runtime: providerRuntimeService });
 
+// gap-mcp-ui-open-session: the ONE navigation service for this process, built
+// HERE rather than taken from the websocket module's default instance — because
+// its `recordApplied` seam is the last-opened writer and that writer lives in
+// this composition root. The pointer moves only when a BROWSER reports it
+// APPLIED the navigation (the user pressed 跳转, or the device's policy
+// auto-navigates); a declined, ignored or unanswered navigation never records
+// one. The same instance is handed to the WebSocket gateway (which routes the
+// `ui.navigate_ack` / `ui.navigate_result` frames into it), to the MCP
+// `ui_open_session` tool (which writes through it) and to `ui_visible_context`
+// (which reads its log back), so one instruction and its later verdict are
+// looked up in the same table.
+const uiNavigations = createUiNavigationService({
+    listTargets: (deviceId) => uiClientRegistry.listUiClientTargets(deviceId),
+    recordApplied: (sessionId, at) => uiLastOpenedSessionService.recordOpenedSession(sessionId, at),
+});
+
+// gap-mcp-ui-open-session: the per-token throttle for `ui_open_session`. Built
+// ONCE here because the MCP server is constructed per request — a limiter owned
+// by that construction would start empty on every call and throttle nothing.
+const uiOpenSessionRateLimiter = createUiOpenSessionRateLimiter();
+
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 createWebSocketServer(server, {
     verifyClient: {
@@ -157,6 +179,7 @@ createWebSocketServer(server, {
     chat: {
         runtime: providerRuntimeService,
         control: chatControl,
+        uiNavigations,
     },
     shell: {
         resolveProviderSessionId: (sessionId, provider) => {
@@ -635,6 +658,12 @@ const mcpGateway = mountMcpGateway(
             uiVisibleContext: {
                 listUiClients,
                 requestUiState: (options) => uiStateRequestService.requestUiState(options),
+                // gap-mcp-ui-open-session: the `navigations[]` half of the
+                // reading. Bound to the SAME instance the MCP write tool and the
+                // WebSocket gateway use, so a `ui_open_session` call's record —
+                // and the later `ui.navigate_result` that updates it — is exactly
+                // what a caller reads back here.
+                listNavigations: (navigationId) => uiNavigations.listNavigations(navigationId),
             },
             // gap-mcp-ui-clients-list: the discovery half of the same pair. It
             // binds the SAME two process-wide services `uiVisibleContext` binds
@@ -697,6 +726,17 @@ const mcpGateway = mountMcpGateway(
                 startResidentSession: (provider, sessionId) =>
                     providerRuntimeService.startResidentSession(provider, sessionId),
             }),
+            // gap-mcp-ui-open-session: `ui_open_session` — the first tool that
+            // changes what the user's screen shows. Bound to the process-wide
+            // navigation service built above (so its record and the frames routed
+            // into it are the same table) and to the process-wide per-token
+            // throttle, which must outlive a request because the MCP server is
+            // built per request.
+            uiOpenSession: {
+                listUiClients,
+                navigate: (request) => uiNavigations.navigate(request),
+                rateLimiter: uiOpenSessionRateLimiter,
+            },
         },
         // AC-271's `session_cancel_queued` over the same one control service, plus
         // AC-272's `session_reconfigure`: the provider runtime's `reconfigure`
