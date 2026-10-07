@@ -61,6 +61,49 @@ const CODEX_TRANSCRIPT_ROWS = [
 type RunCall = { provider: string; command: string; options: Record<string, unknown> };
 
 /**
+ * The host-manager seam the resident rebuild goes through, plus the ordering
+ * log its criterion needs.
+ *
+ * `rewindAndWait` yields a microtask before it answers, so the log says more
+ * than "it was called": the run only appears after `rewind-done`. That is
+ * exactly what a fire-and-forget rewind cannot produce, and what makes the
+ * "closed *before* the replacement starts" half of the criterion observable
+ * rather than asserted by construction.
+ *
+ * `truncatedBeforeRewind` is read at entry, mirroring the Codex case: the
+ * clients have to be told to drop the superseded turns before a rebuild that
+ * can be slow begins.
+ */
+function createFakeHostManager(socket: ReturnType<typeof createFakeSocket>, events: string[]) {
+  const rewinds: string[] = [];
+  const manager = {
+    rewinds,
+    failNextRewind: null as Error | null,
+    truncatedBeforeRewind: false,
+    async rewindAndWait(sessionId: string): Promise<boolean> {
+      events.push('rewind-start');
+      manager.truncatedBeforeRewind = socket.frames.some(
+        (frame) => frame.kind === 'history_truncated',
+      );
+      await Promise.resolve();
+      if (manager.failNextRewind) {
+        const error = manager.failNextRewind;
+        manager.failNextRewind = null;
+        throw error;
+      }
+      rewinds.push(sessionId);
+      events.push('rewind-done');
+      return true;
+    },
+    attachViewer(): void {
+      // The subscription path's verb. Nothing in this file subscribes, so a
+      // no-op is the whole of it.
+    },
+  };
+  return manager;
+}
+
+/**
  * Set by a test that needs a run to still be in flight when the next frame
  * arrives; the stub runtime returns immediately otherwise. Released when the
  * test ends, so no stub run is left pending for the rest of the file.
@@ -77,9 +120,12 @@ async function withGateway(
   runTest: (context: {
     socket: ReturnType<typeof createFakeSocket>;
     runs: RunCall[];
+    hosts: ReturnType<typeof createFakeHostManager>;
+    events: string[];
     sendFrame: (frame: Record<string, unknown>) => Promise<void>;
   }) => Promise<void>,
   rows: unknown[] = TRANSCRIPT_ROWS,
+  options: { resident?: boolean; failRun?: Error } = {},
 ): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'chat-edit-send-'));
@@ -91,11 +137,19 @@ async function withGateway(
   await initializeDatabase();
 
   const runs: RunCall[] = [];
+  const events: string[] = [];
   const socket = createFakeSocket();
+  // Installed for every case, not only the resident ones: a per-run edit that
+  // never reaches the rewind has to prove it did not, and it can only prove
+  // that against a seam that would have answered.
+  const hosts = createFakeHostManager(socket, events);
 
   try {
     const now = new Date().toISOString();
     sessionsDb.createSession(SESSION_ID, provider, tempDirectory, 'Edit session', now, now, transcriptPath);
+    if (options.resident) {
+      sessionsDb.setSessionLifecycleMode(SESSION_ID, 'resident');
+    }
 
     handleChatConnection(
       socket as never,
@@ -103,13 +157,18 @@ async function withGateway(
       {
         runtime: {
           hasRuntime: () => true,
-          run: async (runProvider: string, command: string, options: Record<string, unknown>) => {
-            runs.push({ provider: runProvider, command, options });
+          run: async (runProvider: string, command: string, runtimeOptions: Record<string, unknown>) => {
+            events.push('run');
+            runs.push({ provider: runProvider, command, options: runtimeOptions });
+            if (options.failRun) {
+              throw options.failRun;
+            }
             if (holdRun) {
               await holdRun;
             }
           },
         } as never,
+        sessionHostManager: hosts as never,
       },
     );
 
@@ -123,7 +182,7 @@ async function withGateway(
       await handleMessage(JSON.stringify(frame));
     };
 
-    await runTest({ socket, runs, sendFrame });
+    await runTest({ socket, runs, hosts, events, sendFrame });
   } finally {
     releaseHeldRun?.();
     releaseHeldRun = null;
@@ -342,4 +401,151 @@ test('a provider that has to branch to rewind is rewound before the run, not dur
     assert.ok(socket.frames.some((frame) => frame.kind === 'history_truncated'));
     assert.equal(truncatedBeforeRewind, true);
   }, CODEX_TRANSCRIPT_ROWS);
+});
+
+// --- The resident rebuild -------------------------------------------------
+//
+// A resident session holds one process across turns, and that process already
+// carries the conversation. Appending the replacement into it would leave the
+// replaced turn and everything it produced in context and in the transcript,
+// which is the defect these cases are about. The edit therefore closes the
+// host and cold-starts a replacement from the same truncation point.
+
+test('an edit on a resident session restarts the host from the truncation point', async () => {
+  await withGateway('claude', async ({ socket, runs, hosts, events, sendFrame }) => {
+    const before = sessionsDb.getSessionById(SESSION_ID);
+    const rowsBefore = sessionsDb.getAllSessions().length;
+
+    await sendFrame({
+      type: 'chat.edit-send',
+      sessionId: SESSION_ID,
+      anchorId: 'e-u2',
+      content: 'a better second prompt',
+    });
+
+    // Closed first, started after: `run` is only logged once `rewind-done` is.
+    // A rewind that was merely fired off would log `run` in between.
+    assert.deepEqual(hosts.rewinds, [SESSION_ID]);
+    assert.deepEqual(events, ['rewind-start', 'rewind-done', 'run']);
+
+    // The replacement carries the same anchor a per-run edit does — the turn
+    // before the edited one — instead of being appended to the live process.
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].command, 'a better second prompt');
+    assert.equal(runs[0].options.resumeAnchorId, 'e-a1');
+    assert.equal(runs[0].options.resumeFromScratch, false);
+
+    // Clients are told to drop the superseded turns before the rebuild, not
+    // after it: a rebuild is slower than an append, and the edited-away
+    // message must not sit on screen for that time.
+    assert.ok(socket.frames.some((frame) => frame.kind === 'history_truncated'));
+    assert.equal(hosts.truncatedBeforeRewind, true);
+
+    // The same conversation, not a new one: the row is the row it was, column
+    // for column, and nothing was inserted beside it.
+    const after = sessionsDb.getSessionById(SESSION_ID);
+    assert.equal(after?.session_id, SESSION_ID);
+    assert.equal(after?.provider_session_id, SESSION_ID);
+    assert.equal(after?.lifecycle_mode, 'resident');
+    assert.deepEqual(after, before);
+    assert.equal(sessionsDb.getAllSessions().length, rowsBefore);
+  }, TRANSCRIPT_ROWS, { resident: true });
+});
+
+test('editing the first prompt of a resident session still restarts the host', async () => {
+  await withGateway('claude', async ({ runs, hosts, events, sendFrame }) => {
+    await sendFrame({
+      type: 'chat.edit-send',
+      sessionId: SESSION_ID,
+      anchorId: 'e-u1',
+      content: 'a better first prompt',
+    });
+
+    // Nothing precedes the edited turn, so the replacement starts the
+    // conversation over — but the process holding the old one still has to go,
+    // or the replacement would be appended into it.
+    assert.deepEqual(hosts.rewinds, [SESSION_ID]);
+    assert.deepEqual(events, ['rewind-start', 'rewind-done', 'run']);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].options.resumeAnchorId, undefined);
+    assert.equal(runs[0].options.resumeFromScratch, true);
+  }, TRANSCRIPT_ROWS, { resident: true });
+});
+
+test('an edit on a per-run session hands the anchor over and never rewinds a host', async () => {
+  await withGateway('claude', async ({ runs, hosts, sendFrame }) => {
+    // The seam is installed and would have answered, so an empty `rewinds`
+    // says the per-run path did not take it — not that it had none to take.
+    await sendFrame({
+      type: 'chat.edit-send',
+      sessionId: SESSION_ID,
+      anchorId: 'e-u2',
+      content: 'a better second prompt',
+    });
+
+    assert.deepEqual(hosts.rewinds, []);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].options.resumeAnchorId, 'e-a1');
+    assert.equal(runs[0].options.resumeFromScratch, false);
+  });
+});
+
+test('a resident rebuild whose host will not close ends the run and reports it once', async () => {
+  await withGateway('claude', async ({ socket, runs, hosts, sendFrame }) => {
+    hosts.failNextRewind = new Error('the host refused to close');
+    const before = sessionsDb.getSessionById(SESSION_ID);
+
+    await sendFrame({
+      type: 'chat.edit-send',
+      sessionId: SESSION_ID,
+      anchorId: 'e-u2',
+      content: 'replacement',
+    });
+
+    // The provider was never asked to continue a conversation whose host was
+    // not rebuilt: appending into a half-closed process is the defect itself.
+    assert.equal(runs.length, 0);
+
+    // The run ended. A rebuild that failed and left the session processing
+    // would block every later turn.
+    const completions = socket.frames.filter((frame) => frame.kind === 'complete');
+    assert.equal(completions.length, 1);
+    assert.equal(completions[0].exitCode, 1);
+
+    // Reported exactly once — the old host failing and the replacement failing
+    // are the same thing to the person who pressed edit.
+    const failures = socket.frames.filter((frame) => frame.code === 'EDIT_REWIND_FAILED');
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].sessionId, SESSION_ID);
+
+    assert.deepEqual(sessionsDb.getSessionById(SESSION_ID), before);
+  }, TRANSCRIPT_ROWS, { resident: true });
+});
+
+test('a resident rebuild whose replacement will not start ends the run and reports it once', async () => {
+  await withGateway('claude', async ({ socket, runs, hosts, sendFrame }) => {
+    const before = sessionsDb.getSessionById(SESSION_ID);
+
+    await sendFrame({
+      type: 'chat.edit-send',
+      sessionId: SESSION_ID,
+      anchorId: 'e-u2',
+      content: 'replacement',
+    });
+
+    // The other half of the rebuild: the old host closed, but the replacement
+    // never came up. The edit still did not take.
+    assert.deepEqual(hosts.rewinds, [SESSION_ID]);
+    assert.equal(runs.length, 1);
+
+    const completions = socket.frames.filter((frame) => frame.kind === 'complete');
+    assert.equal(completions.length, 1);
+    assert.equal(completions[0].exitCode, 1);
+
+    const failures = socket.frames.filter((frame) => frame.code === 'EDIT_REWIND_FAILED');
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].sessionId, SESSION_ID);
+
+    assert.deepEqual(sessionsDb.getSessionById(SESSION_ID), before);
+  }, TRANSCRIPT_ROWS, { resident: true, failRun: new Error('the CLI would not come back up') });
 });

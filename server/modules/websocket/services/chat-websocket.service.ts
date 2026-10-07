@@ -308,10 +308,20 @@ type ChatWebSocketDependencies = {
    * Optional, defaulting to the process-wide manager, for the same reason
    * `dropClientEnv` is: the composition root has nothing to say about it, while
    * a criterion that drove a manager of its own can hand that one over and see
-   * the call land on it. Narrow on purpose — this is the only verb the chat
+   * the call land on it. Narrow on purpose — these are the only verbs the chat
    * gateway has any business calling.
+   *
+   * `rewindAndWait` joined it with the resident edit-send rebuild: an edit on a
+   * resident session has to end the process holding the conversation before a
+   * replacement can be started from the truncation point, and that ordering is
+   * only observable through a seam that reports the rewind landing. It is
+   * optional where the viewer half is not, because the two answer different
+   * questions: a harness that hands over a host *watcher* has said nothing about
+   * rewinding, and a session whose seam cannot rewind is not one to crash a run
+   * over — the process-wide manager answers for it instead.
    */
-  sessionHostManager?: Pick<SessionHostManager, 'attachViewer'>;
+  sessionHostManager?: Pick<SessionHostManager, 'attachViewer'> &
+    Partial<Pick<SessionHostManager, 'rewindAndWait'>>;
   /**
    * The task table read seam for the stop-task control verb.
    *
@@ -957,7 +967,19 @@ async function handleChatEditSend(
   // waits until the run has actually been admitted.
   const rewinds = sessionsService.providerRewindsForEdit(sessionId);
 
-  await dispatchRun(
+  // A resident session cannot take the anchor on the live process: the process
+  // already holds the conversation, and writing the replacement into it leaves
+  // both the replaced turn and everything it produced in context and in the
+  // transcript. So the host is torn down first and the replacement cold-starts
+  // a new process from the same provider session at the same truncation point —
+  // the session's identity (app id, provider session id, lifecycle mode, jsonl)
+  // is untouched, and the abandoned branch is what `dropSupersededPromptBranches`
+  // prunes on the next read. The anchor rides along exactly as it does per-run;
+  // only the rewind in front of it is resident-specific.
+  const rebuildsResidentHost =
+    !rewinds && sessionsDb.getSessionLifecycleMode(sessionId) === 'resident';
+
+  const { started, error: runError } = await dispatchRun(
     ws,
     userId,
     sessionId,
@@ -999,9 +1021,48 @@ async function handleChatEditSend(
           // conversation that was not rewound after all.
           throw error;
         }
+      } else if (rebuildsResidentHost) {
+        // Awaited, not fired: the replacement process may not come up while the
+        // old one is still being torn down, and appending into a host that is on
+        // its way out would silently keep the old conversation. A rewind that
+        // throws is deliberately not caught here — `dispatchRun`'s own
+        // catch settles the run, the provider is never asked to continue a
+        // conversation whose host was not rebuilt, and the failure is reported
+        // once, below, through the rebuild's own protocol error.
+        await resolveHostRewind(dependencies)(sessionId);
       }
     },
   );
+
+  // One report for the whole resident rebuild. It covers both halves — the host
+  // that would not close and the process that would not come back up — because
+  // either one means the same thing to the person who pressed edit: the
+  // conversation was not restarted, so the old turn is still there. Reported
+  // only for a run that was actually admitted, so a busy refusal keeps its own
+  // `RUN_IN_PROGRESS` and is not relabelled as a rebuild failure.
+  if (started && runError && rebuildsResidentHost) {
+    sendProtocolError(ws, 'EDIT_REWIND_FAILED', `Could not restart the conversation: ${runError}`, sessionId);
+  }
+}
+
+/**
+ * The host manager's awaited rewind, as the edit-send rebuild needs it.
+ *
+ * Read through the gateway's own seam when it was given one that can rewind —
+ * the same manager the subscription path is wired to — and off the process-wide
+ * manager otherwise. The shape check rather than a bare dereference because the
+ * seam's many harnesses hand over narrow fakes; a session whose manager cannot
+ * report the rewind is not one to crash a run over.
+ */
+function resolveHostRewind(
+  dependencies: ChatWebSocketDependencies,
+): (sessionId: string) => Promise<boolean> {
+  const seam = dependencies.sessionHostManager;
+  if (seam && typeof seam.rewindAndWait === 'function') {
+    const rewind = seam.rewindAndWait;
+    return (sessionId) => rewind.call(seam, sessionId);
+  }
+  return (sessionId) => sessionHostManager.rewindAndWait(sessionId);
 }
 
 /**

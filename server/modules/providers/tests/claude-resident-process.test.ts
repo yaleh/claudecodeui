@@ -22,6 +22,7 @@
 // 端点与凭证，宿主 key 不得泄漏。
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { EventEmitter, once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -43,9 +44,19 @@ import {
   userDb,
 } from '@/modules/database/index.js';
 import { createProviderRuntimeService } from '@/modules/providers/index.js';
+import {
+  ClaudeResidentHostDriver,
+  createSdkResidentProcess,
+} from '@/modules/providers/list/claude/claude-host-driver.provider.js';
+import type {
+  ClaudeResidentProcess,
+  ClaudeResidentProcessFactory,
+  ClaudeResidentQuery,
+  ClaudeResidentQueryFactory,
+} from '@/modules/providers/list/claude/claude-host-driver.provider.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 import { chatRunRegistry, connectedClients, handleChatConnection } from '@/modules/websocket/index.js';
-import type { ProviderModelEnvRow } from '@/shared/types.js';
+import type { AnyRecord, ProviderModelEnvRow, ProviderRuntimeContext, ProviderRuntimeWriter } from '@/shared/types.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The checkout this criterion measures: its own repository root. */
@@ -762,6 +773,174 @@ test('(e) aborting by ending the process makes the survival reading go red', { t
     });
   } finally {
     await mock.close();
+  }
+});
+
+// --- (h)–(j) the edit anchor reaches the SDK bag --------------------------
+//
+// The edit rebuild rests on one thing being true at this boundary: the anchor
+// the gateway hands the runtime has to survive the whole way into the launch.
+// If it stops short of the SDK bag, the replacement process resumes at the end
+// of the conversation and quietly appends the edited turn instead of replacing
+// it — which is the defect, wearing the shape of a fix.
+//
+// Read without a CLI, because the question is about the options object and not
+// about what the CLI does with it: the driver here is production's own, behind
+// production's own `createSdkResidentProcess`, and only the SDK entry point is
+// replaced. The bag captured through it is the object `query()` would have been
+// called with — `buildResidentSdkOptions` runs either way.
+
+/** The pid a scripted launch records. Never a live process: nothing spawns here. */
+const LAUNCH_PID = 4242;
+/** The provider-native session id the launch is told the session has. */
+const LAUNCH_PROVIDER_SESSION_ID = 'clarify-launch-provider-session';
+
+/** A query that never yields and never ends, so the read loop stays out of the way. */
+function inertQuery(): ClaudeResidentQuery {
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => new Promise<IteratorResult<AnyRecord>>(() => undefined),
+      return: () => new Promise<IteratorResult<AnyRecord>>(() => undefined),
+    }),
+    interrupt: async () => undefined,
+    close: () => undefined,
+  };
+}
+
+/** The writer a launch needs; no frames are asserted through it here. */
+function launchWriter(): ProviderRuntimeWriter {
+  return { send: () => undefined, setSessionId: () => undefined, userId: 1 };
+}
+
+const LAUNCH_CONTEXT: ProviderRuntimeContext = {
+  // The provider-native id the launch is launched against. Stated by the
+  // context rather than by the option bag because that is where the driver
+  // reads it — `startResidentHost` overwrites the bag's copy — and a launch
+  // that resumed nothing would make every reading below vacuous.
+  resolveProviderSessionId: () => LAUNCH_PROVIDER_SESSION_ID,
+  resolveResumeModel: async () => undefined,
+  getProviderModels: async () => ({}) as never,
+  normalizeMessage: () => [],
+  isProviderInstalled: async () => true,
+};
+
+/**
+ * One resident cold start's SDK bag, for the option bag it was launched with.
+ *
+ * `startResidentSession` rather than `run`: this reading is about the launch,
+ * and a turn would arm a round that a scripted stream never settles. The host
+ * it opens is closed again by the caller, so no leg's process outlives it.
+ */
+async function launchBagFor(options: AnyRecord): Promise<AnyRecord> {
+  const built: AnyRecord[] = [];
+  const factory: ClaudeResidentProcessFactory = (input) => {
+    const process = createSdkResidentProcess(input, {
+      createQuery: ((launch: { options: AnyRecord }) => {
+        built.push(launch.options);
+        return inertQuery();
+      }) as ClaudeResidentQueryFactory,
+    });
+    return { query: process.query, pid: LAUNCH_PID, writeRaw: process.writeRaw } satisfies ClaudeResidentProcess;
+  };
+  const driver = new ClaudeResidentHostDriver({
+    host: sessionHostManager,
+    notifyBackgroundWork: () => undefined,
+    notifyUnattendedWork: () => undefined,
+    notifyRunStopped: () => undefined,
+    notifyUser: () => undefined,
+    createProcess: factory,
+  });
+
+  const appSessionId = `ac162-launch-${randomUUID()}`;
+  const started = await driver.startResidentSession(appSessionId, {
+    options: { cwd: process.cwd(), ...options },
+    context: LAUNCH_CONTEXT,
+  });
+  sessionHostManager.closeHost(started.hostId, 'server-shutdown');
+
+  assert.equal(built.length, 1, 'the launch built exactly one SDK bag');
+  return built[0];
+}
+
+test('(h) a resident launch carries the edit anchor into the SDK bag', { timeout: 60_000 }, async () => {
+  const configDirectory = await mkdtemp(path.join(os.tmpdir(), 'claude-resident-launch-'));
+  const previousConfigDirectory = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = configDirectory;
+  try {
+    const bag = await launchBagFor({ resumeAnchorId: 'anchor-before-the-edit' });
+
+    // Both halves, and both are load-bearing: without `resume` the anchor has
+    // no session to apply to, and without `resumeSessionAt` the CLI resumes at
+    // the end of the transcript rather than at the truncation point.
+    assert.equal(
+      bag.resume,
+      LAUNCH_PROVIDER_SESSION_ID,
+      'the launch resumes the same provider session',
+    );
+    assert.equal(
+      bag.resumeSessionAt,
+      'anchor-before-the-edit',
+      'the launch resumes at the turn the edit keeps',
+    );
+  } finally {
+    if (previousConfigDirectory === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDirectory;
+    }
+    await rm(configDirectory, { recursive: true, force: true });
+  }
+});
+
+test('(i) editing the first prompt launches a resident host that resumes nothing', { timeout: 60_000 }, async () => {
+  const configDirectory = await mkdtemp(path.join(os.tmpdir(), 'claude-resident-launch-'));
+  const previousConfigDirectory = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = configDirectory;
+  try {
+    const bag = await launchBagFor({ resumeFromScratch: true, resumeAnchorId: 'stale-anchor' });
+
+    // Nothing precedes the edited turn, so there is no conversation to resume
+    // into and no point to resume at. An anchor left over from a previous edit
+    // must not survive either: a restart that resumed the branch it was
+    // supposed to drop is the defect with an extra step.
+    assert.ok(!('resume' in bag), 'a from-scratch launch does not resume a session');
+    assert.ok(!('resumeSessionAt' in bag), 'a from-scratch launch does not name an anchor');
+  } finally {
+    if (previousConfigDirectory === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDirectory;
+    }
+    await rm(configDirectory, { recursive: true, force: true });
+  }
+});
+
+test('(j) an ordinary resident launch states no anchor at all', { timeout: 60_000 }, async () => {
+  const configDirectory = await mkdtemp(path.join(os.tmpdir(), 'claude-resident-launch-'));
+  const previousConfigDirectory = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = configDirectory;
+  try {
+    const bag = await launchBagFor({});
+
+    // The ordinary cold start: a resident session whose process is being
+    // brought back up resumes its conversation, and nothing about the edit path
+    // may change that. The key list is pinned rather than spot-checked because
+    // "the anchor changed nothing" is a claim about the whole bag — a
+    // pass-through that quietly added a launch-time entry would leave every
+    // spot check green.
+    assert.equal(bag.resume, LAUNCH_PROVIDER_SESSION_ID, 'an ordinary launch still resumes');
+    assert.ok(!('resumeSessionAt' in bag), 'an ordinary launch states no anchor');
+
+    const editOnlyEntries = ['resumeAnchorId', 'resumeFromScratch', 'resumeSessionAt'];
+    const unexpected = editOnlyEntries.filter((entry) => entry in bag);
+    assert.deepEqual(unexpected, [], 'no edit-path entry leaks into the ordinary bag');
+  } finally {
+    if (previousConfigDirectory === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDirectory;
+    }
+    await rm(configDirectory, { recursive: true, force: true });
   }
 });
 

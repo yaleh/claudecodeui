@@ -1433,6 +1433,28 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
   }
 
   /**
+   * Rewinds, and answers only once the driver has settled the close.
+   *
+   * The `rewind` above states the decision synchronously; the edit-send rebuild
+   * path cannot act on that decision alone, because it starts the replacement
+   * process next and may not do so while the old one is still being torn down.
+   * Same two facts as `closeHostAndWait`, asked through the same pending-close
+   * promise, so "closed" here means exactly what it means on the shutdown path.
+   *
+   * Returns whether a live host was found, mirroring `rewind`: a resident
+   * session whose host is already gone is a rebuild with nothing to rewind, not
+   * a failure.
+   */
+  async function rewindAndWait(appSessionId: string): Promise<boolean> {
+    const hostId = hostIdByAppSession.get(appSessionId);
+    if (!hostId) {
+      return false;
+    }
+    await closeHostAndWait(hostId, 'rewind');
+    return true;
+  }
+
+  /**
    * Stops every host and waits for the drivers to settle.
    *
    * Consumed by `shutdownRuntimeServices` in `server/index.ts`, which runs it
@@ -1604,6 +1626,7 @@ export function createSessionHostManager(options: SessionHostManagerOptions = {}
     interrupt,
     changeMode,
     rewind,
+    rewindAndWait,
     requestAbort,
     closeHost,
     shutdown,
