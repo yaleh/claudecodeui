@@ -24,6 +24,7 @@ depends_on:
 - 服务端入站分派在 `chat-websocket.service.ts` 的 `switch (messageType)`；前端入站帧处理在 `src/shared/context/WebSocketContext.tsx`（`hosts_changed` 已在此处理）。
 - 设备身份（`listUiClients()`、`ui.hello`）由 `gap-mcp-ui-device-identity-hello` 提供；本设备的导航策略与设备名由 `gap-mcp-ui-device-settings` 的 `readMcpNavigationPolicy()` / `readDeviceName()` 提供。
 - 读工具表、annotations、错误码词汇、audit 与 barrel 同 `gap-mcp-ui-last-opened-session` 所述；该任务先新增 `mcp-ui-tools.ts`，本任务另建 `mcp-ui-visible-context.ts`。
+- 仓库既有形态：使用 `@/*` 别名的 server 测试要带 `TSX_TSCONFIG_PATH=server/tsconfig.json` 才能直接运行；`quay-test-script` 的文件数 pin 只在 `server/shared/tests/quay-test-script.test.ts` 里，`scripts/test.sh` 没有字面量。
 
 **要交付：**
 
@@ -31,11 +32,11 @@ depends_on:
 2. **前端应答（新 hook，遵守 `$frontend-module-standards`，在 `WebSocketContext.tsx` 挂接）：** 收到 `ui.state_request` 时当场读取并回复。内容只含标识符与范围：`deviceId`、`tabId`、`deviceName`、`navigationPolicy`（本设备当前策略）、`visibility`、`hasFocus`、`lastFocusedAt`、当前面板、选中的项目与会话、可见消息的 id 范围、待审批数、排队消息数。**不含消息正文，不含用户选中的文本，不含面板内容。**
 3. **工具：** 在 `server/modules/mcp-gateway/` 新增 `mcp-ui-visible-context.ts` 并注册 `ui_visible_context { client? }`：`client` 接受 `deviceId` 或设备名子串，唯一命中才接受（多个命中列候选报错，不命中报错，沿用现有目标解析的规则与错误码词汇，不新造第二个「找不到」码）。返回 `devices[]`（每台设备带 `tabs[]`），按 `lastFocusedAt` 降序，每项带 `unresponsive` 标记；无任何设备时返回 `devices: []`，不报错。需要正文的调用方自行用 `session_read mode=around` 取，不在此重复实现。
 4. **接入现有机制：** 加进读工具表、`mcp-tool-annotations.ts`（`readOnlyHint: true`、`openWorldHint: false`）、`mcp-tool-error-codes.ts`，走现有错误信封与审计，经 barrel 导出。
-5. 新增 `server/**/*.test.ts` 会让 `quay-test-script` 的文件数 pin 变红：同步更新 `scripts/test.sh` 与 `server/shared/tests/quay-test-script.test.ts` 的 known/unknown 计数（与其他任务的计数更新合并时按 develop 上的最新值为准）。
+5. 新增 `server/**/*.test.ts` 会让 `quay-test-script` 的文件数 pin 变红：同步更新 `server/shared/tests/quay-test-script.test.ts` 里的 known/unknown 计数（与其他任务的计数更新合并时按 develop 上的最新值为准）。
 
 ## AC
 
-- [ ] `node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-visible-context.test.ts` 退出码 0：用假的 WS 客户端断言工具广播带 `requestId` 的 `ui.state_request`，并发收集多个设备的应答，按 `lastFocusedAt` 降序返回；传 `client`（`deviceId` 或设备名子串）时只向该设备发请求。
+- [ ] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-visible-context.test.ts` 退出码 0：用假的 WS 客户端断言工具广播带 `requestId` 的 `ui.state_request`，并发收集多个设备的应答，按 `lastFocusedAt` 降序返回；传 `client`（`deviceId` 或设备名子串）时只向该设备发请求。
 - [ ] 同一测试文件断言：一个设备不应答时，整次调用在约 1.5s 内返回，该设备标 `unresponsive`，其余设备的结果不受影响；没有设备时返回 `devices: []`；迟到或 `requestId` 不匹配的应答被丢弃；`client` 多个命中或无命中时返回带候选或查询词的错误。
 - [ ] 同一测试文件断言：应答里即使带了正文或选中文本字段，工具返回的 `structuredContent` 也不含它们（只放行白名单字段）；返回含 `deviceId`、`deviceName`、`navigationPolicy`。
 - [ ] 前端单元测试 `src/modules/chat/tests/uiStateResponder.test.tsx` 退出码 0：收到 `ui.state_request` 后回复的帧含白名单字段且 `requestId` 原样回传；页面隐藏时回报 `visibility: hidden`；`navigationPolicy` 反映 localStorage 中的设置。
@@ -62,6 +63,5 @@ depends_on:
 - src/modules/chat/hooks/useUiStateResponder.ts
 - server/modules/mcp-gateway/tests/mcp-ui-visible-context.test.ts
 - src/modules/chat/tests/uiStateResponder.test.tsx
-- scripts/test.sh
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-mcp-ui-visible-context.md
