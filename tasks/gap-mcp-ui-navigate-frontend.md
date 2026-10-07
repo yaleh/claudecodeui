@@ -70,3 +70,44 @@ depends_on:
 修法：新增 `inFlightFirstPageKeyRef`——同一会话的首页在途时 effect 重入直接返回，落地后释放（约 30 行，只动 `useChatSessionState.ts`）。修后同一采样里首页只发一次，锚点窗口稳定保持，目标行带着自己的文本 `Turn 121. …` 停在视口内直到采样结束。
 
 **判据也随之收紧。** 原来的读法是先等「整行在视口内」、再读行文本，而空壳天生满足几何条件，等待可以被一行还没渲染内容的东西满足。现在 `expectLandedOn` 把两个条件合成一次轮询：整行在视口内**且**行文本命中的就是被寻址的那一轮——空壳与邻行都过不了。修后连跑 4 次全过（`npx vitest run src/modules/chat/tests/uiNavigate.test.tsx` 17/17、`npm run typecheck`、`npx oxlint src/modules/chat` 均为 0）。
+
+## AC
+
+- [x] `npx vitest run src/modules/chat/tests/uiNavigate.test.tsx` 退出码 0：策略 `reject` 时不渲染提示条且回 `declined`/`policy`；`accept` 时直接导航并回 `applied`，且输入框有草稿时同样直接导航、草稿内容保持；`ask` 时先回 `shown` 并渲染提示条，点「跳转」后导航并发 `applied`，点「忽略」发 `ignored`。
+- [x] 同一测试文件断言：提示条 30 秒无操作发 `expired`；新请求到来时旧提示条发 `superseded` 且只剩一个提示条；点「总是接受」把本设备策略写成 `accept` 并立即跳转，点「总是拒绝」写成 `reject` 并发 `declined`。
+- [x] 同一测试文件断言：`at: { messageId }` 存在时调用定位入口，不存在时仍打开会话且 ack 带 `MESSAGE_NOT_FOUND`；`at: { latest: true }` 翻到底部。
+- [x] 12 种语言的 `chat.json` 都含提示条新增的键（逐文件 `grep` 或沿用现有 i18n 完整性测试的方式断言），`npm run typecheck` 与 `npx oxlint src/modules/chat` 退出码 0。
+- [x] Proposal 末尾已补记对 `useSessionStore.ts` / `useChatSessionState.ts` 定位入口的核对结论，且实现与该结论一致。
+
+## DoD
+
+在真实运行的前端里：本设备策略为「询问」时，用一个模拟的 `ui.navigate` 帧触发，提示条出现，点「跳转」后打开目标会话并滚到目标消息；点「总是接受」后再触发一次，直接跳转且无提示条；Settings 里能看到策略已变为「接受」。仅有测试通过不算完成。
+
+（实证：`e2e/ui-navigate.spec.ts`，2026-10-07 通过，退出码 0；细节见 Proposal 补记第 4、5 条。）
+
+## Touches
+
+- src/modules/chat/hooks/useUiNavigate.ts
+- src/modules/chat/components/UiNavigatePrompt.tsx
+- src/modules/chat/ChatInterface.tsx
+- src/modules/chat/hooks/useSessionStore.ts
+- src/modules/chat/hooks/useChatSessionState.ts
+- src/modules/settings/hooks/useMcpNavigationSettings.ts
+- src/modules/settings/index.ts
+- src/shared/context/WebSocketContext.tsx
+- src/shared/types.ts
+- src/modules/chat/tests/uiNavigate.test.tsx
+- e2e/ui-navigate.spec.ts
+- src/modules/i18n/locales/de/chat.json
+- src/modules/i18n/locales/en/chat.json
+- src/modules/i18n/locales/es/chat.json
+- src/modules/i18n/locales/fr/chat.json
+- src/modules/i18n/locales/id/chat.json
+- src/modules/i18n/locales/it/chat.json
+- src/modules/i18n/locales/ja/chat.json
+- src/modules/i18n/locales/ko/chat.json
+- src/modules/i18n/locales/ru/chat.json
+- src/modules/i18n/locales/tr/chat.json
+- src/modules/i18n/locales/zh-CN/chat.json
+- src/modules/i18n/locales/zh-TW/chat.json
+- tasks/gap-mcp-ui-navigate-frontend.md
