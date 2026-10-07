@@ -2,7 +2,7 @@
 id: gap-mcp-ui-visible-context-null-range-in-real-browser
 title: ui_visible_context 在真实浏览器里 visibleMessages 恒为
   {first:null,last:null}、panel 为 null：定位成因并修到返回真实可见消息范围与当前面板
-status: ready
+status: done
 labels:
   - gap
   - defect
