@@ -1010,6 +1010,12 @@ type ViewportReading = {
   panel: { start: number; close: number; address: number; pid: number; copy: number };
   turn: ConsistencySample;
   afterTurn: ConsistencySample[];
+  /**
+   * The same three surfaces, read on this page while it was still live — from the moment the
+   * walk returned until ~1.3s later. This is the window the turn-end edge is actually read
+   * from; see the note on it in the case body.
+   */
+  afterTurnLive: ConsistencySample[];
   afterTurnIdle: ConsistencySample;
 };
 
@@ -1082,6 +1088,68 @@ async function sample(page: Page, sessionId: string, sendLabel: string): Promise
     sidebar,
     send,
   };
+}
+
+/**
+ * The live after-turn window's shape: how many readings it takes, and how far apart.
+ *
+ * 24 × 55ms ≈ 1.3s — past the one-second poll's own beat, which is the interval a source on that
+ * poll lags the truth by, and short enough that the case stays inside its own budget.
+ */
+const LIVE_WINDOW_SAMPLES = 24;
+const LIVE_WINDOW_PERIOD_MS = 55;
+
+/**
+ * The same three readings as {@link sample}, taken `count` times *inside* the page.
+ *
+ * A window that samples through {@link sample} is paced by the harness, and that is the wrong clock
+ * for it: every reading costs a `count()` round trip to the browser, so a 24-sample window across
+ * two pages costs ~200 round trips, and on a loaded host those stretch the window from the ~1.3s it
+ * is defined as to tens of seconds — past the run's own ceiling, where the run dies as a watchdog
+ * kill that says nothing about what it was measuring. Evaluated in the page, the loop is paced by
+ * the page's own timer and the whole window costs one round trip per page; the two pages' bursts run
+ * concurrently, so their phase relationship is whatever it was, not a consequence of the harness.
+ *
+ * The selectors are the same strings {@link sample} uses, read through `querySelector` instead of a
+ * locator. The one way those two can differ is shadow DOM — a Playwright locator pierces it and
+ * `querySelector` does not — and the app attaches none: `data-running-group`, `data-running-session`
+ * (both on plain elements in `RunningView.tsx`), the dock and the composer form all live in the
+ * document tree, and nothing under `src/` calls `attachShadow`.
+ */
+async function sampleBurst(
+  page: Page,
+  sessionId: string,
+  sendLabel: string,
+  count: number,
+  periodMs: number,
+): Promise<ConsistencySample[]> {
+  return page.evaluate(
+    async ({ sessionId: id, sendLabel: label, count: samples, periodMs: period, group, dock, form }) => {
+      const escape = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const sessionSelector = `${group} [data-running-session="${escape(id)}"]`;
+      const submitSelector = `${form} button[aria-label="${escape(label)}"]`;
+      const read = (): ConsistencySample => {
+        const hasGroup = document.querySelector(group) !== null;
+        const dockEl = document.querySelector(dock);
+        return {
+          // `absent`, not an empty string: a dock that is not drawn is the answer "there is no turn
+          // to report", the same reading `sample()` takes when the locator matches nothing.
+          dock: dockEl ? (dockEl.getAttribute('data-activity-state') ?? '') : 'absent',
+          sidebar: hasGroup && document.querySelector(sessionSelector) !== null,
+          // The locator addresses the *send* label, so finding it is the send state and its absence
+          // is the stop state — the composer swaps one accessible name for the other.
+          send: document.querySelector(submitSelector) !== null ? 'send' : 'stop',
+        };
+      };
+      const taken: ConsistencySample[] = [read()];
+      for (let i = 1; i < samples; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, period));
+        taken.push(read());
+      }
+      return taken;
+    },
+    { sessionId, sendLabel, count, periodMs, group: RUNNING_GROUP, dock: DOCK, form: FORM },
+  );
 }
 
 // The file-level `test.describe.configure({ mode: 'serial' })` above already covers this
@@ -1323,7 +1391,16 @@ test.describe('activity dock consolidation', () => {
       );
       console.log(`consistency.turn.${tier.name}=${JSON.stringify(turn)}`);
 
-      readings.push({ name: tier.name, docks, legacy, residentActivityMarkers, panel, turn, afterTurn: [] });
+      readings.push({
+        name: tier.name,
+        docks,
+        legacy,
+        residentActivityMarkers,
+        panel,
+        turn,
+        afterTurn: [],
+        afterTurnLive: [],
+      });
     }
     mark('turn-read');
 
@@ -1332,6 +1409,56 @@ test.describe('activity dock consolidation', () => {
     const outcome = await clock;
     expect(outcome.ok, `the walk must complete: ${JSON.stringify(outcome)}`).toBe(true);
     mark('walk-done');
+    const walkDoneAt = Date.now();
+
+    /*
+     * The live after-turn window — the one the turn-end edge is actually read from.
+     *
+     * Why it has to be taken *here*, on the pages that were already watching. The turn ends on
+     * the server when the walk releases the host's lease, and that instant is roughly half a
+     * second before `await clock` returns (the scenario's own `wait` step after `turn-end`).
+     * Every source on the page then clears at its own pace, and the window in which two of them
+     * can be caught disagreeing is bounded by the *slowest* of them:
+     *
+     *   - the dock reads the run registry's in-flight bit off the activity heartbeat, so it
+     *     leaves `in-turn` when the first beat *carrying* the cleared bit reaches it — measured
+     *     751–788ms after the lease drops over four instrumented runs, of which 574–620ms is the
+     *     wait for that beat and the remainder the registry propagation and one render;
+     *   - a source on the one-second `/api/session-hosts` poll — the shape this criterion exists
+     *     to catch, and the shape `RunningView` used to be — clears at its next tick, i.e.
+     *     somewhere in (0, 1000ms] after the lease drops, uniformly.
+     *
+     * So the disagreement lives in the first second *after the turn ends*, and only on a page
+     * that was live to see it. The window below is read from the two pages opened before the
+     * turn was read (the same two the AC5 reading uses) the moment the walk returns, at 55ms,
+     * 24 times: ~1.3s. It starts 475–508ms after the lease drops — before the dock's own departure
+     * at 751–788ms, so the `in-turn` region is observed too — and ends ~1.8s after it, past the
+     * last tick at which a one-second poll can still be holding the session. The re-navigation
+     * the settled reading is taken through comes *after* this, on purpose — a page told about
+     * the end by a fresh `chat_subscribed` has already dropped everything the poll would lag on.
+     *
+     * See the `## Evidence` of
+     * `tasks/gap-ac188-criterion-agreement-loses-poll-source-falsifiability.md` for the
+     * measured lag on both edges and the two falsifying implementations this window reds.
+     */
+    const liveStart = Date.now();
+    // Both pages' bursts run at once, on their own timers: the two readings are independent
+    // samples of the same edge, and running them in lockstep would make a page that happened to
+    // be quick to clear hide a page that happened to be slow.
+    const [liveDesktop, liveMobile] = await Promise.all([
+      sampleBurst(page, sessionId, sendLabel, LIVE_WINDOW_SAMPLES, LIVE_WINDOW_PERIOD_MS),
+      sampleBurst(mobile, sessionId, sendLabel, LIVE_WINDOW_SAMPLES, LIVE_WINDOW_PERIOD_MS),
+    ]);
+    const liveWindowMs = Date.now() - liveStart;
+    console.log(`consistency.afterTurnLive.desktop=${JSON.stringify(liveDesktop)}`);
+    console.log(`consistency.afterTurnLive.mobile=${JSON.stringify(liveMobile)}`);
+    console.log(
+      `consistency.afterTurnLive.window=${liveWindowMs}ms fromWalkDone=${liveStart - walkDoneAt}ms`,
+    );
+    for (const reading of readings) {
+      reading.afterTurnLive = reading.name === 'desktop' ? liveDesktop : liveMobile;
+    }
+    mark('live-window');
 
     // And the page is told, by the one frame that states it: a fresh `chat_subscribed`, whose
     // `isProcessing` is the server's own answer for the session at that instant. Reading the
@@ -1369,6 +1496,14 @@ test.describe('activity dock consolidation', () => {
       console.log(`consistency.afterTurn.window.${reading.name}=${Date.now() - endedAt}ms`);
     }
     mark('sampled');
+
+    // The live window's own shape, before the readings are judged: it has to outlast the beat a
+    // poll-driven source would lag by, or a red would be about the window rather than about the
+    // surfaces agreeing.
+    expect(
+      liveWindowMs,
+      'the live after-turn window must span more than one beat of the one-second poll it is about',
+    ).toBeGreaterThanOrEqual(1_000);
 
     // ---- the claims -------------------------------------------------------------------------
     for (const reading of readings) {
@@ -1408,6 +1543,27 @@ test.describe('activity dock consolidation', () => {
         disagreements,
         `${tier}: no reading may show the dock idle while the sidebar or the send button still says busy`,
       ).toEqual([]);
+
+      // AC6, read where it can actually be broken. The window above is taken after both pages
+      // were re-navigated, which is exactly the region in which a one-second poll has already
+      // caught up — so it can only ever confirm that everything settled. The live window starts
+      // while the dock is still reporting the turn and runs a full poll beat past the end of it,
+      // which is the only place a second, slower source can be caught saying busy after the dock
+      // has stopped. The direction is the same one, unchanged: the dock must never be the first
+      // to stop.
+      const liveDisagreements = reading.afterTurnLive.filter(
+        (s) => !inTurn(s.dock) && (s.sidebar || s.send === 'stop'),
+      );
+      expect(
+        liveDisagreements,
+        `${tier}: no live reading may show the dock leave the turn while the sidebar or the send button still says busy`,
+      ).toEqual([]);
+      // ...and the window is only evidence if it watched the turn end at all: a window whose
+      // every sample still read `in-turn` would satisfy the claim above while measuring nothing.
+      expect(
+        reading.afterTurnLive.some((s) => !inTurn(s.dock)),
+        `${tier}: the live window must observe the dock leave the turn, or it is not a reading of the turn ending`,
+      ).toBe(true);
 
       const settled = reading.afterTurn[reading.afterTurn.length - 1];
       expect(settled.dock, `${tier}: the dock settles on absent — nothing is running, so nothing is drawn`).toBe('absent');
