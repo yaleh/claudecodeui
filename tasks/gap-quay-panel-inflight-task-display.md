@@ -96,28 +96,28 @@ claude-resident 的 running view、voice 的 inflight-dot 等字面重合），�
 
 ## AC
 
-- [ ] AC1 红态基线（先用真实 fixture 固定住"现在看不到"这个事实）：构造一个最小 fixture——
+- [x] AC1 红态基线（先用真实 fixture 固定住"现在看不到"这个事实）：构造一个最小 fixture——
   `useQuayStatus`/`QuayPanel` 的测试里注入一个 `QuaySnapshot`（运行时对象，不依赖 TS 类型）
   其中 `inFlight` 是 `[{"taskId":"gap-example-task","phase":"implementing","startedAt":
   "2026-10-06T23:50:00.000Z","lastHeartbeat":"2026-10-07T00:00:00.000Z","workerPid":4242}]`。
   在改动前的代码上渲染 `QuayPanel`，断言 `screen.queryByText(/gap-example-task/)` 为 `null`
   （或等价的 DOM 查询找不到该 taskId 文本）——这就是"数据已经在响应体里，面板看不见"的最小
   复现，写下完整命令与完整输出。
-- [ ] AC2 判据绿：同上 fixture，改动后渲染 `QuayPanel`，断言 DOM 中出现 `gap-example-task`
+- [x] AC2 判据绿：同上 fixture，改动后渲染 `QuayPanel`，断言 DOM 中出现 `gap-example-task`
   文本，且其所在行/卡片带有 `phase=implementing` 的可辨识标记（data-testid 或等价文案）。
-- [ ] AC3 `phase` 两态都要覆盖：追加一条 `phase: 'fan-in'` 的 in-flight 记录，断言其渲染标记
+- [x] AC3 `phase` 两态都要覆盖：追加一条 `phase: 'fan-in'` 的 in-flight 记录，断言其渲染标记
   与 `implementing` 态不同（正例对照：两种 phase 都真实渲染出不同的东西，防止"一律同一种
   文案"也能通过）。
-- [ ] AC4 `inFlight` 的 null-vs-空 区分：`inFlight: null` 时渲染"不可用"文案；
+- [x] AC4 `inFlight` 的 null-vs-空 区分：`inFlight: null` 时渲染"不可用"文案；
   `inFlight: []` 时渲染"当前没有在飞任务"文案；两条文案逐字不同，测试分别断言两种状态各自
   渲染的文本，且互不相同。
-- [ ] AC5 TestsCard 歧义修复：注入一个 `tests.current.taskId` 非空的 fixture，断言该 taskId
+- [x] AC5 TestsCard 歧义修复：注入一个 `tests.current.taskId` 非空的 fixture，断言该 taskId
   旁边渲染着一个标明"最近一次套件/非实时任务指针"语义的 data-testid 或文案（不是裸 taskId
   旁边什么都没有）。
-- [ ] AC6 类型检查：`npm run typecheck` 退出 0。
-- [ ] AC7 现有测试不回归：`node --import tsx --test src/modules/quay/tests/QuayPanel.test.tsx
+- [x] AC6 类型检查：`npm run typecheck` 退出 0。
+- [x] AC7 现有测试不回归：`node --import tsx --test src/modules/quay/tests/QuayPanel.test.tsx
   src/modules/quay/tests/quayTabVisibility.test.tsx` 全部 pass（写 tests/pass/fail 计数）。
-- [ ] AC8 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐，列出实际改动文件清单
+- [x] AC8 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐，列出实际改动文件清单
   （新增文件用 ` (new)` 标注）。
 
 ## DoD
@@ -136,7 +136,6 @@ claude-resident 的 running view、voice 的 inflight-dot 等字面重合），�
 
 - src/shared/types.ts
 - src/modules/quay/QuayPanel.tsx
-- src/modules/quay/hooks/useQuayStatus.ts
 - src/modules/quay/tests/QuayPanel.test.tsx
 - tasks/gap-quay-panel-inflight-task-display.md
 
@@ -145,6 +144,17 @@ claude-resident 的 running view、voice 的 inflight-dot 等字面重合），�
 - 本任务明确排除：Driver 徽标把判定范围从 `kind=worker` 扩大到六种 driver kind（promotion/
   worker/outer/quality/meta/goal）里任意一种在跑——这是一个更大的、涉及"徽标该代表哪种
   '运行'语义"的独立决策，如果要做应该是另一个任务。
+- 实现落点（2026-10-07）：`useQuayStatus.ts` **未改动**（它只做整体 `as QuaySnapshot` 断言，
+  加字段不需要动它），故已从 `## Touches` 移除；"经 hook 拿到的数据被 QuayPanel 正确渲染"
+  由 `QuayPanel.test.tsx` 中一条注入 `api.quaySnapshot`、真实驱动 `useQuayStatus` 的用例覆盖。
+- AC7 命令替换（如实记录）：AC7 字面写的是 `node --import tsx --test <这两个 .tsx>`，但这两个
+  文件是 **vitest** 用例（`import { test } from 'vitest'`）。实测该字面命令在改动前后都直接
+  报 `Error: Vitest failed to access its internal state.` 并以 1 退出——`node --test` 根本
+  没有执行里面的用例，属命令形式不适用于 vitest 文件，而非用例失败。按 AC7 的实质要求
+  （"现有测试不回归 / 全部 pass"），改用仓库真实的客户端 runner 跑**同样的两个文件**：
+  `npx vitest run src/modules/quay/tests/QuayPanel.test.tsx
+  src/modules/quay/tests/quayTabVisibility.test.tsx` → `Test Files 2 passed (2)`,
+  `Tests 20 passed (20)`，0 fail。
 - 若实现时发现 `src/modules/quay/hooks/useQuayStatus.ts` 不需要改动（`inFlight` 只是
   `QuaySnapshot` 类型上的新字段，hook 本身只做 `response.json() as QuaySnapshot` 的类型
   断言，不逐字段解构），可以把它从 `## Touches` 里去掉对应的改动，但测试文件仍需要覆盖
