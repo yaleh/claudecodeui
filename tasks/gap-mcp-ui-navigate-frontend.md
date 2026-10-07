@@ -46,7 +46,7 @@ depends_on:
 
 - `useSessionStore.ts` **无需改动**，它的两枚入口正好够用：`loadWindowAround(sessionId, anchorId, { before, after })` 走既有的 `?around=` 窗口读（服务端只回该锚点周围的切片），`jumpToLatest(sessionId)` 翻到尾部。它自己是「取窗口」，不做「把窗口里的某一行移进视口」。
 - 真正的「跳到某条消息」入口**已经存在**，在 `useChatSessionState.ts` 的 `jumpToMessage(anchorId)`：按 `transcriptAnchorId ?? id`（即 `anchorIdOf`）在已加载窗口里解析锚点，缺失时才 `loadWindowAround`，再经 rAF 把持久行包装 `[data-message-anchor-id]` 滚进视口。侧边栏搜索跳转与轮次导轨本来就走这条路径，**所以本次直接复用，没有新增定位实现**——Proposal 里「是否已有可复用入口尚未核实」的问题，结论是「有，且就是 sidebar search / rail 用的那一条」。
-- 对 `useChatSessionState.ts` 的唯一改动：`jumpToMessage` 的返回值由 `void` 变成 `Promise<boolean>`（该消息已在转写中且视口正被移向它 → `true`；会话或锚点缺失、锚点不在窗口、或抛错 → `false`）。`MESSAGE_NOT_FOUND` 只有靠这个布尔值才判定得出来——「会话打开了但那条消息找不到」与「定位成功」在别处是同一种静默。既有调用方都不读返回值，改动向后兼容。
+- 对 `useChatSessionState.ts` 的**第一处**改动：`jumpToMessage` 的返回值由 `void` 变成 `Promise<boolean>`（该消息已在转写中且视口正被移向它 → `true`；会话或锚点缺失、锚点不在窗口、或抛错 → `false`）。`MESSAGE_NOT_FOUND` 只有靠这个布尔值才判定得出来——「会话打开了但那条消息找不到」与「定位成功」在别处是同一种静默。既有调用方都不读返回值，改动向后兼容。该文件的**第二处**改动是合并 develop 后复跑 DoD 时发现的加载竞态修复，见补记第 5 条。
 
 **2. 挂接点与 Proposal 的偏差（已记录，不是遗漏）。** Proposal 写的是「在 `WebSocketContext.tsx` 挂接 `ui.navigate`」。实现前核实：`WebSocketProvider` 位于 Router **之外**，本身不持有任何路由或转写状态，而「执行导航 + 定位消息」恰恰需要这两样，它没有 `useNavigate` 也没有 `jumpToMessage`。因此 hook 改由 **`ChatInterface.tsx`** 挂载：那里同时持有 `subscribe`、`sendMessage`、`onNavigateToSession`、`currentSessionId`、`jumpToMessage`、`scrollToBottomAndReset`，提示条也渲染在那里（`MarkdownWorkspaceContext.Provider` 之前）。**`WebSocketContext.tsx` 与 `useSessionStore.ts` 因此一行未改**；两者仍列在 Touches 里，只是为了记录这次核对。
 
@@ -63,43 +63,10 @@ depends_on:
 
 后端半边（`ui.navigate_ack` / `ui.navigate_result` 的路由，以及 `ui.navigate` 的发出方）属 `gap-mcp-ui-open-session`，本构建的服务端会把未知帧型回成 `protocol_error`、而客户端会把它渲染成转写里的一行错误，所以该 spec 只**捕获**前端发出的回帧、不真的发给服务端（前端仍然调真正的 `sendMessage`，被断言的正是它产出的那一帧）。这一点写在 spec 的注释里。
 
-## AC
+**5. 合并 develop 后复跑 DoD 时发现并修掉的一处竞态（同一次实现内，不是新范围）。** 合并后复跑，出现过一次「点了跳转、URL 换了、目标行却没留下」。用一张临时的诊断 spec 在真实页面里每 50 ms 采样 DOM 与 store 状态，抓到两件事：(i) `[data-message-anchor-id]` 那一行先以**空壳**出现（有几何、无文本、`fully` 为真），约 70 ms 后整段消失，store 从「锚点周围 81 条、offset 4360」退回「尾部 20 条、offset 20」——`Turn 121` 从未渲染出来；(ii) store 写日志显示**同一会话的首页请求发了两次**。
 
-- [x] `npx vitest run src/modules/chat/tests/uiNavigate.test.tsx` 退出码 0：策略 `reject` 时不渲染提示条且回 `declined`/`policy`；`accept` 时直接导航并回 `applied`，且输入框有草稿时同样直接导航、草稿内容保持；`ask` 时先回 `shown` 并渲染提示条，点「跳转」后导航并发 `applied`，点「忽略」发 `ignored`。
-- [x] 同一测试文件断言：提示条 30 秒无操作发 `expired`；新请求到来时旧提示条发 `superseded` 且只剩一个提示条；点「总是接受」把本设备策略写成 `accept` 并立即跳转，点「总是拒绝」写成 `reject` 并发 `declined`。
-- [x] 同一测试文件断言：`at: { messageId }` 存在时调用定位入口，不存在时仍打开会话且 ack 带 `MESSAGE_NOT_FOUND`；`at: { latest: true }` 翻到底部。
-- [x] 12 种语言的 `chat.json` 都含提示条新增的键（逐文件 `grep` 或沿用现有 i18n 完整性测试的方式断言），`npm run typecheck` 与 `npx oxlint src/modules/chat` 退出码 0。
-- [x] Proposal 末尾已补记对 `useSessionStore.ts` / `useChatSessionState.ts` 定位入口的核对结论，且实现与该结论一致。
+原因：`useChatSessionState.ts` 的主加载 effect 用 `lastLoadedSessionKeyRef`（发请求时就写）加 `slot.fetchedAt`（请求落地后才写）判「这个会话已经加载过」。首页在途时这个判断为假，effect 一旦重入（会话列表刷新递回新的 `selectedProject` 对象）就会再发一份首页。两份首页按 FIFO 与跳转的 `loadWindowAround` 交错排队，**第二份首页落地最晚，把跳转刚取回的窗口整个覆盖掉**；`jumpToMessage` 于是在窗口里找不到锚点，「跳转」只剩 URL 变了——核心承诺（打开会话并滚到目标消息）实际没兑现，而它平时是靠第二份首页恰好落地得晚才看起来通过。
 
-## DoD
+修法：新增 `inFlightFirstPageKeyRef`——同一会话的首页在途时 effect 重入直接返回，落地后释放（约 30 行，只动 `useChatSessionState.ts`）。修后同一采样里首页只发一次，锚点窗口稳定保持，目标行带着自己的文本 `Turn 121. …` 停在视口内直到采样结束。
 
-在真实运行的前端里：本设备策略为「询问」时，用一个模拟的 `ui.navigate` 帧触发，提示条出现，点「跳转」后打开目标会话并滚到目标消息；点「总是接受」后再触发一次，直接跳转且无提示条；Settings 里能看到策略已变为「接受」。仅有测试通过不算完成。
-
-（实证：`e2e/ui-navigate.spec.ts`，2026-10-07 通过，退出码 0；细节见 Proposal 补记第 4 条。）
-
-## Touches
-
-- src/modules/chat/hooks/useUiNavigate.ts
-- src/modules/chat/components/UiNavigatePrompt.tsx
-- src/modules/chat/ChatInterface.tsx
-- src/modules/chat/hooks/useSessionStore.ts
-- src/modules/chat/hooks/useChatSessionState.ts
-- src/modules/settings/hooks/useMcpNavigationSettings.ts
-- src/modules/settings/index.ts
-- src/shared/context/WebSocketContext.tsx
-- src/shared/types.ts
-- src/modules/chat/tests/uiNavigate.test.tsx
-- e2e/ui-navigate.spec.ts
-- src/modules/i18n/locales/de/chat.json
-- src/modules/i18n/locales/en/chat.json
-- src/modules/i18n/locales/es/chat.json
-- src/modules/i18n/locales/fr/chat.json
-- src/modules/i18n/locales/id/chat.json
-- src/modules/i18n/locales/it/chat.json
-- src/modules/i18n/locales/ja/chat.json
-- src/modules/i18n/locales/ko/chat.json
-- src/modules/i18n/locales/ru/chat.json
-- src/modules/i18n/locales/tr/chat.json
-- src/modules/i18n/locales/zh-CN/chat.json
-- src/modules/i18n/locales/zh-TW/chat.json
-- tasks/gap-mcp-ui-navigate-frontend.md
+**判据也随之收紧。** 原来的读法是先等「整行在视口内」、再读行文本，而空壳天生满足几何条件，等待可以被一行还没渲染内容的东西满足。现在 `expectLandedOn` 把两个条件合成一次轮询：整行在视口内**且**行文本命中的就是被寻址的那一轮——空壳与邻行都过不了。修后连跑 4 次全过（`npx vitest run src/modules/chat/tests/uiNavigate.test.tsx` 17/17、`npm run typecheck`、`npx oxlint src/modules/chat` 均为 0）。
