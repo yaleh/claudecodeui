@@ -1,7 +1,7 @@
 ---
 id: gap-mcp-ui-device-identity-hello
 title: 设备身份：前端生成 deviceId/tabId，WS 连接后发一次 ui.hello，服务端把身份挂到连接上（内存，断开即移除）
-status: ready
+status: done
 labels:
   - gap
 parent: null
