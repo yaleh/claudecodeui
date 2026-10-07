@@ -20,6 +20,7 @@ import {
     providerRuntimeService,
     readClaudeSessionOccupancy,
     resolveResidentScopeSweepEnabled,
+    sessionConversationsSearchService,
     sessionsService,
     setActivityChangeNotifier,
     stopClaudeSessionScopes,
@@ -685,6 +686,13 @@ const mcpGateway = mountMcpGateway(
             uiClientsList: {
                 listUiClients,
                 requestUiState: (options) => uiStateRequestService.requestUiState(options),
+            },
+            // gap-mcp-session-search: the conversation-search engine, bound to
+            // the SAME service the session-search route calls, so an MCP caller
+            // and the browser scan one transcript store through one scanner.
+            sessionSearch: {
+                search: (input) => sessionConversationsSearchService.search(input),
+                now: () => Date.now(),
             },
             now: () => Date.now(),
         },

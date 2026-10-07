@@ -49,6 +49,7 @@
  * | `ui_last_opened_session`| none | true     | false       | true       | false     | reads the browser's last-opened pointer; the write is the browser's own route |
  * | `ui_visible_context`  | none   | true     | false       | true       | false     | asks the browsers what they show; nothing stored, no state mutated |
  * | `ui_clients_list`     | none   | true     | false       | true       | false     | lists the connected browsers and their status; nothing stored, no state mutated |
+ * | `session_search`      | none   | true     | false       | true       | false     | scans stored transcripts and titles; nothing stored, no state mutated |
  * | `session_send`        | none   | false    | false       | false      | true      | additive: queues/sends a message, starts a run; two sends are two turns |
  * | `session_create`      | none   | false    | false       | false      | true      | additive: mints a session (and may start its first run); two creates are two sessions |
  * | `session_interrupt`   | none   | false    | true        | false      | true      | terminates the run in flight; the work it held is lost |
@@ -134,6 +135,11 @@ export const MCP_TOOL_ANNOTATIONS: Record<McpGatewayToolName, ToolAnnotations> =
   // drives no provider agent and mutates no CloudCLI state, so the world stays
   // closed — the same reading `ui_visible_context` above carries.
   ui_clients_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  // scans the stored provider transcripts and titles and reads nothing else:
+  // nothing is stored, and a repeat over an unchanged store reads the same
+  // matches. The scan touches files on disk, but it drives no provider agent and
+  // mutates no CloudCLI state, so the world stays closed.
+  session_search: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 
   // -- stage-4 write tools ---------------------------------------------------
   // additive: a message is queued/sent and a run starts; nothing is discarded.

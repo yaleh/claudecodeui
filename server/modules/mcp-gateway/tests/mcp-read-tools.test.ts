@@ -26,8 +26,11 @@
  * host fields itself.
  *
  * Readings, one leg each:
- *   (a) `tools/list` is exactly the ten stage-3 read tools, no write tool among
- *       them, every one requiring `cloudcli:read` — enforced, not just declared;
+ *   (a) `tools/list` is exactly the eleven stage-3 read tools, no write tool
+ *       among them, every one requiring `cloudcli:read` — enforced, not just
+ *       declared; this mount wires no `sessionSearch` deps, so `session_search`
+ *       is registered in its body-table refusal form and is probed alongside the
+ *       other owners' placeholders;
  *   (b) `projects_list`/`sessions_list` return the whole fixture, and the three
  *       `state` predicates partition it (an empty result is not an error);
  *   (c) `session_get` carries the resident session's host (state, pid, leases,
@@ -503,7 +506,7 @@ test('(a) tools/list is exactly the stage-3 read tools, none of them a write too
     }
 
     assert.deepEqual(registered, declared, 'tools/list must be exactly the declared stage-3 read tools');
-    assert.equal(registered.length, 10, 'the stage-3 read set is ten tools');
+    assert.equal(registered.length, 11, 'the stage-3 read set is eleven tools');
 
     const WRITE_TOOLS = ['session_send', 'session_create', 'session_interrupt', 'session_start', 'session_close'];
     for (const writeTool of WRITE_TOOLS) {
@@ -532,15 +535,19 @@ test('(a) tools/list is exactly the stage-3 read tools, none of them a write too
     console.log(`[a] projects_list with a token lacking cloudcli:read -> isError=${denied.isError} text=${JSON.stringify(denied.text)}`);
     assert.equal(denied.isError, true, 'a token without cloudcli:read must be refused');
 
-    // The three tools owned by later tasks are registered but refuse by name.
+    // The tools owned by later tasks are registered but refuse by name; this
+    // mount passes no `sessionSearch` deps, so `session_search` joins them in its
+    // body-table refusal form (a legal `query`, so the refusal is the handler's
+    // placeholder rather than the wrapper's own declared-input `INVALID_ARGUMENT`).
     for (const [name, args] of [
       ['overview', {}],
       ['run_get', { run: 'anything' }],
       ['quay_snapshot', {}],
+      ['session_search', { query: 'anything' }],
     ] as Array<[string, AnyRecord]>) {
       const refusal = await harness.callWith(harness.probeClient, name, args);
       console.log(`[a] ${name} -> isError=${refusal.isError} text=${JSON.stringify(refusal.text)}`);
-      assert.equal(refusal.isError, true, `${name} must refuse until AC-247/AC-248 land`);
+      assert.equal(refusal.isError, true, `${name} must refuse while unwired`);
       assert.equal(
         refusal.structured?.code,
         MCP_TOOL_NOT_IMPLEMENTED_CODE,

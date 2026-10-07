@@ -136,6 +136,7 @@ export type { OAuthMetadataMountReading } from './oauth-metadata.mount.js';
 // values it asserts against instead of restating.
 export {
   formatMcpTime,
+  MCP_SESSION_SEARCH_MAX_LIMIT,
   MCP_STAGE3_READ_TOOLS,
   MCP_TEXT_CHUNK_CHARS,
   MCP_TOOL_NOT_IMPLEMENTED_CODE,
@@ -264,6 +265,31 @@ export type {
   UiClientsListPayload,
   UiClientsListTab,
 } from './mcp-ui-clients-list.js';
+
+// The conversation-search tool (gap-mcp-session-search). `buildSessionSearch`
+// answers "which sessions mention this phrase" across every project: it runs the
+// providers module's conversation-search engine, merges the engine's title and
+// match channels by session id, and returns the matched sessions with their
+// matched messages — the sort key `sessionMatchScore` ranks them and each hit's
+// `messageId` feeds `session_read({ mode: 'around' })`. `McpSessionSearchDeps` is
+// the injected engine `server/index.ts` binds to
+// `sessionConversationsSearchService.search`; `isSessionSearchWired` is the
+// branch `registerMcpReadTools` takes between the real handler and the named
+// refusal.
+export {
+  buildSessionSearch,
+  isSessionSearchWired,
+  registerMcpSessionSearchTool,
+  sessionMatchScore,
+} from './mcp-session-search.js';
+export type {
+  McpSessionSearchDeps,
+  McpSessionSearchHit,
+  McpSessionSearchInput,
+  McpSessionSearchMatchReading,
+  McpSessionSearchPayload,
+  McpSessionSearchRegistration,
+} from './mcp-session-search.js';
 
 // The open-session tool (gap-mcp-ui-open-session). `buildUiOpenSession` resolves
 // ONE connected browser (an exact `deviceId`, or a unique id/name substring; a

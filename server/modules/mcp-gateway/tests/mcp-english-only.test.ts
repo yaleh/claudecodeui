@@ -15,7 +15,7 @@
  * needed beyond the audit table the audited wrapper writes.
  *
  * Readings, one leg each:
- *   (a) `tools/list` names 21 tools. Every tool has a success probe; every tool
+ *   (a) `tools/list` names 22 tools. Every tool has a success probe; every tool
  *       with declared arguments also has a failure probe (the argument-less
  *       tools — `ui_last_opened_session` and `ui_clients_list` — have no
  *       validation branch to drive and are exempted with reasoned entries —
@@ -155,6 +155,14 @@ const USER_DATA_FIELDS = new Set([
   'inputSummary',
   'preview',
   'summary',
+  // gap-mcp-session-search: the three strings `session_search` carries out of the
+  // store — a session's own title, its project's display name and the matched
+  // transcript text. All three are provider/user data the tool echoes, never
+  // server copy, so CJK under them is correct and must survive untouched (the
+  // same reading `title` / `name` / `summary` carry for the other tools).
+  'sessionTitle',
+  'projectDisplayName',
+  'snippet',
 ]);
 
 /** One string found in a payload, with the JSON path that reached it. */
@@ -355,6 +363,19 @@ const sessionHostControl = {
   },
 };
 
+/**
+ * The shape this fixture's `sessionSearch.search` stub reads off its argument.
+ *
+ * The read bag below is cast to `McpReadToolDeps` AFTER its literal, so the stub
+ * gets no contextual type and its parameter must be named — this is the two
+ * channels the engine streams, kept structural so the fixture never restates the
+ * engine's own types.
+ */
+type SessionSearchEngineStubInput = {
+  onTitleResults?: (rows: ReadonlyArray<AnyRecord>) => void;
+  onProgress?: (update: { projectResult: AnyRecord | null }) => void;
+};
+
 /** The read bag. Every tool is wired so each has a real success path. */
 const readTools = {
   projects: {
@@ -482,6 +503,52 @@ const readTools = {
         ],
       },
     ],
+  },
+  // gap-mcp-session-search: the conversation-search engine, wired so
+  // `session_search` has a real success path. The stub streams the engine's two
+  // channels directly — one title row carrying the Chinese session title and
+  // project display name the rest of this fixture uses, and one project bucket
+  // whose one session matched one Chinese transcript line — so the walk reads a
+  // payload whose user data is genuinely CJK, exactly as the other tools'.
+  // `now` is the fixture clock, so the recency tier of the sort key is pinned.
+  sessionSearch: {
+    search: async (input: SessionSearchEngineStubInput) => {
+      input.onTitleResults?.([
+        {
+          sessionId: 'sess-1',
+          provider: 'claude',
+          projectId: 'proj-1',
+          projectDisplayName: ZH_PROJECT_NAME,
+          sessionTitle: ZH_SESSION_TITLE,
+          lastActivity: LAST_ACTIVITY_ISO,
+        },
+      ]);
+      input.onProgress?.({
+        projectResult: {
+          projectId: 'proj-1',
+          projectName: 'proj-1',
+          projectDisplayName: ZH_PROJECT_NAME,
+          sessions: [
+            {
+              sessionId: 'sess-1',
+              provider: 'claude',
+              sessionSummary: ZH_MESSAGE_TEXT,
+              matches: [
+                {
+                  role: 'user',
+                  snippet: ZH_MESSAGE_TEXT,
+                  highlights: [{ start: 0, end: 2 }],
+                  timestamp: LAST_ACTIVITY_ISO,
+                  provider: 'claude',
+                  messageUuid: 'm-1',
+                },
+              ],
+            },
+          ],
+        },
+      });
+    },
+    now: () => FIXED_NOW,
   },
 } as unknown as McpReadToolDeps;
 
@@ -820,6 +887,11 @@ const SUCCESS_TABLE: Record<string, AnyRecord> = {
   // against the `sess-1` fixture, and `client` is omitted so the single injected
   // device is auto-selected and the injected navigation lands `applied`.
   ui_open_session: { session: 'sess-1' },
+  // gap-mcp-session-search: the injected engine above answers with one session
+  // whose one Chinese transcript line matched, so the payload's user data — the
+  // title, the project display name and the snippet — is drawn from the CJK
+  // fixture rather than an ASCII stand-in.
+  session_search: { query: 'hello' },
 };
 
 /**
@@ -859,6 +931,9 @@ const FAILURE_TABLE: Record<string, { args: AnyRecord; expect: string }> = {
   // `session` is a declared string, so a wrong-typed one is the same shallow
   // validation failure — no device resolution and no navigation is reached.
   ui_open_session: { args: { session: 5 }, expect: 'INVALID_ARGUMENT' },
+  // gap-mcp-session-search: `query` is a declared string, so a wrong-typed one is
+  // the same shallow validation failure — the engine is never reached.
+  session_search: { args: { query: 5 }, expect: 'INVALID_ARGUMENT' },
 };
 
 /**
@@ -1045,7 +1120,7 @@ test('(a) the success and failure tables cover exactly the tools the registry li
   const listed = await listClient.listTools();
   const registryNames = listed.tools.map((tool) => tool.name).sort();
 
-  assert.equal(registryNames.length, 21, `tools/list must return the full 21-tool set, got ${registryNames.join(', ')}`);
+  assert.equal(registryNames.length, 22, `tools/list must return the full 22-tool set, got ${registryNames.join(', ')}`);
   assert.deepEqual(
     Object.keys(SUCCESS_TABLE).sort(),
     registryNames,
@@ -1084,7 +1159,7 @@ test('(a) every tool description and parameter description is English', async ()
       }
     }
   }
-  assert.ok(scanned >= 21, `every one of the 21 tools must declare a description, scanned ${scanned}`);
+  assert.ok(scanned >= 22, `every one of the 22 tools must declare a description, scanned ${scanned}`);
   say(`(a) scanned ${scanned} tool/parameter descriptions, all English`);
 });
 
@@ -1302,6 +1377,16 @@ test('(d) Chinese user data is returned verbatim, never cleaned', async () => {
     'an option description must be verbatim',
   );
 
+  // gap-mcp-session-search: the search reading carries user text out of the
+  // store too — the matched session's own title, its project's display name and
+  // the matched transcript line — so all three must arrive verbatim.
+  const search = (await call(probeClient, 'session_search', { query: 'hello' })).structuredContent as AnyRecord;
+  const hit = (search.results as AnyRecord[])[0];
+  assert.equal(hit.sessionTitle, ZH_SESSION_TITLE, 'session_search must echo the session title verbatim');
+  assert.equal(hit.projectDisplayName, ZH_PROJECT_NAME, 'session_search must echo the project name verbatim');
+  assert.equal((hit.matches as AnyRecord[])[0].snippet, ZH_MESSAGE_TEXT, 'session_search must echo the snippet verbatim');
+
   say(`(d) verbatim: project=${ZH_PROJECT_NAME} title=${ZH_SESSION_TITLE} body=${ZH_MESSAGE_TEXT}`);
   say(`(d) verbatim: question=${ZH_QUESTION} header=${ZH_HEADER} options=${ZH_OPTION_A}/${ZH_OPTION_B}`);
+  say(`(d) verbatim: session_search title=${String(hit.sessionTitle)} snippet=${String((hit.matches as AnyRecord[])[0].snippet)}`);
 });
