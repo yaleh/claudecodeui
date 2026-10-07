@@ -66,12 +66,12 @@ spec 侧在主线程上释放，**在 abort 读数之后**：
 
 ## AC
 
-- [ ] AC1 平台由判据自己的进度释放（承重）：`grep -n "await-release" e2e/resident-status-bar.spec.ts` 命中 ARM_B 的 `steps`，且该步位于跨会话 `unattended-turn` 与其 `turn-end` 之间；`grep -n "debug-agent/release" e2e/resident-status-bar.spec.ts` 命中释放 POST（同一处断言响应 `ok`）。验证：两条 `grep -n` 逐行输出 + `npm run typecheck` 退出 0。
-- [ ] AC2 屏障承重对照（承重）：删掉释放 POST（`await-release` 保留）后 `npx playwright test e2e/resident-status-bar.spec.ts` 非零退出、输出含 `DEBUG_AGENT_RELEASE_TIMEOUT`；还原后 exit 0。验证：两次运行的 `echo $?`、wall、失败逐字输出。
-- [ ] AC3 判定面未变：`git diff develop -- e2e/resident-status-bar.spec.ts | grep -c "^-.*expect("` 为 **0**；`git diff develop -- package.json playwright.config.ts "goals/AC-172-真实浏览器里常驻会话的状态标记-状态条与关闭按钮反映宿主状态-无人轮带触发类型标签.md"` 为**空**；判据命令与 AC 记录的 `criterion:` 逐字一致。验证：三条命令的逐字输出。
-- [ ] AC4 AC-172 两条假形态仍然红（承重）：(i) 状态条改成读本地状态而不读宿主接口 ⇒ 判据退出非 0，红落在重连后的 busy 断言（`Expected: "busy"`）；(ii) 无人轮渲染成用户消息样式 ⇒ 判据退出非 0，红落在无人轮断言。各自 `git checkout --` 还原后判据回绿。验证：两次变异跑与还原跑的 `echo $?`、失败断言逐字、变异 diff。
-- [ ] AC5 负载臂连续绿且不出门限：还原后 `npx playwright test e2e/resident-status-bar.spec.ts` 连续 ≥5 次全部 exit 0，另并发 ≥4 路一臂全部 exit 0；逐次 wall < 55_000 且 spec 自报 `elapsed=` < 55_000。验证：逐次 `echo $?` + wall + `elapsed=`，并登记宿主 load1。
-- [ ] AC6 任务自身 `tasks/gap-ac172-reload-landing-races-absolute-walk-plateau.md` 已落账（自触）。
+- [x] AC1 平台由判据自己的进度释放（承重）：`grep -n "await-release" e2e/resident-status-bar.spec.ts` 命中 ARM_B 的 `steps`，且该步位于跨会话 `unattended-turn` 与其 `turn-end` 之间；`grep -n "debug-agent/release" e2e/resident-status-bar.spec.ts` 命中释放 POST（同一处断言响应 `ok`）。验证：两条 `grep -n` 逐行输出 + `npm run typecheck` 退出 0。
+- [x] AC2 屏障承重对照（承重）：删掉释放 POST（`await-release` 保留）后 `npx playwright test e2e/resident-status-bar.spec.ts` 非零退出、输出含 `DEBUG_AGENT_RELEASE_TIMEOUT`；还原后 exit 0。验证：两次运行的 `echo $?`、wall、失败逐字输出。
+- [x] AC3 判定面未变：`git diff develop -- e2e/resident-status-bar.spec.ts | grep -c "^-.*expect("` 为 **0**；`git diff develop -- package.json playwright.config.ts "goals/AC-172-真实浏览器里常驻会话的状态标记-状态条与关闭按钮反映宿主状态-无人轮带触发类型标签.md"` 为**空**；判据命令与 AC 记录的 `criterion:` 逐字一致。验证：三条命令的逐字输出。
+- [x] AC4 AC-172 两条假形态仍然红（承重）：(i) 状态条改成读本地状态而不读宿主接口 ⇒ 判据退出非 0，红落在重连后的 busy 断言（`Expected: "busy"`）；(ii) 无人轮渲染成用户消息样式 ⇒ 判据退出非 0，红落在无人轮断言。各自 `git checkout --` 还原后判据回绿。验证：两次变异跑与还原跑的 `echo $?`、失败断言逐字、变异 diff。
+- [x] AC5 负载臂连续绿且不出门限：还原后 `npx playwright test e2e/resident-status-bar.spec.ts` 连续 ≥5 次全部 exit 0，另并发 ≥4 路一臂全部 exit 0；逐次 wall < 55_000 且 spec 自报 `elapsed=` < 55_000。验证：逐次 `echo $?` + wall + `elapsed=`，并登记宿主 load1。
+- [x] AC6 任务自身 `tasks/gap-ac172-reload-landing-races-absolute-walk-plateau.md` 已落账（自触）。
 
 ## DoD
 
@@ -82,3 +82,28 @@ spec 侧在主线程上释放，**在 abort 读数之后**：
 - `e2e/resident-status-bar.spec.ts`
 - `server/modules/debug-agent/debug-agent.engine.ts`（**仅当**负载臂上释放到达晚于 `DEBUG_AGENT_RELEASE_CEILING_MS` 才动；backend-module-standards 适用）
 - `tasks/gap-ac172-reload-landing-races-absolute-walk-plateau.md`（自触）
+
+## 完成记录
+
+**这一轮修的是判据的时间形状，不是产品。** 产品保证（常驻会话的侧栏四态标记 / 坞展开面板里的地址、pid、起停关闭 / composer 停止只中止一轮 / 无人轮的分隔标签、发送方、非用户样式）未动；判据命令 `npx playwright test e2e/resident-status-bar.spec.ts` 与 AC-172 的 `criterion:` 逐字不变，四个用例的 `expect` 一字未删（AC3 机械证明 `git diff develop -- <spec> | grep -c "^-.*expect("` = 0）。
+
+**触发源在仓外、不可控；稳定性依赖屏障，不依赖触发源消失。** 红是结构性竞争：ARM_B 是一条**绝对偏移时钟**（`due = startedAt + step.at`），跨会话 turn 的平台只有 6s（`unattended-turn@7000` → `turn-end@13000`），而它自己那条有界重放守卫允许一次重放花掉 `STARTUP_PROBE_DEADLINE_MS = 14_000`——**窗口宽度（6s）小于守卫允许的漂移（14s）**。reload 的落点由宿主网络（netlink / docker-veth 抖动）决定，这在仓外。本仓能做的是把平台**改由判据自己的进度释放**：`unattended-turn(cross-session)@7000` 之后加一道 `await-release` 屏障（`{ at: 8_000, op: 'await-release' }`），`turn-end` / `exit` 排在其后。走查循环是**顺序**的，屏障之后两步的 `due` 在释放前根本不算，故 `turn-end` 在释放那一刻（`due` 已过则立即）才发火——平台从此没有固定宽度，重放慢到 14s 也仍在平台内。因此这条判据的稳定性**依赖屏障**，而不是触发源消失。
+
+**为什么 `e4703a6c`（有界重放）只兜住 reload 失败、没兜住落点。** 它把两处裸 `await page.reload()` 改走 `navigateBounded(page, paneLanding, 'replay')`，兜住的是**reload 失败**（宿主抖动掐断在途模块加载 → 页面没 mount → 紧邻 pane 超时）；它没有改变 reload 的**落点**——守卫的 deadline（14_000ms）比它必须落进的平台（6_000ms）还大。下一次竞争只是把红从 pane 的 `toBeVisible` 挪到紧邻的 mark `busy` 读数。
+
+**为什么释放点必须在 abort 读数之后。** 若在 `:984` 的重连后 busy 读数处就释放，`turn-end` 与 `exit@14000` 会抢在 abort 读数之前发火，abort 的 `expect(['idle','lingering']).toContain(hostAfterAbort?.state)` 会读到 `exited` 而红。故释放 POST 排在 abort 读数（`state ∈ {idle, lingering}`、`closeReason === null`、`hostId`/`pid`/`startedAt` 不变）**全部通过之后**；abort 在屏障持有时仍成立，因为「停止当前一轮」是宿主层动作（撤回该 turn 的租约），不依赖场景的 `turn-end`。
+
+**逐条读数（如实登记）。** 宿主 load1 取运行前 `cat /proc/loadavg` 首字段；一律 `bash scripts/with-memory-cap.sh npx playwright test e2e/resident-status-bar.spec.ts`。
+
+- **AC1** `grep -n "await-release" e2e/resident-status-bar.spec.ts` → `142:    { at: 8_000, op: 'await-release' },`（`:141` 是跨会话 `unattended-turn`、`:143` 是其 `turn-end`；`:125` 是注释）。`grep -n "debug-agent/release"` → `1041:    const releaseResponse = await api.post('/api/debug-agent/release', { data: { sessionId: armB } });`，`:1044` 断言 `releaseResponse.ok(...)` 为真。`npm run typecheck` → **EXIT=0**（合并 develop 后复跑仍 0）。
+- **AC2** 对照（删掉释放 POST 与 `ok` 断言，保留 `await-release`）：**EXIT=1**，wall=55s，load1=18.16，逐字 `walk.verdict ok=false status=500 body={"success":false,"error":{"code":"DEBUG_AGENT_RELEASE_TIMEOUT","message":"The run for session \"dfe7f1b6-…\" reached an \"await-release\" step and nothing released it within 20000ms. The debug agent control plane's release action is what states it — see POST /api/debug-agent/release."}}`，并由本 run 自己的看门狗收尾（`crossed its own 55000ms ceiling at 55005ms … stuck at stage "browser-launch-or-cases"`）。还原后 **EXIT=0**，load1=13.99，`elapsed=32786ms`，`release.status=200 body=…"released":true,"woken":0`。
+- **AC3** `git diff develop -- e2e/resident-status-bar.spec.ts | grep -c "^-.*expect("` = **0**（合并 develop 前后各一次）；`git diff develop -- package.json playwright.config.ts "<goal>"` = **空**（前后各一次）；goal 文件 `criterion: npx playwright test e2e/resident-status-bar.spec.ts` 逐字未变。`npx oxlint e2e/resident-status-bar.spec.ts` → **EXIT=0**。
+- **AC4(i)** 变异「状态条读本地镜像而不读宿主接口」（`ResidentMark.tsx` 加 `sessionStorage` 本地镜像：一份 **boot 时已有存档读数** 的文档就固定在那份读数上、不再重读宿主接口；首次启动的文档则持续更新镜像）。**EXIT=1**，红落 `e2e/resident-status-bar.spec.ts:984`（重连后的 busy 断言），逐字 `Error: expect(locator).toHaveAttribute(expected) failed` / `Expected: "busy"` / `Received: "idle"` / `Timeout: 15000ms`，call log `34 × locator resolved to <span role="img" … data-resident-state="idle" …>`；重连前两读仍绿（`state=运行中 mark=solid+spinner snapshot.state=busy`、`state=空闲 mark=solid snapshot.state=idle`）。变异 diff 已登记（`ResidentMark.tsx` +35/-1）。
+- **AC4(ii)** 变异「无人轮渲染成用户消息样式」（`MessageComponent.tsx`：`data-message-style={rendersAsUser || isUnattendedTurn ? 'user' : message.type}`）。**EXIT=1**，红落 `e2e/resident-status-bar.spec.ts:1154`（无人轮断言），逐字 `Error: a turn nobody typed must not wear the user's own bubble style` / `expect(received).not.toBe(expected)` / `Expected: not "user"`。变异 diff 已登记（`MessageComponent.tsx` +1/-1）。
+- **AC4 还原** `git checkout -- src/` 后（两处变异同一次还原）**EXIT=0**，load1=37.33，`elapsed=32458ms`，`4 passed (32.5s)`。
+- **AC5** 连续 5 次（逐次 load1 / EXIT / `elapsed=` / wall）：`19.35 0 32162ms 4 passed (32.2s)`、`15.47 0 32967ms 4 passed (33.0s)`、`13.82 0 33158ms 4 passed (33.1s)`、`14.00 0 32250ms 4 passed (32.3s)`、`13.89 0 32661ms 4 passed (32.7s)`。并发 4 路一臂（load1 before=12.88 / after=16.87；每路各自起服务与数据目录，config 每 run 向内核取一对空闲端口）：`1:0 33307ms 4 passed (33.3s)`、`2:0 33340ms 4 passed (33.4s)`、`3:0 33713ms 4 passed (33.7s)`、`4:0 33384ms 4 passed (33.4s)`。全部 **EXIT=0**，wall 与 `elapsed=` 均 < 55_000。
+- **AC6** 本文件（自触），经 Provider ABI `task_write` 落账。
+
+**关于 `woken` 读数（承重机制的诚实登记）**：全部绿 run 的 `POST /release` 都返回 `woken: 0`——即释放到达时该 run **尚未 park 到屏障**（`releaseDebugAgentRun` 先把 `released` 置真，走查走到 `:8000` 时直通）。这正是快 run 的应有形状：判据在 8s 前就读完平台并释放，`turn-end` 仍不早于 8000 发火；慢重放（落点 >8s）时释放必然更晚、落在已 park 的屏障上（woken:1）才唤醒它。屏障的承重性由 AC2 对照机械证明（无释放即 20000ms 后 `DEBUG_AGENT_RELEASE_TIMEOUT` 非零退出）。
+
+**未动引擎常量**（Plan 8 的触发条件未出现：负载臂上释放均在 20s 上限内闭合，`DEBUG_AGENT_RELEASE_CEILING_MS` 未改，`server/modules/debug-agent/debug-agent.engine.ts` 未进本次提交）。
