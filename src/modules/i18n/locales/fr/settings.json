@@ -629,6 +629,21 @@
     "connectLabel": "Commande de connexion",
     "enableHint": "La passerelle MCP n'est pas activée. Définissez MCP_ENABLED=true dans l'environnement du serveur et redémarrez CloudCLI pour l'activer."
   },
+  "mcpNavigation": {
+    "title": "Demandes de navigation",
+    "description": "Comment cet appareil répond lorsqu'un client MCP demande d'ouvrir une session dans votre navigateur.",
+    "deviceOnly": "Ce réglage ne s'applique qu'à cet appareil.",
+    "policy": {
+      "label": "Réponse",
+      "accept": "Autoriser",
+      "ask": "Demander à chaque fois",
+      "reject": "Refuser"
+    },
+    "deviceName": {
+      "label": "Nom de l'appareil",
+      "description": "Le nom que cet appareil communique au client MCP. Laissez vide pour utiliser un nom par défaut dérivé de votre navigateur."
+    }
+  },
   "connectedApps": {
     "title": "Applications connectées",
     "description": "Applications que vous avez autorisées à agir en votre nom via la passerelle MCP de CloudCLI. Révoquer une autorisation rejette immédiatement tous les jetons émis sous celle-ci.",

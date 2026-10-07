@@ -1,7 +1,7 @@
 ---
 id: gap-mcp-ui-device-settings
 title: Settings 增加本设备的 MCP 导航策略（接受/询问/拒绝，默认询问）与设备名，存 localStorage，并补全各语言 i18n
-status: ready
+status: done
 labels:
   - gap
 parent: null
@@ -27,10 +27,10 @@ extra:
 
 ## AC
 
-- [ ] `npx vitest run src/modules/settings/tests/mcpNavigationSettings.test.tsx` 退出码 0：断言 hook 在无值、非法值、读取抛错时返回 `ask`；写入后读到新值；`storage` 事件使另一个 hook 实例同步；设备名为空时回到由 User-Agent 推出的默认名，且默认名不含版本号。
-- [ ] 同一测试文件断言设置页渲染出三态选择与设备名输入框，切换后 localStorage 中的值随之改变，且页面上写明该设置仅对本设备生效。
-- [ ] `npx vitest run src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts` 退出码 0，且该测试的必需键清单包含本任务新增的全部键；`ls src/modules/i18n/locales/*/settings.json | wc -l` 为 12，每个文件都含新键。
-- [ ] `npm run typecheck` 退出码 0，`npx oxlint src/modules/settings` 退出码 0。
+- [x] `npx vitest run src/modules/settings/tests/mcpNavigationSettings.test.tsx` 退出码 0：断言 hook 在无值、非法值、读取抛错时返回 `ask`；写入后读到新值；`storage` 事件使另一个 hook 实例同步；设备名为空时回到由 User-Agent 推出的默认名，且默认名不含版本号。
+- [x] 同一测试文件断言设置页渲染出三态选择与设备名输入框，切换后 localStorage 中的值随之改变，且页面上写明该设置仅对本设备生效。
+- [x] `npx vitest run src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts` 退出码 0，且该测试的必需键清单包含本任务新增的全部键；`ls src/modules/i18n/locales/*/settings.json | wc -l` 为 12，每个文件都含新键。
+- [x] `npm run typecheck` 退出码 0，`npx oxlint src/modules/settings` 退出码 0。
 
 ## DoD
 

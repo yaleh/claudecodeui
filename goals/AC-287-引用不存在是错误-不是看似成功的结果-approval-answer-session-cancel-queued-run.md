@@ -1,7 +1,7 @@
 ---
 id: AC-287
 title: 引用不存在是错误，不是看似成功的结果：approval_answer、session_cancel_queued、run_get、quay_snapshot
-status: active
+status: achieved
 kind: criterion
 goal: GOAL-024
 criterion: for f in
@@ -35,6 +35,11 @@ statusLog:
     to: active
     actor: goal-driver
     reason: "triage: activate"
+  - at: 2026-10-07T02:03:40.065Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: criterion pass"
 fidelity:
   verdict: faithful
   reason: "fidelity judge: faithful"

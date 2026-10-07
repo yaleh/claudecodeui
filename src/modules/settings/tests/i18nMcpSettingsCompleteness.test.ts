@@ -39,10 +39,11 @@ const REFERENCE_LOCALE = 'en';
 
 /**
  * The namespaces this criterion owns. `mcpGateway` is the CloudCLI MCP block; `accessTokens.scopes`
- * is the token-scope vocabulary the scope checkboxes render. Read (b) compares each locale's
- * flattened key set across exactly these subtrees against `en`.
+ * is the token-scope vocabulary the scope checkboxes render; `mcpNavigation` is the per-device
+ * navigation-policy / device-name section added beside the gateway block. Read (b) compares each
+ * locale's flattened key set across exactly these subtrees against `en`.
  */
-const OWNED_NAMESPACES = ['mcpGateway', 'accessTokens.scopes'] as const;
+const OWNED_NAMESPACES = ['mcpGateway', 'accessTokens.scopes', 'mcpNavigation'] as const;
 
 /**
  * Every MCP-block / scope key the settings UI actually renders, dotted from the bundle root.
@@ -68,6 +69,18 @@ const REQUIRED_MCP_KEYS = [
   'accessTokens.scopes.sessionControl',
   'accessTokens.scopes.approve',
   'accessTokens.form.writeScopeRisk', // 写权限风险提示
+  // McpNavigationSection — the per-device navigation-policy / device-name block (namespace
+  // `mcpNavigation`). Both strings the section renders in every state, the three policy labels
+  // of its radio group, and the name field's label and help text.
+  'mcpNavigation.title', // 区块标题
+  'mcpNavigation.description', // 区块说明
+  'mcpNavigation.deviceOnly', // 「仅对本设备生效」声明
+  'mcpNavigation.policy.label', // 三态选择组标题
+  'mcpNavigation.policy.accept', // 接受
+  'mcpNavigation.policy.ask', // 询问（默认）
+  'mcpNavigation.policy.reject', // 拒绝
+  'mcpNavigation.deviceName.label', // 设备名标签
+  'mcpNavigation.deviceName.description', // 设备名说明
 ] as const;
 
 /** The shape this test reads back out of a locale bundle — deliberately loose. */

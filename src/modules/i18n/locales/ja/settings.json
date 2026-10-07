@@ -571,6 +571,21 @@
     "connectLabel": "接続コマンド",
     "enableHint": "MCP ゲートウェイは有効になっていません。サーバー環境で MCP_ENABLED=true を設定し、CloudCLI を再起動して有効にしてください。"
   },
+  "mcpNavigation": {
+    "title": "ナビゲーション要求",
+    "description": "MCP クライアントがブラウザでセッションを開くよう要求したときの、このデバイスの応答方法。",
+    "deviceOnly": "この設定はこのデバイスにのみ適用されます。",
+    "policy": {
+      "label": "応答",
+      "accept": "許可",
+      "ask": "毎回確認",
+      "reject": "拒否"
+    },
+    "deviceName": {
+      "label": "デバイス名",
+      "description": "このデバイスが MCP クライアントに通知する名前。空欄にするとブラウザから推定した既定の名前を使用します。"
+    }
+  },
   "connectedApps": {
     "title": "接続済みアプリ",
     "description": "CloudCLI MCP ゲートウェイ経由であなたの代理として動作することを許可したアプリケーションです。認可を取り消すと、その下で発行されたすべてのトークンが即座に拒否されます。",

@@ -873,6 +873,21 @@
     "connectLabel": "Perintah koneksi",
     "enableHint": "Gateway MCP tidak aktif. Setel MCP_ENABLED=true di lingkungan server dan mulai ulang CloudCLI untuk mengaktifkannya."
   },
+  "mcpNavigation": {
+    "title": "Permintaan navigasi",
+    "description": "Bagaimana perangkat ini menanggapi saat klien MCP meminta membuka sesi di browser Anda.",
+    "deviceOnly": "Pengaturan ini hanya berlaku untuk perangkat ini.",
+    "policy": {
+      "label": "Respons",
+      "accept": "Izinkan",
+      "ask": "Tanya setiap kali",
+      "reject": "Tolak"
+    },
+    "deviceName": {
+      "label": "Nama perangkat",
+      "description": "Nama yang dilaporkan perangkat ini ke klien MCP. Biarkan kosong untuk memakai nama bawaan yang diturunkan dari browser Anda."
+    }
+  },
   "connectedApps": {
     "title": "Aplikasi Terhubung",
     "description": "Aplikasi yang Anda izinkan untuk bertindak atas nama Anda melalui gateway MCP CloudCLI. Mencabut otorisasi langsung menolak setiap token yang diterbitkan di bawahnya.",

@@ -1,11 +1,17 @@
 ---
 id: GOAL-024
 title: MCP 错误契约统一：同一个信封、同一份 code 词表、权限不足说清缺什么、找不到就是错误、服务端文案统一英文
-status: active
+status: achieved
 kind: goal
 origin: 本会话（2026-10-06）对 ChatGPT 与 Gemini 接入真实经验的 MCP 接口契约审计，及人 yale
   同日指令：把审计清单落成 quay goal。
 activatedAt: 2026-10-06T12:13:28.253Z
+statusLog:
+  - at: 2026-10-07T02:04:22.198Z
+    from: active
+    to: achieved
+    actor: goal-driver
+    reason: "I2: all ACs achieved + sufficiency covered"
 ---
 
 ## 背景

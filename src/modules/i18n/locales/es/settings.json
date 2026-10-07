@@ -666,6 +666,21 @@
     "connectLabel": "Comando de conexión",
     "enableHint": "La puerta de enlace MCP no está activada. Define MCP_ENABLED=true en el entorno del servidor y reinicia CloudCLI para activarla."
   },
+  "mcpNavigation": {
+    "title": "Solicitudes de navegación",
+    "description": "Cómo responde este dispositivo cuando un cliente MCP pide abrir una sesión en tu navegador.",
+    "deviceOnly": "Esta configuración solo se aplica a este dispositivo.",
+    "policy": {
+      "label": "Respuesta",
+      "accept": "Permitir",
+      "ask": "Preguntar cada vez",
+      "reject": "Rechazar"
+    },
+    "deviceName": {
+      "label": "Nombre del dispositivo",
+      "description": "El nombre que este dispositivo comunica al cliente MCP. Déjalo vacío para usar un nombre predeterminado derivado de tu navegador."
+    }
+  },
   "connectedApps": {
     "title": "Aplicaciones conectadas",
     "description": "Aplicaciones que has autorizado a actuar en tu nombre a través de la pasarela MCP de CloudCLI. Revocar una autorización rechaza de inmediato todos los tokens emitidos bajo ella.",

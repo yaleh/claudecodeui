@@ -688,6 +688,21 @@
     "connectLabel": "接入命令",
     "enableHint": "MCP 网关未启用。请在服务器环境中设置 MCP_ENABLED=true 并重启 CloudCLI 以启用。"
   },
+  "mcpNavigation": {
+    "title": "导航请求",
+    "description": "当 MCP 客户端请求在你的浏览器中打开会话时，本设备如何响应。",
+    "deviceOnly": "此设置仅对本设备生效。",
+    "policy": {
+      "label": "响应方式",
+      "accept": "允许",
+      "ask": "每次询问",
+      "reject": "拒绝"
+    },
+    "deviceName": {
+      "label": "设备名",
+      "description": "本设备向 MCP 客户端报告的名称。留空则使用根据浏览器推断的默认名称。"
+    }
+  },
   "connectedApps": {
     "title": "已连接的应用",
     "description": "你已授权通过这些 CloudCLI MCP 网关代表你行事。吊销某个授权后，其下签发的所有令牌会立即被拒绝。",
