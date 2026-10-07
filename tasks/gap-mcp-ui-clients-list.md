@@ -30,11 +30,11 @@ depends_on:
 
 ## AC
 
-- [ ] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-clients-list.test.ts` 退出码 0：用假设备断言返回的 `devices[]` 含身份、标签页、可见性、策略，按 `lastFocusedAt` 降序；无设备时 `devices: []`；一个设备不应答时标 `unresponsive` 且整次调用在约 1.5s 内返回。
-- [ ] 同一测试文件断言：两台默认名相同的设备在返回里名字带不同的短后缀，且后缀在同一 `deviceId` 的两次调用间保持不变。
-- [ ] 同一测试文件断言：结构化返回中不出现消息正文、选中文本或会话标题以外的会话内容字段。
-- [ ] `grep -n "ui_clients_list" server/modules/mcp-gateway/mcp-tool-annotations.ts server/modules/mcp-gateway/mcp-tool-error-codes.ts server/modules/mcp-gateway/mcp-gateway.read-tools.ts` 三个文件均有命中，已有的 `mcp-tool-annotations.test.ts`、`mcp-error-vocabulary.test.ts` 逐文件运行退出码 0。
-- [ ] `npm run typecheck` 退出码 0；`quay-test-script.test.ts` 退出码 0（计数 pin 已同步）。
+- [x] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-clients-list.test.ts` 退出码 0：用假设备断言返回的 `devices[]` 含身份、标签页、可见性、策略，按 `lastFocusedAt` 降序；无设备时 `devices: []`；一个设备不应答时标 `unresponsive` 且整次调用在约 1.5s 内返回。
+- [x] 同一测试文件断言：两台默认名相同的设备在返回里名字带不同的短后缀，且后缀在同一 `deviceId` 的两次调用间保持不变。
+- [x] 同一测试文件断言：结构化返回中不出现消息正文、选中文本或会话标题以外的会话内容字段。
+- [x] `grep -n "ui_clients_list" server/modules/mcp-gateway/mcp-tool-annotations.ts server/modules/mcp-gateway/mcp-tool-error-codes.ts server/modules/mcp-gateway/mcp-gateway.read-tools.ts` 三个文件均有命中，已有的 `mcp-tool-annotations.test.ts`、`mcp-error-vocabulary.test.ts` 逐文件运行退出码 0。
+- [x] `npm run typecheck` 退出码 0；`quay-test-script.test.ts` 退出码 0（计数 pin 已同步）。
 
 ## DoD
 
@@ -49,5 +49,8 @@ depends_on:
 - server/modules/mcp-gateway/index.ts
 - server/index.ts
 - server/modules/mcp-gateway/tests/mcp-ui-clients-list.test.ts
+- server/modules/mcp-gateway/tests/mcp-read-tools.test.ts
+- server/modules/mcp-gateway/tests/mcp-english-only.test.ts
+- server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-mcp-ui-clients-list.md
