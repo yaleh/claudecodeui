@@ -28,7 +28,6 @@ const PANE = '.chat-messages-pane';
 /** The long seeded transcript the jump lands in — mirrors playwright.config.ts's own seed. */
 const TARGET_SESSION_ID = 'e2e-transcript-jump';
 const TARGET_SESSION_NAME = 'transcript-jump';
-const TARGET_PROJECT_NAME = 'transcript-jump-workspace';
 /** The session the run starts from: a different project's fixture, so the jump really moves. */
 const ORIGIN_SESSION_ID = 'e2e-transcript-jump-tall';
 const ORIGIN_SESSION_NAME = 'transcript-jump-tall';
@@ -244,44 +243,46 @@ const turnFor = (turns: OutlineTurn[], displayTurn: number): OutlineTurn => {
   return turn;
 };
 
-/** Whether the addressed row is on screen, and whether the whole row sits inside the pane's box. */
-type RowReading = { present: boolean; fully: boolean; turnNumber: number | null; offsetFromPaneTop: number | null };
+/** Whether the whole addressed row sits inside the pane's box, and which turn its own text names. */
+type RowReading = { fully: boolean; turnNumber: number | null };
 
 const readRow = (page: Page, anchorId: string): Promise<RowReading> =>
   page.evaluate((id) => {
     const pane = document.querySelector('.chat-messages-pane') as HTMLElement | null;
     const row = document.querySelector(`[data-message-anchor-id="${id}"]`) as HTMLElement | null;
-    if (!pane || !row) {
-      return { present: Boolean(row), fully: false, turnNumber: null, offsetFromPaneTop: null };
-    }
+    if (!pane || !row) return { fully: false, turnNumber: null };
     const paneRect = pane.getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
+    // The turn number comes from the row's own text: its anchor div mounts empty and already
+    // pane-sized a frame before the content commits, so geometry alone cannot tell the placed
+    // row from the placeholder it starts as.
     const match = /Turn (\d+)\./.exec(row.textContent ?? '');
     return {
-      present: true,
       fully: rowRect.top >= paneRect.top - 1 && rowRect.bottom <= paneRect.bottom + 1,
       turnNumber: match ? Number(match[1]) : null,
-      offsetFromPaneTop: Math.round(rowRect.top - paneRect.top),
     };
   }, anchorId);
 
 /**
- * Waits for the addressed turn to be fully inside the pane, then names it.
+ * Waits for the addressed turn to be fully inside the pane *and* to carry its own text.
  *
  * "Fully inside the pane" is the reading that says the viewport was *placed*: a row that
  * merely exists somewhere in a 4800-row document is not a jump, and a jump that stopped
- * short leaves the row half off the top. The turn number is read back from the row's own
- * text, so a jump that landed on a neighbour cannot pass as the addressed turn.
+ * short leaves the row half off the top. Naming the turn from the row's own text is what
+ * keeps the two ways of landing on nothing out of the pass: a neighbour's row, and the empty
+ * wrapper the anchor div is before its content commits — which is already fully inside the
+ * pane, so a geometry-only wait can be satisfied by a row that is not there yet.
  */
 const expectLandedOn = async (page: Page, anchorId: string, turn: number) => {
   await expect
-    .poll(async () => (await readRow(page, anchorId)).fully, {
-      message: `turn ${turn}'s row must be fully inside the transcript pane`,
+    .poll(async () => {
+      const row = await readRow(page, anchorId);
+      return row.fully && row.turnNumber === turn;
+    }, {
+      message: `turn ${turn}'s row must be fully inside the transcript pane and carry its own text`,
       timeout: 20_000,
     })
     .toBe(true);
-  const landed = await readRow(page, anchorId);
-  expect(landed.turnNumber, 'the placed row must be the addressed turn').toBe(turn);
 };
 
 /** This device's stored policy, read from the same localStorage key the settings hook uses. */

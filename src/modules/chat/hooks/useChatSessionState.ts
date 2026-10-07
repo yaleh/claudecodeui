@@ -521,6 +521,21 @@ export function useChatSessionState({
   const loadAllOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadedSessionKeyRef = useRef<string | null>(null);
   /**
+   * The session key whose first page this hook has requested but not yet seen
+   * land, or null when no such request is outstanding.
+   *
+   * `lastLoadedSessionKeyRef` alone cannot answer "have we already asked for
+   * this session's first page?": it is stamped when the request is *issued*, so
+   * while that request is in flight the slot still has no `fetchedAt` and the
+   * effect looks unhydrated. Any re-entry in that window — a session-list
+   * refresh handing back a new `selectedProject` object, say — then issues a
+   * second page. The duplicate is enqueued behind the first, so it lands last
+   * and overwrites whatever window the store holds by then, including the one a
+   * jump loaded in between. One outstanding first page per session, tracked
+   * here, is what makes re-entry a no-op.
+   */
+  const inFlightFirstPageKeyRef = useRef<string | null>(null);
+  /**
    * Tracks the last processed value from `useProjectsState.newSessionTrigger`.
    *
    * The trigger itself is intentionally increment-only and routed via:
@@ -1606,6 +1621,14 @@ export function useChatSessionState({
       return;
     }
 
+    // A first page for this session is already in flight. Re-entering the
+    // effect must not issue a second one: the duplicate is enqueued behind the
+    // outstanding request, so it lands last and replaces whatever window the
+    // store holds by then — including the one a jump loaded while the first
+    // page was still travelling. Nothing below needs to run again either: the
+    // resets it would do were already done when the request was issued.
+    if (inFlightFirstPageKeyRef.current === sessionKey) return;
+
     const sessionChanged = currentSessionId !== null && currentSessionId !== selectedSessionId;
     if (sessionChanged) {
       resetStreamingState();
@@ -1635,6 +1658,7 @@ export function useChatSessionState({
 
     // Fetch from server → store updates → chatMessages re-derives automatically
     setIsLoadingSessionMessages(true);
+    inFlightFirstPageKeyRef.current = sessionKey;
     sessionStore.fetchFromServer(selectedSessionId, {
       limit: SESSION_MESSAGES_PAGE_SIZE,
       offset: 0,
@@ -1654,6 +1678,12 @@ export function useChatSessionState({
       setIsLoadingSessionMessages(false);
     }).catch(() => {
       setIsLoadingSessionMessages(false);
+    }).finally(() => {
+      // Only the request that owns the key releases it: a later session change
+      // may already have stamped its own key here.
+      if (inFlightFirstPageKeyRef.current === sessionKey) {
+        inFlightFirstPageKeyRef.current = null;
+      }
     });
   }, [
     isActive,
