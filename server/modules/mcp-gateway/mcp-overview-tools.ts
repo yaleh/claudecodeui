@@ -227,10 +227,10 @@ function summarizeCachedQuay(snapshot: QuaySnapshot): McpOverviewQuayEntry {
 /**
  * Builds the reading.
  *
- * With no {@link buildOverview}'s second argument the reading is the WHOLE
- * workspace; with a `projectId` every list is restricted to that one project
- * (see the parameter's note). Either way the quay side iterates the in-scope
- * project listing and, per project, asks only {@link CachedQuayReader}: a project
+ * Without a `projectId` the reading is the WHOLE workspace; with one, every list
+ * is restricted to that single project (see the parameter's note). Either way
+ * the quay side iterates the in-scope project listing and, per project, asks
+ * only {@link CachedQuayReader}: a project
  * without `.quay/config.yml` reads {@link NO_QUAY_NOTE}, one whose snapshot is
  * not cached reads {@link UNKNOWN_QUAY_NOTE}, and a cache hit carries the task
  * counts, driver state and suite state. No path here touches `refresh`, so the
