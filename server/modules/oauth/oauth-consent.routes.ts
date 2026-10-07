@@ -36,7 +36,6 @@
 import express from 'express';
 import type { RequestHandler } from 'express';
 
-import { OAUTH_CONSENT_SPA_PATH } from '../../../shared/oauthConsent.js';
 import type { OAuthClientRow } from '@/modules/database/index.js';
 import {
   consentScopeOptions,
@@ -45,6 +44,8 @@ import {
 } from '@/modules/oauth/oauth-consent.service.js';
 import type { OAuthConsentClients } from '@/modules/oauth/oauth-consent.service.js';
 import type { OAuthProvider } from '@/modules/oauth/oauth-provider.service.js';
+
+import { OAUTH_CONSENT_SPA_PATH } from '../../../shared/oauthConsent.js';
 
 /** `authenticateToken` attaches the DB user row; this is the shape both JSON routes read. */
 type AuthenticatedRequest = express.Request & { user?: { id?: number | string } };
