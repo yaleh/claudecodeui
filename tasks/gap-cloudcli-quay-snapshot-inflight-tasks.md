@@ -142,7 +142,7 @@ project/session 名称模糊解析（`resolveDeps`）、并裁定 `overview` 的
 
 ## AC
 
-- [ ] AC1 红态基线（先用真实的 fixture 固定住"现在看不到"这个事实，再修复）：构造一个最小
+- [x] AC1 红态基线（先用真实的 fixture 固定住"现在看不到"这个事实，再修复）：构造一个最小
   fixture——注入的 `QuayFileReader` 假体里 `.quay/worker-round.jsonl` 内容为一条 JSONL 记录
   `{"at":"2026-10-07T00:00:00.000Z","pid":4242,"inFlightTasks":["gap-example-task"],
   "inFlightTaskStarts":{"gap-example-task":"2026-10-06T23:50:00.000Z"}}`，`driver status
@@ -152,27 +152,27 @@ project/session 名称模糊解析（`resolveDeps`）、并裁定 `overview` 的
   `quay.service.test.ts` 同形夹具，逐字记录：返回的 `QuaySnapshot` 里没有任何字段的值等于
   `"gap-example-task"`（`JSON.stringify` 全量搜索该字符串，命中数为 0）——这就是"Quay Web
   能看到 running task，但 CloudCLI 看不到"的最小复现，写下完整命令与完整输出。
-- [ ] AC2 判据绿：`env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test
+- [x] AC2 判据绿：`env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test
   server/modules/quay/tests/quay.service.test.ts` 新增覆盖：同 AC1 的夹具，断言
   `snapshot.inFlight` 等于
   `[{"taskId":"gap-example-task","phase":"implementing","startedAt":"2026-10-06T23:50:00.000Z",
   "lastHeartbeat":"2026-10-07T00:00:00.000Z","workerPid":4242}]`（逐字比对，不是存在性检查）。
-- [ ] AC3 `phase` 两态都要覆盖：追加一个该 task 在 `worker-outcome.jsonl`（`fanIn` 读数来源）
+- [x] AC3 `phase` 两态都要覆盖：追加一个该 task 在 `worker-outcome.jsonl`（`fanIn` 读数来源）
   里有一条 `lockAcquireEpoch` 非 null 且 `lockReleaseEpoch` 为 null 的尝试的夹具，断言该 task
   的 `phase === 'fan-in'`；另一个在飞 task 没有未释放的 fan-in 锁尝试，断言其 `phase ===
   'implementing'`（正例对照：两种 phase 都真实出现，防止"一律某一态"也能通过）。
-- [ ] AC4 `inFlight` 的 null-vs-空区分：`worker-round.jsonl` 不存在时 `snapshot.inFlight ===
+- [x] AC4 `inFlight` 的 null-vs-空区分：`worker-round.jsonl` 不存在时 `snapshot.inFlight ===
   null`；存在但其最新记录 `inFlightTasks` 为 `[]` 时 `snapshot.inFlight` 深等于 `[]`（两者
   不得混淆，逐字写两个读数）。
-- [ ] AC5 `quay_snapshot` 端到端：在 `server/modules/mcp-gateway/tests/mcp-overview.test.ts`
+- [x] AC5 `quay_snapshot` 端到端：在 `server/modules/mcp-gateway/tests/mcp-overview.test.ts`
   里追加同形夹具，经真实 HTTP + MCP SDK 客户端调用 `quay_snapshot({project, refresh:true})`，
   断言返回体的 `snapshot.inFlight` 与 AC2 同形逐字一致；并断言 `overview` 的输出里该项目的
   quay 条目**没有** `inFlight` 这个 key（证明本任务刻意不扩 `overview`，范围没有越界）。
-- [ ] AC6 不越界/不回归：`grep -n "inFlight" server/modules/mcp-gateway/mcp-gateway.read-tools.ts`
+- [x] AC6 不越界/不回归：`grep -n "inFlight" server/modules/mcp-gateway/mcp-gateway.read-tools.ts`
   为空（没有新增/改动 `sessions_list` 或其他工具的注册）；
   `server/modules/mcp-gateway/tests/mcp-read-tools.test.ts` 不改一字仍逐字通过（写 tests/pass/
   fail 计数）；`npm run typecheck` 退出 0；`npm run lint` 的 `: error ` 计数为 0。
-- [ ] AC7 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐，列出实际改动文件清单
+- [x] AC7 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐，列出实际改动文件清单
   （新增文件用 ` (new)` 标注）。
 
 ## DoD
@@ -199,6 +199,7 @@ project/session 名称模糊解析（`resolveDeps`）、并裁定 `overview` 的
 - server/modules/mcp-gateway/mcp-overview-tools.ts
 - server/modules/quay/tests/quay.service.test.ts
 - server/modules/mcp-gateway/tests/mcp-overview.test.ts
+- server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts
 - tasks/gap-cloudcli-quay-snapshot-inflight-tasks.md
 
 ## Notes
