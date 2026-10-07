@@ -344,5 +344,18 @@
   },
   "workspaceMenu": {
     "trigger": "その他の操作"
+  },
+  "uiNavigate": {
+    "title": "外部クライアントがセッションを開こうとしています",
+    "requester": "{{name}} から",
+    "targetSession": "セッション: {{title}}",
+    "unknownSession": "別のセッション",
+    "atLatest": "最新のメッセージ",
+    "atMessage": "指定したメッセージ",
+    "jump": "移動",
+    "ignore": "無視",
+    "settingsHint": "最後の 2 つはこのデバイスの設定を変更します",
+    "alwaysAccept": "常に許可",
+    "alwaysReject": "常に拒否"
   }
 }

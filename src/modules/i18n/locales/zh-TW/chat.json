@@ -401,5 +401,18 @@
     "handleTitle": "點擊開關，拖動移動",
     "empty": "暫無輸入",
     "untitled": "（無文字）"
+  },
+  "uiNavigate": {
+    "title": "外部用戶端要求開啟工作階段",
+    "requester": "來自 {{name}}",
+    "targetSession": "工作階段：{{title}}",
+    "unknownSession": "另一個工作階段",
+    "atLatest": "最新訊息",
+    "atMessage": "指定的訊息",
+    "jump": "跳轉",
+    "ignore": "忽略",
+    "settingsHint": "後兩項會修改本裝置設定",
+    "alwaysAccept": "總是接受",
+    "alwaysReject": "總是拒絕"
   }
 }

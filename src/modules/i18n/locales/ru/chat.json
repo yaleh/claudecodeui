@@ -357,5 +357,18 @@
   },
   "workspaceMenu": {
     "trigger": "Дополнительные действия"
+  },
+  "uiNavigate": {
+    "title": "Внешний клиент хочет открыть сеанс",
+    "requester": "От {{name}}",
+    "targetSession": "Сеанс: {{title}}",
+    "unknownSession": "Другой сеанс",
+    "atLatest": "Последние сообщения",
+    "atMessage": "Определённое сообщение",
+    "jump": "Перейти",
+    "ignore": "Игнорировать",
+    "settingsHint": "Последние два изменяют настройку этого устройства",
+    "alwaysAccept": "Всегда принимать",
+    "alwaysReject": "Всегда отклонять"
   }
 }

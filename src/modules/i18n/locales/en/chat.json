@@ -469,5 +469,18 @@
     "handleTitle": "Click to toggle, drag to move",
     "empty": "No inputs yet",
     "untitled": "(no text)"
+  },
+  "uiNavigate": {
+    "title": "An external client wants to open a session",
+    "requester": "From {{name}}",
+    "targetSession": "Session: {{title}}",
+    "unknownSession": "Another session",
+    "atLatest": "Latest messages",
+    "atMessage": "A specific message",
+    "jump": "Jump",
+    "ignore": "Ignore",
+    "settingsHint": "The last two change this device's setting",
+    "alwaysAccept": "Always accept",
+    "alwaysReject": "Always reject"
   }
 }

@@ -386,5 +386,18 @@
     "handleTitle": "点击开关，拖动移动",
     "empty": "暂无输入",
     "untitled": "（无文本）"
+  },
+  "uiNavigate": {
+    "title": "外部客户端请求打开会话",
+    "requester": "来自 {{name}}",
+    "targetSession": "会话：{{title}}",
+    "unknownSession": "另一个会话",
+    "atLatest": "跳到最新消息",
+    "atMessage": "跳到指定消息",
+    "jump": "跳转",
+    "ignore": "忽略",
+    "settingsHint": "后两项会修改本设备设置",
+    "alwaysAccept": "总是接受",
+    "alwaysReject": "总是拒绝"
   }
 }

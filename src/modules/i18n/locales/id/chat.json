@@ -449,5 +449,18 @@
   },
   "workspaceMenu": {
     "trigger": "Tindakan lainnya"
+  },
+  "uiNavigate": {
+    "title": "Klien eksternal ingin membuka sesi",
+    "requester": "Dari {{name}}",
+    "targetSession": "Sesi: {{title}}",
+    "unknownSession": "Sesi lain",
+    "atLatest": "Pesan terbaru",
+    "atMessage": "Pesan tertentu",
+    "jump": "Lompat",
+    "ignore": "Abaikan",
+    "settingsHint": "Dua tombol terakhir mengubah pengaturan perangkat ini",
+    "alwaysAccept": "Selalu terima",
+    "alwaysReject": "Selalu tolak"
   }
 }

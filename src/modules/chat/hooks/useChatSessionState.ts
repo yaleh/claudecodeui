@@ -1733,10 +1733,16 @@ export function useChatSessionState({
    * This is the one jump the sidebar search and the navigation rail share; there
    * is no second copy of "load around, widen, wait for the commit, scroll,
    * detach, highlight".
+   *
+   * Answers whether the id was found in the window that was read. The scroll
+   * itself is placed on a later animation frame, so the answer means "the
+   * transcript now holds this message and the viewport is being moved to it" —
+   * which is exactly what a caller relaying a location request back to an
+   * external client needs to report a message it could not find.
    */
-  const jumpToMessage = useCallback(async (anchorId: string) => {
+  const jumpToMessage = useCallback(async (anchorId: string): Promise<boolean> => {
     const sessionId = activeSessionIdRef.current;
-    if (!sessionId || !anchorId) return;
+    if (!sessionId || !anchorId) return false;
 
     // A superseding jump takes the viewport from the previous one: the old
     // correction window is abandoned before the new claim is laid down, so its
@@ -1758,7 +1764,10 @@ export function useChatSessionState({
         before: JUMP_WINDOW_BEFORE,
         after: JUMP_WINDOW_AFTER,
       });
-      if (!stillHere()) return releaseJump();
+      if (!stillHere()) {
+        releaseJump();
+        return false;
+      }
 
       setHasMoreMessages(slot.hasMore);
       setTotalMessages(slot.total);
@@ -1771,7 +1780,12 @@ export function useChatSessionState({
         normalizedToChatMessages(sessionStore.getMessages(sessionId)),
       );
       const targetIndex = projected.findIndex((message) => anchorIdOf(message) === anchorId);
-      if (targetIndex < 0) return releaseJump();
+      if (targetIndex < 0) {
+        // The window came back without the id: the message does not exist (or is
+        // past the end of the transcript), so nothing was placed.
+        releaseJump();
+        return false;
+      }
 
       setVisibleMessageCount((previous) => Math.max(
         previous,
@@ -1827,9 +1841,13 @@ export function useChatSessionState({
       };
 
       searchScrollFrameRef.current = requestAnimationFrame(scrollToRenderedTarget);
+      // Found in the window and the placement is queued: the caller can report
+      // the location as performed even though the scroll lands a frame later.
+      return true;
     } catch (error) {
       console.error('Error jumping to a message:', error);
       releaseJump();
+      return false;
     }
   }, [releaseJump, sessionStore, writeScrollTop]);
 

@@ -378,5 +378,18 @@
   },
   "workspaceMenu": {
     "trigger": "Más acciones"
+  },
+  "uiNavigate": {
+    "title": "Un cliente externo quiere abrir una sesión",
+    "requester": "De {{name}}",
+    "targetSession": "Sesión: {{title}}",
+    "unknownSession": "Otra sesión",
+    "atLatest": "Últimos mensajes",
+    "atMessage": "Un mensaje concreto",
+    "jump": "Ir",
+    "ignore": "Ignorar",
+    "settingsHint": "Los dos últimos cambian la configuración de este dispositivo",
+    "alwaysAccept": "Aceptar siempre",
+    "alwaysReject": "Rechazar siempre"
   }
 }

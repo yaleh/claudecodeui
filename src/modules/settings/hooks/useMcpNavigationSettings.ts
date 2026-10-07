@@ -107,6 +107,22 @@ export const readMcpNavigationPolicy = (): McpNavigationPolicy => {
 };
 
 /**
+ * Writes this device's MCP navigation policy straight to localStorage, without React. Used
+ * by features that let the user settle a decision permanently (the navigation prompt's
+ * "always accept" / "always reject"), so a reader mounted afterwards — the settings section —
+ * sees the new choice without a reload. Storage failures are swallowed: the choice then
+ * applies only to the current page's lifetime, which is still better than throwing inside a
+ * websocket handler.
+ */
+export const writeMcpNavigationPolicy = (policy: McpNavigationPolicy): void => {
+  try {
+    localStorage.setItem(MCP_NAVIGATION_POLICY_STORAGE_KEY, policy);
+  } catch {
+    // The caller's in-memory choice still applies while this page lives.
+  }
+};
+
+/**
  * Reads this device's name straight from localStorage, without React. An unset or blank
  * stored name answers the User-Agent-derived default, so the device always has a name.
  */

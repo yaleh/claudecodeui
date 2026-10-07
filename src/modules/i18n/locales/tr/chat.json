@@ -357,5 +357,18 @@
   },
   "workspaceMenu": {
     "trigger": "Diğer işlemler"
+  },
+  "uiNavigate": {
+    "title": "Harici bir istemci oturum açmak istiyor",
+    "requester": "{{name}} tarafından",
+    "targetSession": "Oturum: {{title}}",
+    "unknownSession": "Başka bir oturum",
+    "atLatest": "En son mesajlar",
+    "atMessage": "Belirli bir mesaj",
+    "jump": "Git",
+    "ignore": "Yoksay",
+    "settingsHint": "Son ikisi bu cihazın ayarını değiştirir",
+    "alwaysAccept": "Her zaman kabul et",
+    "alwaysReject": "Her zaman reddet"
   }
 }

@@ -558,6 +558,71 @@ export type UiHelloFrame = {
   deviceName: string;
 };
 
+//----------------- MCP-DRIVEN UI NAVIGATION ------------
+
+/**
+ * Where an incoming navigation request wants the target session positioned.
+ *
+ * Exactly two placements are supported: `{ latest: true }` pins the transcript
+ * to the newest turns, and `{ messageId }` centres one message. A request that
+ * carries neither is treated as `{ latest: true }`, so the common case needs no
+ * field at all.
+ */
+export type UiNavigateTarget =
+  | { latest: true }
+  | { messageId: string };
+
+/**
+ * A request from an external MCP caller — relayed by the server — for this
+ * device's browser to open a session and place the transcript inside it.
+ *
+ * `requester` names the calling client (shown in the confirmation prompt) and
+ * `navigationId` correlates the reply frames with this request. The right to
+ * act belongs to this device's own policy, which is why the frame asks rather
+ * than instructs.
+ */
+export type UiNavigateFrame = {
+  type: 'ui.navigate';
+  navigationId: string;
+  requester: string;
+  sessionId: string;
+  at?: UiNavigateTarget;
+};
+
+/** The three delivery states this browser can answer a `ui.navigate` with; the server waits only for this frame. */
+export type UiNavigateAckStatus = 'shown' | 'applied' | 'declined';
+
+/** The states a navigation can settle into *after* its acknowledgement, once the user has answered the prompt or the request has lapsed. */
+export type UiNavigateResultStatus = 'applied' | 'declined' | 'ignored' | 'superseded' | 'expired';
+
+/**
+ * The acknowledgement this browser sends the server for a `ui.navigate`.
+ *
+ * It answers "what did this device do with the request" at the moment it is
+ * received: `reject` policies answer `declined`, an accepted request answers
+ * `applied`, and a prompt that was shown answers `shown`. `reason` carries the
+ * policy decision or a partial-success cause (for example a message id that
+ * could not be located) and is absent when the status alone says everything.
+ */
+export type UiNavigateAckFrame = {
+  type: 'ui.navigate_ack';
+  navigationId: string;
+  status: UiNavigateAckStatus;
+  reason?: string;
+};
+
+/**
+ * The frame a navigation settles into when its outcome only becomes known after
+ * the user answers the prompt (or never answers it): applied, declined, ignored,
+ * superseded by a newer request, or expired.
+ */
+export type UiNavigateResultFrame = {
+  type: 'ui.navigate_result';
+  navigationId: string;
+  status: UiNavigateResultStatus;
+  reason?: string;
+};
+
 /**
  * One frame received from the chat websocket. The server guarantees every
  * frame carries a `kind` (provider message kinds plus gateway kinds such as

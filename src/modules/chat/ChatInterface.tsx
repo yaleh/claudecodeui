@@ -24,6 +24,8 @@ import InputOutlineDrawer from '@/modules/chat/outline/InputOutlineDrawer';
 import { useChatRealtimeHandlers } from '@/modules/chat/hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '@/modules/chat/hooks/useChatComposerState';
 import { useSessionStore } from '@/modules/chat/hooks/useSessionStore';
+import { useUiNavigate } from '@/modules/chat/hooks/useUiNavigate';
+import UiNavigatePrompt from '@/modules/chat/components/UiNavigatePrompt';
 import { subscribeTargetFor } from '@/modules/chat/utils/replayCursor';
 import {
   useProcessingSessions,
@@ -219,6 +221,49 @@ function ChatInterface({
     chatMessages,
   });
   const { isMobile } = useDeviceSettings({ trackPWA: false });
+
+  /** Opens a session on the workspace's route, the way a sidebar click would. */
+  const handleUiNavigateToSession = useCallback((sessionId: string) => {
+    onNavigateToSession?.(sessionId);
+  }, [onNavigateToSession]);
+
+  /**
+   * Names the session an incoming navigation targets, for the confirmation bar.
+   *
+   * The project's own listing already carries every session's title, so the bar
+   * can name a session that is not the open one; the open session is consulted
+   * as well because a freshly created session reaches `selectedSession` before
+   * the listing is refreshed.
+   */
+  const resolveUiNavigateSessionTitle = useCallback((sessionId: string): string | null => {
+    const listed = selectedProject?.sessions?.find((session) => session.id === sessionId);
+    const listedTitle = listed?.summary || listed?.title || listed?.name;
+    if (listedTitle && listedTitle.trim()) {
+      return listedTitle.trim();
+    }
+    if (selectedSession?.id === sessionId) {
+      const openTitle = selectedSession.summary || selectedSession.title;
+      return openTitle && openTitle.trim() ? openTitle.trim() : null;
+    }
+    return null;
+  }, [selectedProject, selectedSession]);
+
+  // Incoming MCP navigation requests: an external client asking this device to
+  // open a session and place the transcript inside it. Mounted here rather than
+  // in the websocket provider because the two entries that actually place the
+  // transcript — `jumpToMessage` and `scrollToBottomAndReset` — live in this
+  // component's session state, while the provider sits above the router and owns
+  // no route of its own. `subscribe` is the provider's own fan-out, so this is
+  // the same socket the rest of the app reads.
+  const uiNavigate = useUiNavigate({
+    subscribe,
+    sendMessage,
+    navigateToSession: handleUiNavigateToSession,
+    activeSessionId: currentSessionId ?? selectedSession?.id ?? null,
+    locateMessage: jumpToMessage,
+    scrollToLatest: scrollToBottomAndReset,
+    resolveSessionTitle: resolveUiNavigateSessionTitle,
+  });
 
   // Publish this conversation's export into the shared seam the workspace
   // header's overflow menu reads, so the menu can offer Export without either
@@ -590,6 +635,18 @@ function ChatInterface({
   return (
     <PermissionContext.Provider value={permissionContextValue}>
       <div className="flex h-full min-h-0 flex-col">
+        {uiNavigate.prompt && (
+          <UiNavigatePrompt
+            requester={uiNavigate.prompt.requester}
+            sessionTitle={uiNavigate.prompt.sessionTitle}
+            target={uiNavigate.prompt.target}
+            onJump={uiNavigate.accept}
+            onIgnore={uiNavigate.ignore}
+            onAlwaysAccept={uiNavigate.alwaysAccept}
+            onAlwaysReject={uiNavigate.alwaysReject}
+          />
+        )}
+
         <MarkdownWorkspaceContext.Provider value={markdownWorkspaceValue}>
           <ChatMessagesPane
             scrollContainerRef={scrollContainerRef}
