@@ -31,6 +31,14 @@ type CacheEntry = {
   mtimeMs: number;
   /** File size in bytes; doubles as the entry's cost against the byte budget. */
   size: number;
+  /**
+   * Whether the session was running when `full` was read. Part of the entry's
+   * identity, not just its payload: a running read withholds the last turn's
+   * `forkAnchorId`, so serving it back after the run ends (the file is
+   * unchanged for a beat) would hand the client a final reply with no fork
+   * button — and the reverse would offer a fork into a half-written turn.
+   */
+  running: boolean;
   full: FetchHistoryResult;
   /**
    * Opaque parse state the reader returned for `full`, handed back to it on the
@@ -44,6 +52,11 @@ type GetFullHistoryArgs = {
   sessionId: string;
   /** Path of the file the provider's history reader actually parses, or null to bypass. */
   transcriptPath: string | null | undefined;
+  /**
+   * Whether the session's run is in flight right now. Rides the entry identity
+   * so a running/idle flip re-reads rather than serving the other's result.
+   */
+  running?: boolean;
   /** Loads the complete transcript (`limit: null, offset: 0`) from the provider. */
   loadFull: () => Promise<FetchHistoryResult>;
 };
@@ -112,7 +125,7 @@ export function createSessionHistoryCache(
      * the session is not cacheable (no transcript path, or the file cannot be
      * stat'ed) — the caller then falls back to a plain provider read.
      */
-    async getFullHistory({ sessionId, transcriptPath, loadFull }: GetFullHistoryArgs): Promise<FetchHistoryResult | null> {
+    async getFullHistory({ sessionId, transcriptPath, running = false, loadFull }: GetFullHistoryArgs): Promise<FetchHistoryResult | null> {
       if (!transcriptPath) {
         return null;
       }
@@ -135,6 +148,7 @@ export function createSessionHistoryCache(
         && cached.transcriptPath === transcriptPath
         && cached.mtimeMs === stat.mtimeMs
         && cached.size === stat.size
+        && cached.running === running
       ) {
         // Re-insert to mark as most recently used.
         entries.delete(sessionId);
@@ -169,6 +183,7 @@ export function createSessionHistoryCache(
             transcriptPath,
             mtimeMs: stat.mtimeMs,
             size: stat.size,
+            running,
             full,
             resume: context.producedResume,
           });

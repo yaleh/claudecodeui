@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { ClaudeSessionsProvider } from '@/modules/providers/list/claude/claude-sessions.provider.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import type { IProviderFork } from '@/shared/interfaces.js';
@@ -192,4 +193,136 @@ test('forking a session that does not exist is a 404', async () => {
       (error: Error & { code?: string }) => error.code === 'SESSION_NOT_FOUND',
     );
   });
+});
+
+// ---------------------------------------------------------------------------
+// real SDK fork, anchored on an assistant reply
+// ---------------------------------------------------------------------------
+
+/** The SDK sanitizes a project path by replacing every non-alphanumeric with `-`. */
+const encodeProjectDir = (projectPath: string): string => projectPath.replace(/[^a-zA-Z0-9]/g, '-');
+
+const REAL_FORK_SOURCE_ID = 'real-fork-source';
+const REAL_FORK_PROJECT_PATH = '/workspace/demo';
+// Real UUIDs: the SDK validates both the session id and `upToMessageId` against
+// a uuid shape and refuses anything else before it ever looks the session up.
+const REAL_FORK_PROVIDER_SESSION_ID = '77777777-7777-4777-8777-777777777777';
+const U1 = '11111111-1111-4111-8111-111111111111';
+const A1 = '22222222-2222-4222-8222-222222222222';
+const U2 = '33333333-3333-4333-8333-333333333333';
+const A2 = '44444444-4444-4444-8444-444444444444';
+const U3 = '55555555-5555-4555-8555-555555555555';
+const A3 = '66666666-6666-4666-8666-666666666666';
+
+/**
+ * A two-turn transcript whose first turn calls a tool, so a fork cut at the
+ * first answer has a tool_use to leave behind. Written where the SDK looks for
+ * it: `<CLAUDE_CONFIG_DIR>/projects/<sanitized-cwd>/<id>.jsonl`.
+ */
+async function writeRealForkTranscript(configDir: string, providerSessionId: string): Promise<string> {
+  const projectsDir = path.join(configDir, 'projects', encodeProjectDir(REAL_FORK_PROJECT_PATH));
+  await mkdir(projectsDir, { recursive: true });
+  const rows = [
+    { type: 'user', uuid: U1, parentUuid: null, sessionId: providerSessionId, cwd: REAL_FORK_PROJECT_PATH, timestamp: '2026-08-23T10:00:00.000Z', message: { role: 'user', content: 'first question' } },
+    { type: 'assistant', uuid: A1, parentUuid: U1, sessionId: providerSessionId, cwd: REAL_FORK_PROJECT_PATH, timestamp: '2026-08-23T10:00:01.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'let me check.' }, { type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: '/a' } }] } },
+    { type: 'user', uuid: U2, parentUuid: A1, sessionId: providerSessionId, cwd: REAL_FORK_PROJECT_PATH, timestamp: '2026-08-23T10:00:02.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }] } },
+    { type: 'assistant', uuid: A2, parentUuid: U2, sessionId: providerSessionId, cwd: REAL_FORK_PROJECT_PATH, timestamp: '2026-08-23T10:00:03.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'first answer' }] } },
+    { type: 'user', uuid: U3, parentUuid: A2, sessionId: providerSessionId, cwd: REAL_FORK_PROJECT_PATH, timestamp: '2026-08-23T10:00:04.000Z', message: { role: 'user', content: 'second question' } },
+    { type: 'assistant', uuid: A3, parentUuid: U3, sessionId: providerSessionId, cwd: REAL_FORK_PROJECT_PATH, timestamp: '2026-08-23T10:00:05.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'second answer' }] } },
+  ];
+  const transcriptPath = path.join(projectsDir, `${providerSessionId}.jsonl`);
+  await writeFile(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+  return transcriptPath;
+}
+
+test('a fork cut at an assistant forkAnchorId ends at that reply with no dangling tool_use', { concurrency: false }, async () => {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'session-fork-real-'));
+  const configDir = path.join(tempRoot, '.claude');
+  const providerSessionId = REAL_FORK_PROVIDER_SESSION_ID;
+
+  closeConnection();
+  process.env.DATABASE_PATH = path.join(tempRoot, 'auth.db');
+  await initializeDatabase();
+
+  try {
+    const transcriptPath = await writeRealForkTranscript(configDir, providerSessionId);
+    const now = new Date().toISOString();
+    sessionsDb.createSession(
+      REAL_FORK_SOURCE_ID,
+      'claude',
+      REAL_FORK_PROJECT_PATH,
+      'Original session',
+      now,
+      now,
+      transcriptPath,
+    );
+    sessionsDb.assignProviderSessionId(REAL_FORK_SOURCE_ID, providerSessionId);
+
+    // The anchor comes from the field the product writes, not from a literal:
+    // this is what the fork button would send. `CLAUDE_CONFIG_DIR` is what the
+    // real SDK resolves its projects directory from, so the fixture above is
+    // where it will look.
+    const history = await new ClaudeSessionsProvider().fetchHistory(REAL_FORK_SOURCE_ID, {
+      providerSessionId,
+      projectPath: REAL_FORK_PROJECT_PATH,
+    });
+    const firstAnswer = history.messages.find((message) => message.content === 'first answer');
+    assert.ok(firstAnswer, 'the first turn’s answer should be in the transcript');
+    const forkAnchorId = firstAnswer.forkAnchorId;
+    assert.equal(forkAnchorId, A2, 'the first turn’s fork anchor is its final assistant row');
+
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    const result = await sessionsService.forkSessionById(REAL_FORK_SOURCE_ID, { upToAnchorId: forkAnchorId });
+
+    const forked = sessionsDb.getSessionById(result.sessionId);
+    assert.ok(forked?.jsonl_path, 'the fork should record where its transcript landed');
+    const forkedRows = (await readFile(forked.jsonl_path, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { type?: string; message?: { role?: string; content?: unknown } });
+
+    // The SDK appends a `custom-title` bookkeeping row of its own; the product's
+    // last *message* row is what the conversation ends on.
+    const messageRows = forkedRows.filter((row) => row.type === 'user' || row.type === 'assistant');
+    const lastRow = messageRows[messageRows.length - 1];
+    assert.equal(lastRow?.type, 'assistant');
+    assert.deepEqual(lastRow?.message?.content, [{ type: 'text', text: 'first answer' }]);
+    // Nothing from the second turn leaked into the branch.
+    assert.equal(messageRows.some((row) => JSON.stringify(row.message?.content ?? '').includes('second')), false);
+
+    const toolUseIds: string[] = [];
+    const toolResultIds: string[] = [];
+    for (const row of messageRows) {
+      const content = row.message?.content;
+      if (!Array.isArray(content)) {
+        continue;
+      }
+      for (const part of content as Array<{ type?: string; id?: string; tool_use_id?: string }>) {
+        if (part.type === 'tool_use' && part.id) {
+          toolUseIds.push(part.id);
+        }
+        if (part.type === 'tool_result' && part.tool_use_id) {
+          toolResultIds.push(part.tool_use_id);
+        }
+      }
+    }
+    const danglingToolUse = toolUseIds.filter((id) => !toolResultIds.includes(id));
+    assert.deepEqual(danglingToolUse, []);
+    console.log(`danglingToolUse=${danglingToolUse.length} lastRow=assistant`);
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) {
+      delete process.env.DATABASE_PATH;
+    } else {
+      process.env.DATABASE_PATH = previousDatabasePath;
+    }
+    if (previousConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+    }
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });

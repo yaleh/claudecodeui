@@ -589,6 +589,7 @@ function ChatMessagesPane({
                             provider={provider}
                             onEditMessage={onEditMessage}
                             onForkFromMessage={onForkFromMessage}
+                            isSessionRunning={isProcessing}
                           />
                         )}
                       />
@@ -639,6 +640,7 @@ function ChatMessagesPane({
                     provider={provider}
                     onEditMessage={onEditMessage}
                     onForkFromMessage={onForkFromMessage}
+                    isSessionRunning={isProcessing}
                   />
                 </LazyMessageRow>
               );

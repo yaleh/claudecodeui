@@ -373,6 +373,9 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       // Carried through so a rendered user bubble can address its own
       // transcript row when the user edits or forks from it.
       transcriptAnchorId: msg.transcriptAnchorId,
+      // The turn-ending reply's fork anchor, carried so a rendered assistant
+      // bubble can offer "fork from this answer".
+      forkAnchorId: msg.forkAnchorId,
       compact: msg.compact,
     };
 

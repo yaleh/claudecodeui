@@ -971,6 +971,106 @@ function buildLocalCommandDisplayText(payload: ClaudeLocalCommandPayload): strin
   return commandArgs ? `${baseCommand} ${commandArgs}` : baseCommand;
 }
 
+/**
+ * The transcript row's own identity, or null when it carries none.
+ *
+ * A synthesized id cannot serve as a fork anchor: it is minted per read, so the
+ * row it named at render time would not be the row a later fork cut finds.
+ */
+function readClaudeRowUuid(raw: AnyRecord): string | null {
+  return typeof raw.uuid === 'string' && raw.uuid ? raw.uuid : null;
+}
+
+/**
+ * Whether a row is a real user prompt — not a tool result and not a row the CLI
+ * injected. Only these open a turn for fork-anchor purposes.
+ */
+function isClaudePromptRow(raw: AnyRecord): boolean {
+  if (raw.type !== 'user' || raw.isMeta) {
+    return false;
+  }
+  const content = raw.message?.content;
+  if (typeof content === 'string') {
+    return content.trim().length > 0;
+  }
+  if (Array.isArray(content)) {
+    return content.some(
+      (part: AnyRecord) => part?.type === 'text' && typeof part.text === 'string' && part.text.trim().length > 0,
+    );
+  }
+  return false;
+}
+
+/** Whether an assistant row contributes text the user actually reads. */
+function isClaudeAssistantTextRow(raw: AnyRecord): boolean {
+  if (raw.type !== 'assistant' || raw.message?.role !== 'assistant') {
+    return false;
+  }
+  const content = raw.message?.content;
+  if (typeof content === 'string') {
+    return content.trim().length > 0;
+  }
+  if (Array.isArray(content)) {
+    return content.some(
+      (part: AnyRecord) => part?.type === 'text' && typeof part.text === 'string' && part.text.trim().length > 0,
+    );
+  }
+  return false;
+}
+
+/**
+ * The uuid of the row each turn should be forked from.
+ *
+ * A turn runs from one real user prompt to the next. Its fork anchor is the
+ * *last* assistant row in it that carried text, so a fork lands after the whole
+ * answer — not beside the intermediate "let me check" that precedes a tool
+ * call, which would cut the turn mid-flight. The last text row is also the one
+ * the transcript draws as the turn's final reply.
+ *
+ * The final turn is skipped while `running`: its answer is still arriving, and
+ * a fork cut at a half-written turn copies an incomplete exchange. It is
+ * skipped only for that window — once the session is idle the anchor is
+ * written again, so the button is withheld, never lost.
+ */
+function collectClaudeForkAnchorUuids(rawMessages: AnyRecord[], running: boolean): Set<string> {
+  const turns: string[][] = [];
+  let currentTurnTextRowUuids: string[] = [];
+
+  for (const raw of rawMessages) {
+    if (isClaudePromptRow(raw)) {
+      if (currentTurnTextRowUuids.length > 0) {
+        turns.push(currentTurnTextRowUuids);
+      }
+      currentTurnTextRowUuids = [];
+      continue;
+    }
+    if (isClaudeAssistantTextRow(raw)) {
+      const uuid = readClaudeRowUuid(raw);
+      if (uuid) {
+        currentTurnTextRowUuids.push(uuid);
+      }
+    }
+  }
+  if (currentTurnTextRowUuids.length > 0) {
+    turns.push(currentTurnTextRowUuids);
+  }
+
+  const anchors = new Set<string>();
+  const lastTurnIndex = turns.length - 1;
+  turns.forEach((rowUuids, index) => {
+    // Nothing is skipped when idle, so a "never writes it" regression still
+    // fails the idle half of the running/idle pair.
+    if (running && index === lastTurnIndex) {
+      return;
+    }
+    const anchor = rowUuids[rowUuids.length - 1];
+    if (anchor) {
+      anchors.add(anchor);
+    }
+  });
+  return anchors;
+}
+
 export class ClaudeSessionsProvider implements IProviderSessions {
   /**
    * Normalizes one Claude JSONL entry or live SDK stream event into the shared
@@ -1523,9 +1623,25 @@ export class ClaudeSessionsProvider implements IProviderSessions {
       }
     }
 
+    const forkAnchorUuids = collectClaudeForkAnchorUuids(rawMessages, options.running === true);
+
     const normalized: NormalizedMessage[] = [];
     for (const raw of rawMessages) {
-      normalized.push(...this.normalizeMessage(raw, sessionId));
+      const messages = this.normalizeMessage(raw, sessionId);
+      const rowUuid = readClaudeRowUuid(raw);
+      if (rowUuid && forkAnchorUuids.has(rowUuid)) {
+        // The anchor belongs on the answer the user reads. A row can normalize
+        // into several messages (text + tool_use + thinking), so stamp the last
+        // text-bearing one: exactly one message per turn carries the anchor.
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const message = messages[index];
+          if (message?.kind === 'text' && message.role === 'assistant') {
+            message.forkAnchorId = rowUuid;
+            break;
+          }
+        }
+      }
+      normalized.push(...messages);
     }
 
     for (const msg of normalized) {

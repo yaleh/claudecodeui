@@ -44,6 +44,14 @@ type MessageComponentProps = {
    * Absent when the provider cannot copy a transcript prefix.
    */
   onForkFromMessage?: (message: ChatMessage) => void;
+  /**
+   * Whether the session this row belongs to is still producing output.
+   *
+   * A reply mid-turn has no `forkAnchorId` yet, but a stale page could still
+   * carry the previous read's; this is the second half of the guarantee, so the
+   * fork button never appears on a turn that is still being written.
+   */
+  isSessionRunning?: boolean;
 };
 
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
@@ -150,7 +158,7 @@ function readDividerLabel(
  * Rendered by chat's ChatMessagesPane and ToolGroupContainer to draw one
  * transcript entry — user turn, assistant turn, or a tool call and its result.
  */
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, onEditMessage, onForkFromMessage }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, onEditMessage, onForkFromMessage, isSessionRunning }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   // The Task entity this row's tool call launched, read by the call's
   // `tool_use` id from the session's activity snapshot (AC-194). A tool row with
@@ -202,6 +210,17 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
     assistantCopyContent.trim().length > 0 &&
     !isCommandOrFileEditToolResponse &&
     !message.isThinking;
+  /**
+   * Whether the assistant bar offers "fork from this answer".
+   *
+   * Keyed on `forkAnchorId`, not `transcriptAnchorId`: only a turn-ending reply
+   * carries one, so the button lands on the answer rather than on the prompt.
+   * Running sessions are excluded even when a stale row still carries an anchor,
+   * so the affordance never appears on a turn that is still being written.
+   */
+  const shouldShowForkControl = Boolean(
+    onForkFromMessage && shouldShowAssistantCopyControl && message.forkAnchorId && !isSessionRunning,
+  );
 
 
   const formattedTime = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
@@ -281,17 +300,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                       className="rounded p-1 opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover:opacity-100"
                     >
                       <PencilIcon className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {onForkFromMessage && message.transcriptAnchorId && (
-                    <button
-                      type="button"
-                      onClick={() => onForkFromMessage(message)}
-                      title={t('message.forkFromHere')}
-                      aria-label={t('message.forkFromHere')}
-                      className="rounded p-1 opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover:opacity-100"
-                    >
-                      <GitBranchIcon className="h-3.5 w-3.5" />
                     </button>
                   )}
                   {shouldShowUserCopyControl && (
@@ -633,6 +641,17 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                 )}
                 {shouldShowAssistantCopyControl && (
                   <MessageSpeakControl content={assistantCopyContent} />
+                )}
+                {shouldShowForkControl && (
+                  <button
+                    type="button"
+                    onClick={() => onForkFromMessage?.(message)}
+                    title={t('message.forkFromHere')}
+                    aria-label={t('message.forkFromHere')}
+                    className="rounded p-1 opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <GitBranchIcon className="h-3.5 w-3.5" />
+                  </button>
                 )}
                 {!isGrouped && <span>{formattedTime}</span>}
               </div>

@@ -647,14 +647,20 @@ export const sessionsService = {
     const transcriptPath = provider === 'claude' || provider === 'codex'
       ? session.jsonl_path
       : null;
+    // Whether the run is in flight rides every read: the readers withhold the
+    // last turn's `forkAnchorId` while it is, and the cache keys on it so a
+    // running read is never served back as an idle one.
+    const running = chatRunRegistry.isProcessing(sessionId);
     const fullHistory = await sessionHistoryCache.getFullHistory({
       sessionId,
       transcriptPath,
+      running,
       loadFull: () => providerSessions.fetchHistory(sessionId, {
         limit: null,
         offset: 0,
         projectPath,
         providerSessionId,
+        running,
       }),
     });
 
@@ -735,15 +741,20 @@ export const sessionsService = {
     const transcriptPath = provider === 'claude' || provider === 'codex'
       ? session.jsonl_path
       : null;
+    // The same running signal as `fetchHistory`, so both share one cache entry
+    // rather than thrashing it: the window draws the same rows, anchor included.
+    const running = chatRunRegistry.isProcessing(sessionId);
     const loadFull = () => providerSessions.fetchHistory(sessionId, {
       limit: null,
       offset: 0,
       projectPath,
       providerSessionId,
+      running,
     });
     const fullHistory = await sessionHistoryCache.getFullHistory({
       sessionId,
       transcriptPath,
+      running,
       loadFull,
     });
     const full = fullHistory ?? await loadFull();
@@ -813,15 +824,18 @@ export const sessionsService = {
     const transcriptPath = provider === 'claude' || provider === 'codex'
       ? session.jsonl_path
       : null;
+    const running = chatRunRegistry.isProcessing(sessionId);
     const loadFull = () => providerSessions.fetchHistory(sessionId, {
       limit: null,
       offset: 0,
       projectPath,
       providerSessionId,
+      running,
     });
     const fullHistory = await sessionHistoryCache.getFullHistory({
       sessionId,
       transcriptPath,
+      running,
       loadFull,
     });
     const full = fullHistory ?? await loadFull();
