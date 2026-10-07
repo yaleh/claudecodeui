@@ -117,13 +117,43 @@ for f in server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts; do [ 
 - server/modules/mcp-gateway/tests/mcp-cancel-queued.test.ts
 - server/modules/mcp-gateway/tests/mcp-run-get.test.ts
 - server/modules/mcp-gateway/tests/mcp-overview.test.ts
+- server/modules/mcp-gateway/tests/mcp-english-only.test.ts
 - server/modules/debug-agent/tests/debug-agent-control-queue.test.ts
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-ac287-not-found-semantics.md (self-touch)
 
 ## Change notes (worker)
 
-Commits on `task/gap-ac287-not-found-semantics`: `15530fc0` feat + `39880d99` test-type fixes; then `cc b5e783` merge develop. AC state recorded via `task_write`.
+Commits on `task/gap-ac287-not-found-semantics`: `15530fc0` feat + `39880d99` test-type fixes; then `cc b5e783` merge develop; then `b4d8e752` **merge develop again** (this round), reconciling AC-289's English-only copy with AC-287's not-found semantics, and `4be50767` (the post-merge test migrations + count pin). AC state recorded via `task_write`.
+
+### Post-merge reconciliation (2026-10-07, develop → branch) — READ THIS FIRST
+
+AC-289 (server-authored caller copy is English-only) landed on `develop` **after** AC-287's implementation, so the second merge required the four tools' server-authored sentences to move from CJK to English. The readings the AC2/AC4/AC7 notes below quote are the **pre-merge** branch's CJK bodies; on the merged tree the same envelope fields carry:
+
+| field | pre-merge (branch) | merged (English) |
+| --- | --- | --- |
+| `approval_answer` error `message` | `该审批请求已过期或不存在（可能已超时被自动拒绝）。` | `The approval request has expired or does not exist (it may have timed out and been auto-denied).` |
+| `session_cancel_queued` `QUEUED_MESSAGE_NOT_FOUND` `message` | `该会话队列里没有这个消息 uuid（可能从未存在、属于别的会话，或没有常驻宿主）。` | `The session queue has no message with this uuid (it may never have existed, belong to another session, or there is no resident host).` |
+| `session_cancel_queued` `cancelled` `message` | (CJK) | `The queued message was withdrawn and will not become a turn.` |
+| `session_cancel_queued` `already-started` `message` | (CJK) | `The message is no longer in the queue (it was taken out to start executing) and can no longer be withdrawn.` |
+| `run_get` `expired` `message` | (CJK, 「保留期」) | `This run existed but is past its retention window; its result can no longer be retrieved.` |
+| `run_get` `never_issued` `message` | (CJK, 「从未」) | `This runId was never issued.` |
+| `run_get` restarted `message` | (CJK, 「重启」) | `The service restarted; this run belongs to a previous boot.` |
+| `quay_snapshot` `no_quay_config` `note` | `该项目没有 quay` | `This project has no quay` |
+
+Consequently the branch's own criteria were re-pointed at the English sentences (strength unchanged): `mcp-approvals.test.ts`(d) asserts `includes('expired or does not exist')`; `mcp-run-get.test.ts`(f)(g) assert `/retention/`, `/never issued/`, `/restarted/i` (and `doesNotMatch(/retention/)`); `mcp-not-found-semantics.test.ts` asserts `/restarted/i`. The AC7 false-form records below remain valid history — they were captured pre-merge and quote the then-current CJK bodies; the assertions they red are the same assertions that still red today.
+
+**AC-289's own criterion migrated (6th AC8 file).** `mcp-english-only.test.ts` is AC-289's achieved criterion (landed on develop; outside AC-287's original `## Touches` — now declared). After the merge it probed three shapes AC-287 retires, so it reds without migration; migrated, strength raised:
+
+- `answerApproval` fixture: `ok:false` not-found (which the OLD shape counted as an eligible success) → `{ ok:true, requestId:'req-1' }`, so the English-copy walk answers a held approval and the verb **succeeds**;
+- `run_get` miss probe: read the old success payload's `.explanation` → reads the error envelope (`isError === true`, `code === 'RUN_NOT_FOUND'`, `message === 'This runId was never issued.'`, `details.fallback.note`), and `assertServerCopyEnglish` now covers `run_get.message` / `run_get.details.fallback.note`;
+- `session_cancel_queued` uuid loop: `uuid-other` read a success outcome → now `isError === true` + `code === 'QUEUED_MESSAGE_NOT_FOUND'`; `uuid-started` asserts `isError === false` + `outcome === 'already-started'`; both still assert the exact English `message`.
+
+Result: `mcp-english-only.test.ts` 10/10 green.
+
+**Count pin re-synced (supersedes the AC9 note's numbers).** The AC9 note's `N = 244` / `known=3 unknown=241` / `known=1 unknown=243` were the **pre-merge** branch readings. Merging develop adds `mcp-english-only.test.ts`, so on the merged tree `find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` → **N = 245**; pins written `known=3 unknown=242` (`server/shared/tests/quay-test-script.test.ts:154`) and `known=1 unknown=244` (`:203`). `npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` → **11/11, exit 0**.
+
+**Diff vs Touches (supersedes the AC11 note's file list).** `git diff --name-status develop...HEAD` = **22** files; the one outside the AC11 note's list is `server/modules/mcp-gateway/tests/mcp-english-only.test.ts`, now declared in `## Touches`. The other 21 are as the AC11 note lists (with `mcp-run-get.test.ts` etc. as `M`, `mcp-not-found-semantics.test.ts` as `A`).
 
 ### AC1 — red-first
 
@@ -132,9 +162,9 @@ Commits on `task/gap-ac287-not-found-semantics`: `15530fc0` feat + `39880d99` te
 
 ### AC2/AC3/AC4/AC6 — readings (all via the real `/mcp` mount, real token, MCP SDK client)
 
-- (a) expired `requestId` → `isError:true`, `structuredContent.code='APPROVAL_NOT_FOUND'`, `details.reason='expired'`; never-minted → same code, `details.reason='never_issued'`; the two reasons `notEqual`; both messages contain `已过期或不存在`; resolver never called. No `ok:false` success remains (the false form (i) is exactly what reds this).
+- (a) expired `requestId` → `isError:true`, `structuredContent.code='APPROVAL_NOT_FOUND'`, `details.reason='expired'`; never-minted → same code, `details.reason='never_issued'`; the two reasons `notEqual`; both messages carry the `expired or does not exist` sentence; resolver never called. No `ok:false` success remains (the false form (i) is exactly what reds this).
 - (b) never-held uuid (own + cross-session) → `isError:true`, `code='QUEUED_MESSAGE_NOT_FOUND'`; already-started uuid → `isError:false`, `outcome='already-started'`; `tools/list` reads `session_cancel_queued.outputSchema.properties.outcome.enum` deep-equal `['already-started','cancelled']` (set equality).
-- (c) expired / never-issued / cross-boot runIds → `isError:true`, `code='RUN_NOT_FOUND'`, `details.reason` `'expired'` / `'never_issued'`, messages match `/保留期/` / `/从未/` / `/重启/`; `details.fallback.messages` deep-equals the fixture messages; cross-boot `details.bootId === BOOT_TWO`; run hit stays `isError:false`.
+- (c) expired / never-issued / cross-boot runIds → `isError:true`, `code='RUN_NOT_FOUND'`, `details.reason` `'expired'` / `'never_issued'`, messages matching `/retention/` / `/never issued/` / `/restarted/i`; `details.fallback.messages` deep-equals the fixture messages; cross-boot `details.bootId === BOOT_TWO`; run hit stays `isError:false`.
 - (d) missing project id → `isError:true`, `code='PROJECT_NOT_FOUND'`, `details.project=<id>`; config-less existing project → `isError:false`, `status='no_quay_config'`; with-config project → `isError:false`, `status='cached'` / `'refreshed'`.
 - (e) invariants: already-started, no_quay_config and the run hit are all successes.
 
@@ -168,7 +198,7 @@ Shared runner: `PATH="$PWD/node_modules/.bin:$PATH" QUAY_MEMORY_MAX=8G bash scri
 +    } as unknown as ApprovalAnswerPayload;
 ```
 
-Verbatim failure: `✖ (a) approval_answer: expired and never-minted are APPROVAL_NOT_FOUND errors, reasons distinguished` — `AssertionError [ERR_ASSERTION]: (a) expired: the error envelope must carry details (payload={"ok":false,"requestId":"ac287-req-held-then-dropped","code":"APPROVAL_EXPIRED_OR_NOT_FOUND","message":"该审批请求已过期或不存在（可能已超时被自动拒绝）。"})`; `ℹ tests 5 / ℹ pass 4 / ℹ fail 1`.
+Verbatim failure (pre-merge, CJK body): `✖ (a) approval_answer: expired and never-minted are APPROVAL_NOT_FOUND errors, reasons distinguished` — `AssertionError [ERR_ASSERTION]: (a) expired: the error envelope must carry details (payload={\"ok\":false,\"requestId\":\"ac287-req-held-then-dropped\",\"code\":\"APPROVAL_EXPIRED_OR_NOT_FOUND\",\"message\":\"该审批请求已过期或不存在（可能已超时被自动拒绝）。\"})`; `ℹ tests 5 / ℹ pass 4 / ℹ fail 1`.
 Restore: `git checkout -- server/modules/mcp-gateway/mcp-approvals.ts` → re-run `ℹ tests 5 / ℹ pass 5 / ℹ fail 0`.
 
 **(ii) `already-started` made an error** — `server/modules/mcp-gateway/mcp-session-cancel-queued.ts`:
@@ -179,7 +209,7 @@ Restore: `git checkout -- server/modules/mcp-gateway/mcp-approvals.ts` → re-ru
 +  if (verdict !== 'withdrawn') {
 ```
 
-Verbatim failures: `✖ (b) session_cancel_queued: never-held uuid is QUEUED_MESSAGE_NOT_FOUND, already-started is a success` — `AssertionError: an already-started message must stay a success (text=该会话队列里没有这个消息 uuid（可能从未存在、属于别的会话，或没有常驻宿主）。)`; `✖ (e) the real states stay successes: already-started, no_quay_config and a run hit` — `AssertionError: already-started must stay a success`; `ℹ tests 5 / ℹ pass 3 / ℹ fail 2`.
+Verbatim failures (pre-merge, CJK body): `✖ (b) session_cancel_queued: never-held uuid is QUEUED_MESSAGE_NOT_FOUND, already-started is a success` — `AssertionError: an already-started message must stay a success (text=该会话队列里没有这个消息 uuid（可能从未存在、属于别的会话，或没有常驻宿主）。)`; `✖ (e) the real states stay successes: already-started, no_quay_config and a run hit` — `AssertionError: already-started must stay a success`; `ℹ tests 5 / ℹ pass 3 / ℹ fail 2`.
 Restore: `git checkout -- server/modules/mcp-gateway/mcp-session-cancel-queued.ts`.
 
 **(iii) missing project swallowed into no-config** — `server/modules/mcp-gateway/mcp-overview-tools.ts`:
@@ -197,35 +227,36 @@ Restore: `git checkout -- server/modules/mcp-gateway/mcp-session-cancel-queued.t
    }
 ```
 
-Verbatim failure: `✖ (d) quay_snapshot: a missing project errors, an existing config-less project succeeds` — `AssertionError: a project id nothing matches must be an error (text={"project":"ac287-no-such-project","hasQuayConfig":false,"status":"no_quay_config","note":"该项目没有 quay"})`; `ℹ tests 5 / ℹ pass 4 / ℹ fail 1`.
+Verbatim failure (pre-merge, CJK note): `✖ (d) quay_snapshot: a missing project errors, an existing config-less project succeeds` — `AssertionError: a project id nothing matches must be an error (text={\"project\":\"ac287-no-such-project\",\"hasQuayConfig\":false,\"status\":\"no_quay_config\",\"note\":\"该项目没有 quay\"})`; `ℹ tests 5 / ℹ pass 4 / ℹ fail 1`.
 Restore: `git checkout -- server/modules/mcp-gateway/mcp-overview-tools.ts` → `ℹ tests 5 / ℹ pass 5 / ℹ fail 0`; `git status --porcelain` empty.
 
 ### AC8 — migrated criteria, old → new (strength raised, no assertion deleted or relaxed)
 
-- `mcp-approvals.test.ts`(d): old `assert.equal(expired.isError, false)` + `assert.equal(never.isError, false)` (miss is a success) → new `isError === true`, `payload.code === 'APPROVAL_NOT_FOUND'`, `details.reason` `'expired'` / `'never_issued'`, the two reasons `notEqual`, both messages still contain `已过期或不存在`, resolver call count 0. Three assertions became six; `已过期或不存在` retained.
+- `mcp-approvals.test.ts`(d): old `assert.equal(expired.isError, false)` + `assert.equal(never.isError, false)` (miss is a success) → new `isError === true`, `payload.code === 'APPROVAL_NOT_FOUND'`, `details.reason` `'expired'` / `'never_issued'`, the two reasons `notEqual`, both messages still carry `expired or does not exist`, resolver call count 0. Three assertions became six; the sentence assertion retained.
 - `mcp-cancel-queued.test.ts`(b): old dequeued uuid read `outcome:'unknown'`, `isError:false` → new `isError:false` + `outcome === 'already-started'` (kept `notEqual('cancelled')`). (c): old never-held read `'unknown'` success → new `isError === true` + `code === 'QUEUED_MESSAGE_NOT_FOUND'`.
-- `mcp-run-get.test.ts`(f): old expired/unknown miss `isError:false` → new `isError === true` + `code === 'RUN_NOT_FOUND'` + `details.reason` + message regexes (`/保留期/`, `/从未/`) + `fallback.messages` deep-equal. (g): old restarted miss success → new `isError === true` + `details.reason === 'expired'` + `/重启/` + `doesNotMatch(/保留期/)` + `details.bootId === BOOT_TWO` + `notEqual(firstBoot)` + fallback deep-equal.
+- `mcp-run-get.test.ts`(f): old expired/unknown miss `isError:false` → new `isError === true` + `code === 'RUN_NOT_FOUND'` + `details.reason` + message regexes (`/retention/`, `/never issued/`) + `fallback.messages` deep-equal. (g): old restarted miss success → new `isError === true` + `details.reason === 'expired'` + `/restarted/i` + `doesNotMatch(/retention/)` + `details.bootId === BOOT_TWO` + `notEqual(firstBoot)` + fallback deep-equal.
 - `mcp-overview.test.ts`(d): old no-quay `isError === false` retained and now also asserts `status === 'no_quay_config'`; **added** a missing-project probe asserting `isError === true` / `code === 'PROJECT_NOT_FOUND'` / `details.project === missingId`, plus a positive control that an existing project with config still succeeds.
 - `debug-agent/tests/debug-agent-control-queue.test.ts`(d): old `assert.equal(reading.verdict, 'unknown')` for a dequeued uuid → new `assert.equal(reading.verdict, 'already-started', 'a message already started cannot be withdrawn')`; kept `assert.notEqual(reading.verdict, 'withdrawn')`.
-- Scoped gate `bash scripts/test.sh --for-task gap-ac287-not-found-semantics` → exit 0, `# tests 7 / # pass 7 / # fail 0` (re-run green after the develop merge).
+- `mcp-english-only.test.ts` (AC-289's criterion): see the Post-merge reconciliation section above — three probes migrated to the error shapes, strength raised, 10/10 green.
+- Scoped gate `bash scripts/test.sh --for-task gap-ac287-not-found-semantics` → exit 0, `# pass 8 / # fail 0` (8 `*.test.*` files in `## Touches`), green after the develop merge.
 
 ### AC9 — count pin
 
-`find server -name '*.test.ts' -o -name '*.test.js' | grep -v node_modules | wc -l` → **N = 244**. Pins written: `known=3 unknown=241` and `known=1 unknown=243`. `quay-test-script.test.ts` 11/11 green (covered by the scoped gate above).
+See the Post-merge reconciliation section: pre-merge `N = 244` (pins `known=3 unknown=241`, `known=1 unknown=243`); merged `N = 245` (pins `known=3 unknown=242` at `:154`, `known=1 unknown=244` at `:203`). `quay-test-script.test.ts` 11/11 green.
 
 ### AC10 — repo gates
 
-- `npm run typecheck` → exit **0** (the first run exited 2 on two test-file types — a partial `ActivityProtocolSnapshot` fake and two untyped `details.reason` reads — fixed in `39880d99`; test-only).
-- `npm run lint` → exit **0**, `: error ` lines = **0** (warnings only, all pre-existing/unrelated files).
-- `npm run build` → exit **0**.
+- `npm run typecheck` → exit **0** (the first run exited 2 on two test-file types — a partial `ActivityProtocolSnapshot` fake and two untyped `details.reason` reads — fixed in `39880d99`; test-only). Re-run this round on the merged tree → exit **0**.
+- `npm run lint` → exit **0**, `: error ` lines = **0** (warnings only, all pre-existing/unrelated files). Re-run this round → exit **0**, `: error ` count **0**.
+- `npm run build` → exit **0**. Re-run this round → exit **0**.
 
 ### AC11 — actual diff vs `## Touches`
 
-`git diff --stat develop...HEAD` = 21 files, all present in `## Touches`:
+`git diff --name-status develop...HEAD` = **22** files (all declared in `## Touches`, which now also carries `server/modules/mcp-gateway/tests/mcp-english-only.test.ts`):
 
-`server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts (new)`, `.../tests/mcp-approvals.test.ts`, `.../tests/mcp-cancel-queued.test.ts`, `.../tests/mcp-run-get.test.ts`, `.../tests/mcp-overview.test.ts`, `server/modules/mcp-gateway/mcp-approvals.ts`, `.../mcp-session-cancel-queued.ts`, `.../mcp-run-get.ts`, `.../mcp-overview-tools.ts`, `.../mcp-error-envelope.ts`, `.../mcp-tool-error-codes.ts`, `.../index.ts`, `server/modules/websocket/services/chat-control.service.ts`, `.../chat-websocket.service.ts`, `server/modules/providers/services/provider-runtime.service.ts`, `server/modules/providers/list/claude/claude-runtime.provider.ts`, `server/modules/providers/index.ts`, `server/modules/debug-agent/debug-agent.host-driver.ts`, `server/modules/debug-agent/tests/debug-agent-control-queue.test.ts`, `server/shared/types.ts`, `server/shared/tests/quay-test-script.test.ts`.
+`server/modules/debug-agent/debug-agent.host-driver.ts`, `.../tests/debug-agent-control-queue.test.ts`, `server/modules/mcp-gateway/index.ts`, `.../mcp-approvals.ts`, `.../mcp-error-envelope.ts`, `.../mcp-overview-tools.ts`, `.../mcp-run-get.ts`, `.../mcp-session-cancel-queued.ts`, `.../mcp-tool-error-codes.ts`, `.../tests/mcp-approvals.test.ts`, `.../tests/mcp-cancel-queued.test.ts`, `.../tests/mcp-english-only.test.ts`, `.../tests/mcp-not-found-semantics.test.ts (new)`, `.../tests/mcp-overview.test.ts`, `.../tests/mcp-run-get.test.ts`, `server/modules/providers/index.ts`, `.../list/claude/claude-runtime.provider.ts`, `.../services/provider-runtime.service.ts`, `server/modules/websocket/services/chat-control.service.ts`, `.../chat-websocket.service.ts`, `server/shared/tests/quay-test-script.test.ts`, `server/shared/types.ts`.
 
-Declared in `## Touches` but **unmodified**: `server/modules/mcp-gateway/mcp-gateway.read-tools.ts` (its `quay_snapshot` outputSchema is `{ snapshot: z.unknown().optional() }` — no `status` enum to sync) and `server/modules/websocket/index.ts` (no new websocket-barrel export was needed; `MissingApprovalReason` rides `@/shared/types.js`). No file outside `## Touches` was written. `tasks/gap-ac287-not-found-semantics.md` is the self-touch (this write).
+Declared in `## Touches` but **unmodified**: `server/modules/mcp-gateway/mcp-gateway.read-tools.ts` (its `quay_snapshot` outputSchema is `{ snapshot: z.unknown().optional() }` — no `status` enum to sync) and `server/modules/websocket/index.ts` (no new websocket-barrel export was needed; `MissingApprovalReason` rides `@/shared/types.js`). No file outside `## Touches` is written. `tasks/gap-ac287-not-found-semantics.md` is the self-touch (this write).
 
 ### Resolution (2026-10-07, human-ruled — task unparked)
 
@@ -233,7 +264,7 @@ The task was parked `needs-human` because AC5 named a code the repository's achi
 
 **Independently re-verified before the tick** (in the task worktree at `ccb5e783`, clean tree):
 
-- Criterion re-run: `PATH="$PWD/node_modules/.bin:$PATH" QUAY_MEMORY_MAX=8G bash scripts/with-memory-cap.sh npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts` → `ℹ tests 5 / ℹ pass 5 / ℹ fail 0`, exit **0**. The (d) probe prints verbatim: `mcp-not-found (d) missing   isError=true payload={"code":"PROJECT_NOT_FOUND","message":"No project has id \"ac287-no-such-project\".","retryable":false,"details":{"project":"ac287-no-such-project"}}` and `mcp-not-found (d) noConfig  isError=false payload={"project":"…","hasQuayConfig":false,"status":"no_quay_config","note":"该项目没有 quay"}`.
+- Criterion re-run: `PATH="$PWD/node_modules/.bin:$PATH" QUAY_MEMORY_MAX=8G bash scripts/with-memory-cap.sh npx tsx --tsconfig server/tsconfig.json --test server/modules/mcp-gateway/tests/mcp-not-found-semantics.test.ts` → `ℹ tests 5 / ℹ pass 5 / ℹ fail 0`, exit **0**. The (d) probe prints verbatim: `mcp-not-found (d) missing   isError=true payload={\"code\":\"PROJECT_NOT_FOUND\",\"message\":\"No project has id \\\"ac287-no-such-project\\\".\",\"retryable\":false,\"details\":{\"project\":\"ac287-no-such-project\"}}` and `mcp-not-found (d) noConfig  isError=false payload={\"project\":\"…\",\"hasQuayConfig\":false,\"status\":\"no_quay_config\",\"note\":\"This project has no quay\"}`.
 - Repo gates re-run on the same tree: `npm run typecheck` → exit **0**; `npm run lint` → `: error ` count = **0**.
 
 **Why the old literal really is unsatisfiable** (re-checked at source, not taken from the worker's word):
@@ -249,4 +280,4 @@ So the only alternatives were (a) rename in AC-287, or (b) reopen two achieved g
 - Proposal requirement (d), the `<!-- dedup-ref -->` scope note, Plan steps 1 and 7, and the two DoD bullets that named the literal: same rename, each with a pointer to this section.
 - goal `AC-287`'s `expect` (d) clause: same rename, recorded in one `quay goal batch` commit (`adc68b07`). The goal's `criterion` command is unchanged and already passes once this branch lands, which is what flips the goal to `achieved`.
 
-**No other AC moved.** AC1–AC4 and AC6–AC11 were already ticked and their readings are untouched.
+**No other AC moved.** AC1–AC4 and AC6–AC11 were already ticked and their readings are untouched (except the message-language reconciliation recorded at the top).
