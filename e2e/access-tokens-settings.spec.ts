@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Locator, Page } from '@playwright/test';
+import type { Locator, Page, Request } from '@playwright/test';
 
 // Real Chromium against the real backend + Vite client started by playwright.config.ts (isolated data dir).
 //
@@ -389,9 +389,37 @@ test.describe('personal access tokens in settings', () => {
     expect([...optionValues].sort()).toEqual(['30', '7', '90']);
     expect(defaultExpiry).toBe('30');
 
+    // (f) The form opens with a dated default name — prefilled, still editable, and still required: clearing it
+    // and submitting asks the server for nothing and creates no row, so an unnamed PAT can never be minted.
+    const nameInput = page.getByPlaceholder('Token name (e.g., My MCP client)');
+    const prefilledName = await nameInput.inputValue();
+    console.log(`(f) the create form's default name = ${JSON.stringify(prefilledName)}`);
+    expect(prefilledName).toMatch(/^MCP token · \d{4}-\d{2}-\d{2}$/);
+    // DoD evidence: the create form as it opens, carrying its dated default name. The
+    // settings pane is its own scroll container, so scroll the field into view first —
+    // a bare screenshot captures the pane's current (top) scroll position.
+    await nameInput.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'artifacts/gap-settings-access-tokens-dod-form-default-name.png' });
+
+    const rowsBeforeEmptySubmit = await page.getByTestId('access-token-row').count();
+    let createPosts = 0;
+    const countCreatePosts = (request: Request) => {
+      if (request.method() === 'POST' && request.url().endsWith('/api/settings/access-tokens')) createPosts += 1;
+    };
+    page.on('request', countCreatePosts);
+    await nameInput.fill('');
+    await page.getByRole('button', { name: 'Create token', exact: true }).click();
+    await page.waitForTimeout(500);
+    page.off('request', countCreatePosts);
+    const rowsAfterEmptySubmit = await page.getByTestId('access-token-row').count();
+    console.log(`(f) after clearing the name and submitting: POSTs to /access-tokens = ${createPosts}, rows ${rowsBeforeEmptySubmit} -> ${rowsAfterEmptySubmit}`);
+    expect(createPosts).toBe(0);
+    expect(rowsAfterEmptySubmit).toBe(rowsBeforeEmptySubmit);
+    await expect(nameInput).toBeVisible();
+
     // (a) Create through the form and capture the one-time plaintext the response carries.
     const tokenName = `e2e-token-${Date.now()}`;
-    await page.getByPlaceholder('Token name (e.g., My MCP client)').fill(tokenName);
+    await nameInput.fill(tokenName);
     await expiry.selectOption('30');
     const [createResponse] = await Promise.all([
       page.waitForResponse((response) =>
@@ -458,6 +486,17 @@ test.describe('personal access tokens in settings', () => {
     expect(finalText).not.toContain(RETIRED_BUTTON_TEXT);
     expect(finalText).not.toContain(RETIRED_DOCS_PATH);
     expect(docsAnchors).toBe(0);
+
+    // (g) The PAT list carries no "Unnamed token" row. The label can only come from a nameless row — an OAuth row,
+    // whose `name` is NULL — and the PAT list no longer selects any; the one PAT on this page has a real name.
+    const unnamedRows = await page.getByTestId('access-token-row').filter({ hasText: 'Unnamed token' }).count();
+    console.log(`(g) "Unnamed token" rows in the PAT list = ${unnamedRows}`);
+    expect(unnamedRows).toBe(0);
+    // DoD evidence: the PAT list itself, with the user's own named token and no "Unnamed token" row.
+    // The settings pane scrolls independently of the document, so bring the row into view and
+    // capture the viewport — a fullPage shot only expands the document, not the pane's scroll.
+    await page.getByTestId('access-token-row').first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'artifacts/gap-settings-access-tokens-dod-pat-list.png' });
 
     // No untranslated i18n literal anywhere on the page — the settings tab included.
     expect(finalText).not.toMatch(UNTRANSLATED_KEY);

@@ -2352,6 +2352,19 @@ export type CreatedAccessToken = {
   plaintext: string;
 };
 
+/** One OAuth access/refresh token as `GET /api/settings/oauth-tokens` returns it — read-only, and never carrying the stored hash. `clientName` is the OAuth client the token's grant belongs to (the token row itself has no name), and `kind` is `oauth_access` or `oauth_refresh`. The advanced list renders it; it is never created or revoked from there. */
+export type OAuthTokenItem = {
+  id: number;
+  kind: string;
+  tokenPrefix: string;
+  clientName: string | null;
+  scopes: string[];
+  createdAt: string | null;
+  expiresAt: string;
+  lastUsed: string | null;
+  revokedAt: string | null;
+};
+
 /** The CloudCLI MCP gateway's read-only status as `GET /api/settings/mcp-gateway` returns it: whether the gateway is enabled, the path it answers on, and the base url an MCP client should dial. */
 export type McpGatewayStatus = {
   enabled: boolean;

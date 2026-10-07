@@ -57,6 +57,7 @@ vi.mock('react-i18next', async () => {
 vi.mock('@/modules/settings/hooks/useCredentialsSettings', () => ({
   useCredentialsSettings: () => ({
     accessTokens: [],
+    oauthTokens: [],
     githubCredentials: [],
     loading: false,
     showNewTokenForm: false,

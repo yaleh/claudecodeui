@@ -834,7 +834,8 @@
       "createButton": "Buat token",
       "cancelButton": "Batal",
       "scopesLabel": "Cakupan",
-      "writeScopeRisk": "Token ini dapat mengirim, membuat, dan mengendalikan sesi. Jaga kerahasiaannya."
+      "writeScopeRisk": "Token ini dapat mengirim, membuat, dan mengendalikan sesi. Jaga kerahasiaannya.",
+      "defaultName": "Token MCP · {{date}}"
     },
     "newToken": {
       "alertTitle": "⚠️ Simpan Token Akses Anda",
@@ -851,7 +852,9 @@
       "active": "Aktif",
       "revoked": "Dicabut",
       "revokeButton": "Cabut",
-      "revokeConfirm": "Yakin ingin mencabut token ini? Tindakan ini tidak dapat dibatalkan."
+      "revokeConfirm": "Yakin ingin mencabut token ini? Tindakan ini tidak dapat dibatalkan.",
+      "created": "Dibuat:",
+      "expired": "Kedaluwarsa"
     },
     "scopes": {
       "read": "Baca (cloudcli:read)",
@@ -860,6 +863,17 @@
       "sessionControl": "Kendalikan sesi (cloudcli:session:control)",
       "approve": "Setujui (cloudcli:approve)",
       "navigate": "Buka sesi di salah satu browser Anda (cloudcli:navigate)"
+    },
+    "oauthTokens": {
+      "title": "Lanjutan: token OAuth (hanya baca)",
+      "description": "Token yang diterbitkan oleh alur OAuth (aplikasi terhubung dan klien MCP). Token ini dikelola oleh alur tersebut dan tidak dapat dibuat atau dicabut di sini.",
+      "empty": "Belum ada token OAuth yang diterbitkan.",
+      "showInactive": "Tampilkan yang dicabut dan kedaluwarsa",
+      "unknownClient": "Klien tidak dikenal",
+      "kind": "Jenis:",
+      "kindAccess": "Token akses",
+      "kindRefresh": "Token penyegaran",
+      "scopes": "Cakupan:"
     }
   },
   "mcpGateway": {

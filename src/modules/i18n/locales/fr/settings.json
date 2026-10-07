@@ -590,7 +590,8 @@
       "createButton": "Créer le jeton",
       "cancelButton": "Annuler",
       "scopesLabel": "Portées",
-      "writeScopeRisk": "Ce jeton peut envoyer, créer et contrôler des sessions. Gardez-le secret."
+      "writeScopeRisk": "Ce jeton peut envoyer, créer et contrôler des sessions. Gardez-le secret.",
+      "defaultName": "Jeton MCP · {{date}}"
     },
     "newToken": {
       "alertTitle": "⚠️ Enregistrez votre jeton d'accès",
@@ -607,7 +608,9 @@
       "active": "Actif",
       "revoked": "Révoqué",
       "revokeButton": "Révoquer",
-      "revokeConfirm": "Voulez-vous vraiment révoquer ce jeton ? Cette action est irréversible."
+      "revokeConfirm": "Voulez-vous vraiment révoquer ce jeton ? Cette action est irréversible.",
+      "created": "Créé :",
+      "expired": "Expiré"
     },
     "scopes": {
       "read": "Lecture (cloudcli:read)",
@@ -616,6 +619,17 @@
       "sessionControl": "Contrôler des sessions (cloudcli:session:control)",
       "approve": "Approuver (cloudcli:approve)",
       "navigate": "Ouvrir une session dans l'un de vos navigateurs (cloudcli:navigate)"
+    },
+    "oauthTokens": {
+      "title": "Avancé : jetons OAuth (lecture seule)",
+      "description": "Jetons émis par les flux OAuth (applications connectées et clients MCP). Ils sont gérés par ces flux et ne peuvent être ni créés ni révoqués ici.",
+      "empty": "Aucun jeton OAuth émis pour l'instant.",
+      "showInactive": "Afficher les révoqués et expirés",
+      "unknownClient": "Client inconnu",
+      "kind": "Type :",
+      "kindAccess": "Jeton d'accès",
+      "kindRefresh": "Jeton de rafraîchissement",
+      "scopes": "Portées :"
     }
   },
   "mcpGateway": {
