@@ -32,6 +32,22 @@
  *       `AC-250` / `AC-251` — proving the probe separates "wired" from "not
  *       wired" rather than reading true whatever the assembly does.
  *
+ *   (d) the same kind of syntax-tree read over the `resolveDeps` member:
+ *       `server/index.ts` must declare it, and its value subtree must read the
+ *       production `projectsDb` and `sessionsDb` stores. A positive control
+ *       deletes the member from the real source and the SAME scanner reports it
+ *       missing.
+ *
+ *   (e) the production-same assembly at runtime: `createMcpGatewayModule` +
+ *       `mountMcpGateway` with the module-supplied read tools and a
+ *       `resolveDeps` built from the SAME two store reads `server/index.ts` uses.
+ *       `sessions_list({ project: <display-name fragment> })` resolves by name
+ *       and returns that project's sessions; an EXACT project id reads
+ *       identically; a fragment hitting two projects is refused
+ *       `TARGET_AMBIGUOUS` with both candidates rather than guessed. The
+ *       negative control — the SAME probe on a mount without the gate — cannot
+ *       resolve a name at all, so the name path is the gate's doing.
+ *
  * Face (b) is NOT a test-only deps bag: the project repository, `sessionsService`
  * and `sessionHostManager` are the real process singletons, reached through the
  * two exported deps builders and AC-251's `createSessionHostControl` — the exact
@@ -70,7 +86,9 @@ process.env.JWT_SECRET = 'mcp-production-session-wiring-test-secret';
 delete process.env.VITE_IS_PLATFORM;
 mkdirSync(SCRATCH_HOME, { recursive: true });
 
-const { closeConnection, initializeDatabase, projectsDb } = await import('@/modules/database/index.js');
+const { closeConnection, getConnection, initializeDatabase, projectsDb, sessionsDb } = await import(
+  '@/modules/database/index.js'
+);
 const { sessionsService } = await import('@/modules/providers/index.js');
 const { sessionHostManager } = await import('@/modules/session-hosts/index.js');
 const { ACCESS_TOKEN_SCOPES } = await import('@/modules/oauth/index.js');
@@ -259,6 +277,74 @@ function memberIdentifiers(reading: WriteToolsReading, name: string): string[] {
   return reading.members.find((member) => member.name === name)?.identifiers ?? [];
 }
 
+// =====================================================================
+// (d) the resolveDeps wiring scanner over server/index.ts
+// =====================================================================
+
+const RESOLVE_DEPS_MEMBER = 'resolveDeps';
+/**
+ * The stores the production resolver reads: the ACTIVE project listing and the
+ * every-active-session listing, both synchronous so one gate call is one indexed
+ * SELECT. Naming them here makes "the wiring reads the real stores" a reading of
+ * the source, not of a comment.
+ */
+const RESOLVE_DEPS_SOURCES = ['projectsDb', 'sessionsDb'] as const;
+
+export type ResolveDepsReading = {
+  moduleCallFound: boolean;
+  resolveDepsFound: boolean;
+  /** Every identifier the `resolveDeps` value subtree mentions. */
+  identifiers: string[];
+};
+
+/**
+ * A PURE syntax-tree read of the `resolveDeps` member `createMcpGatewayModule(`
+ * is handed. Like {@link scanWriteToolsWiring} it never imports `server/index.ts`
+ * — the same function grades the real source and the positive-control variant, so
+ * a green reading is discriminating power rather than a scanner that always
+ * answers clean.
+ */
+export function scanResolveDepsWiring(source: string): ResolveDepsReading {
+  const sourceFile = parse(source);
+  const moduleArgument = findModuleArgument(sourceFile);
+  if (moduleArgument === undefined) {
+    return { moduleCallFound: false, resolveDepsFound: false, identifiers: [] };
+  }
+  for (const property of moduleArgument.properties) {
+    if (
+      ts.isPropertyAssignment(property) &&
+      ts.isIdentifier(property.name) &&
+      property.name.text === RESOLVE_DEPS_MEMBER
+    ) {
+      return {
+        moduleCallFound: true,
+        resolveDepsFound: true,
+        identifiers: collectIdentifiers(property.initializer),
+      };
+    }
+  }
+  return { moduleCallFound: true, resolveDepsFound: false, identifiers: [] };
+}
+
+/**
+ * The real source with one top-level member of the `createMcpGatewayModule(`
+ * argument deleted — the positive control that proves {@link scanResolveDepsWiring}
+ * reports a MISSING member rather than answering "present" unconditionally.
+ */
+export function withoutModuleMember(source: string, memberName: string): string {
+  const sourceFile = parse(source);
+  const moduleArgument = findModuleArgument(sourceFile);
+  if (moduleArgument === undefined) {
+    return source;
+  }
+  for (const property of moduleArgument.properties) {
+    if (ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) && property.name.text === memberName) {
+      return source.replace(`${property.getText(sourceFile)},`, '');
+    }
+  }
+  return source;
+}
+
 test('(a) server/index.ts hands sessionCreate / sessionInterrupt / sessionHostControl to createMcpGatewayModule', () => {
   const indexSource = readFileSync(fileURLToPath(new URL('../../../index.ts', import.meta.url)), 'utf8');
   const real = scanWriteToolsWiring(indexSource);
@@ -395,6 +481,7 @@ function runGetSeam() {
 async function startGateway(
   writeTools: McpGatewayModuleDeps['writeTools'],
   control: McpControlSeam,
+  extra: Partial<Pick<McpGatewayModuleDeps, 'readTools' | 'resolveDeps'>> = {},
 ): Promise<{ client: Client; close: () => Promise<void> }> {
   const authorize: RequestHandler = (_req, res, next) => {
     res.locals.mcpPrincipal = { userId: USER_ONE, tokenId: 1, clientId: null, scopes: ALL_SCOPES };
@@ -404,7 +491,7 @@ async function startGateway(
   app.use(express.json({ limit: '50mb' }));
   mountMcpGateway(
     app,
-    createMcpGatewayModule({ env: { MCP_ENABLED: 'true' }, authorize, control, writeTools }),
+    createMcpGatewayModule({ env: { MCP_ENABLED: 'true' }, authorize, control, writeTools, ...extra }),
   );
 
   const server = app.listen(0, '127.0.0.1');
@@ -459,6 +546,35 @@ async function callTool(client: Client, name: string, args: Record<string, unkno
     }
   }
   return { code, owner, isError: result.isError === true, raw };
+}
+
+type FullReading = { isError: boolean; payload: Record<string, unknown> | null };
+
+/**
+ * Calls one tool and returns its whole body: the failure envelope from
+ * `structuredContent`, or the success reading parsed from the text. `callTool`
+ * above reads only `code`/`owner`; the resolution criterion also needs the
+ * `candidates` list and the success payload, so it reads the body itself.
+ */
+async function callToolFull(client: Client, name: string, args: Record<string, unknown>): Promise<FullReading> {
+  const result = (await client.callTool({ name, arguments: args } as Parameters<Client['callTool']>[0])) as {
+    isError?: boolean;
+    content?: Array<{ text?: string }>;
+    structuredContent?: unknown;
+  };
+  if (result.isError === true && typeof result.structuredContent === 'object' && result.structuredContent !== null) {
+    return { isError: true, payload: result.structuredContent as Record<string, unknown> };
+  }
+  const text = result.content?.[0]?.text ?? '';
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return {
+      isError: result.isError === true,
+      payload: typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null,
+    };
+  } catch {
+    return { isError: result.isError === true, payload: null };
+  }
 }
 
 /** The four session write tools and an argument naming a target that exists nowhere. */
@@ -591,6 +707,190 @@ test('(c) a mount without the three deps gets MCP_TOOL_NOT_IMPLEMENTED with the 
       process.env.DATABASE_PATH = previousDatabasePath;
     }
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+// =====================================================================
+// (d) the resolveDeps wiring scanner over server/index.ts
+// =====================================================================
+
+test('(d) server/index.ts hands createMcpGatewayModule a resolveDeps reading the project and session stores', () => {
+  const indexSource = readFileSync(fileURLToPath(new URL('../../../index.ts', import.meta.url)), 'utf8');
+  const real = scanResolveDepsWiring(indexSource);
+  const removed = scanResolveDepsWiring(withoutModuleMember(indexSource, RESOLVE_DEPS_MEMBER));
+
+  say(`(d) real.moduleCallFound=${real.moduleCallFound} resolveDepsFound=${real.resolveDepsFound}`);
+  say(`(d) real.identifiers=${JSON.stringify(real.identifiers)}`);
+  say(`(d) removed.resolveDepsFound=${removed.resolveDepsFound}`);
+
+  assert.equal(real.moduleCallFound, true, 'server/index.ts must call createMcpGatewayModule with an object argument');
+  assert.equal(real.resolveDepsFound, true, 'that argument must declare a resolveDeps member');
+  for (const store of RESOLVE_DEPS_SOURCES) {
+    assert.ok(
+      real.identifiers.includes(store),
+      `resolveDeps must read the ${store} store (saw ${JSON.stringify(real.identifiers)})`,
+    );
+  }
+
+  // Positive control: deleting the member from the REAL source is reported, so a
+  // green reading is discriminating power rather than a scanner that always says yes.
+  assert.equal(removed.resolveDepsFound, false, 'the deleted resolveDeps member must be reported missing');
+});
+
+// =====================================================================
+// (e) the production-same assembly resolves a project NAME
+// =====================================================================
+
+/** The display-name fragment both fixture projects share — deliberately ambiguous. */
+const RESOLVE_SHARED_FRAGMENT = 'ac246-prod';
+const RESOLVE_ALPHA_SESSION = 'ac246-alpha-session';
+const RESOLVE_BETA_SESSION = 'ac246-beta-session';
+
+type ResolveFixture = {
+  directory: string;
+  alphaId: string;
+  betaId: string;
+  alphaTitle: string;
+};
+
+/**
+ * Two real projects whose display names share a fragment, each with one real
+ * session: the smallest fixture that separates "resolved to the one project"
+ * from "resolved to the wrong one" from "refused as ambiguous".
+ */
+async function setupResolveFixture(): Promise<ResolveFixture> {
+  const directory = await setupDatabase();
+  getConnection()
+    .prepare('INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)')
+    .run(USER_ONE, 'owner', 'hash');
+
+  const base = path.join(SCRATCH, 'resolve-projects');
+  const alphaDir = path.join(base, 'ac246-prod-alpha');
+  const betaDir = path.join(base, 'ac246-prod-beta');
+  mkdirSync(alphaDir, { recursive: true });
+  mkdirSync(betaDir, { recursive: true });
+
+  // Creating a session registers its project row, so the two directories below
+  // become two real projects with real (if empty) quay-less listings.
+  const stamp = '2026-09-03T10:00:00.000Z';
+  sessionsDb.createSession(RESOLVE_ALPHA_SESSION, 'claude', alphaDir, 'Alpha fixture session', stamp, stamp, null);
+  sessionsDb.createSession(RESOLVE_BETA_SESSION, 'claude', betaDir, 'Beta fixture session', stamp, stamp, null);
+
+  const rows = projectsDb.getProjectPaths();
+  const alpha = rows.find((row) => row.project_path === alphaDir);
+  const beta = rows.find((row) => row.project_path === betaDir);
+  assert.ok(alpha && beta, 'the two fixture projects must be registered by their sessions');
+
+  const titleOf = (row: (typeof rows)[number], dir: string): string =>
+    row.custom_project_name?.trim() || path.basename(dir);
+
+  return {
+    directory,
+    alphaId: alpha.project_id,
+    betaId: beta.project_id,
+    alphaTitle: titleOf(alpha, alphaDir),
+  };
+}
+
+/**
+ * AC-246's target gate, wired the SAME way `server/index.ts` wires it — the same
+ * two synchronous store reads, so the "one indexed SELECT per call" property is
+ * the assembly's, not the criterion's.
+ */
+function productionResolveDeps() {
+  return {
+    listProjects: () =>
+      projectsDb.getProjectPaths().map((row) => ({
+        id: row.project_id,
+        title: row.custom_project_name?.trim() || path.basename(row.project_path),
+      })),
+    listSessions: () =>
+      sessionsDb.getAllSessions().map((row) => ({
+        id: row.session_id,
+        title: row.custom_name?.trim() || row.session_id,
+      })),
+  };
+}
+
+test('(e) the production-same assembly resolves sessions_list `project` by name, refuses an ambiguous fragment, and keeps the exact id working', { concurrency: false }, async () => {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const fixture = await setupResolveFixture();
+  const gateway = await startGateway({ runGet: runGetSeam() }, makeControl().seam, {
+    // AC-245's read-tool services minus what the module fills from the barrel —
+    // exactly the bag `server/index.ts` hands over.
+    readTools: { sessions: sessionsService, hosts: sessionHostManager, now: () => Date.now() },
+    // AC-246's gate, supplied the way the production root supplies it.
+    resolveDeps: productionResolveDeps(),
+  });
+
+  try {
+    // (1) a display-name fragment hitting exactly one project resolves to it, and
+    //     the tool reads THAT project's sessions — not an empty or wrong list.
+    const byName = await callToolFull(gateway.client, 'sessions_list', { project: fixture.alphaTitle });
+    say(`(e) byName=${JSON.stringify(byName)}`);
+    assert.equal(byName.isError, false, 'a unique project-name fragment must resolve, not error');
+    const namedSessions = (byName.payload?.sessions ?? []) as Array<Record<string, unknown>>;
+    assert.deepEqual(
+      namedSessions.map((session) => session.id),
+      [RESOLVE_ALPHA_SESSION],
+      "sessions_list must return the resolved project's own sessions",
+    );
+    assert.equal(namedSessions[0].projectId, fixture.alphaId, 'every returned row must carry the resolved project id');
+
+    // (2) the exact project id reads exactly as it did before the gate: identical
+    //     body, because an exact id wins outright.
+    const byId = await callToolFull(gateway.client, 'sessions_list', { project: fixture.alphaId });
+    say(`(e) byId=${JSON.stringify(byId)}`);
+    assert.equal(byId.isError, false, 'an exact project id must still resolve');
+    assert.deepEqual(byId.payload, byName.payload, 'the exact-id reading is identical to the name reading of the same project');
+
+    // (3) a fragment hitting BOTH projects is refused with the candidate list,
+    //     never guessed: the resolver picks no winner.
+    const ambiguous = await callToolFull(gateway.client, 'sessions_list', { project: RESOLVE_SHARED_FRAGMENT });
+    say(`(e) ambiguous=${JSON.stringify(ambiguous)}`);
+    assert.equal(ambiguous.isError, true, 'a fragment naming two projects must be refused');
+    assert.equal(ambiguous.payload?.code, 'TARGET_AMBIGUOUS', 'the refusal must be TARGET_AMBIGUOUS');
+    const candidates = ((ambiguous.payload?.details as Record<string, unknown> | undefined)?.candidates ?? []) as Array<
+      Record<string, unknown>
+    >;
+    assert.deepEqual(
+      candidates.map((candidate) => String(candidate.id)).sort(),
+      [fixture.alphaId, fixture.betaId].sort(),
+      'the ambiguity must list BOTH candidates so the caller can pick',
+    );
+
+    // (4) negative control: the SAME probe on a mount WITHOUT the gate cannot
+    //     resolve a name at all, so the name path above is the gate's doing.
+    const ungated = await startGateway({ runGet: runGetSeam() }, makeControl().seam, {
+      readTools: { sessions: sessionsService, hosts: sessionHostManager, now: () => Date.now() },
+    });
+    try {
+      const withoutGate = await callToolFull(ungated.client, 'sessions_list', { project: fixture.alphaTitle });
+      say(`(e) nameWithoutGate=${JSON.stringify(withoutGate)}`);
+      // The exact code is the read path's own (an unresolved id reaches
+      // `getProjectSessionsPage` and is refused there) — pinning it would be
+      // reading an artefact outside this task's Touches. What matters is the
+      // CONTRAST: without the gate the name does not resolve, the call fails,
+      // and no session list is returned, so the name path in (1) is the gate's
+      // doing rather than a property of `sessions_list` on its own.
+      assert.equal(withoutGate.isError, true, 'without resolveDeps a project NAME is not a target the tools can act on');
+      assert.equal(withoutGate.payload?.sessions, undefined, 'the ungated mount must not return a session list for a name');
+      assert.ok(
+        String(withoutGate.payload?.message ?? '').includes(fixture.alphaTitle),
+        'the ungated refusal must name the unresolved name it was handed',
+      );
+    } finally {
+      await ungated.close();
+    }
+  } finally {
+    await gateway.close();
+    closeConnection();
+    if (previousDatabasePath === undefined) {
+      delete process.env.DATABASE_PATH;
+    } else {
+      process.env.DATABASE_PATH = previousDatabasePath;
+    }
+    await rm(fixture.directory, { recursive: true, force: true });
   }
 });
 

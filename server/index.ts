@@ -646,6 +646,36 @@ const mcpGateway = mountMcpGateway(
         tokens: accessTokensService,
         oauth: mcpOauth,
         control: chatControl,
+        // AC-246's target gate, WIRED in production here
+        // (gap-mcp-resolve-deps-production-wiring). Supplying `resolveDeps` turns
+        // the gateway's resolution gate on for every tool the mount registers, so
+        // a `project` / `session` argument may name its target: an exact id still
+        // wins verbatim, a unique title substring resolves, and an ambiguous or
+        // unknown reference is refused with the candidate list instead of being
+        // acted on. Before this it was never supplied, so `resolveInputTargets`
+        // short-circuited to the raw handler and `sessions_list({ project: "…" })`
+        // / `quay_snapshot({ project: "…" })` passed a name straight into the
+        // strict id lookup, which answered `PROJECT_NOT_FOUND`.
+        //
+        // Both lists carry ACTIVE entries only, read synchronously so the gate is
+        // one indexed SELECT per call. `getProjectPaths()` is the non-archived
+        // project listing; `getAllSessions()` is EVERY stored non-archived session
+        // (not a recents page), so a valid session id that sits past the first
+        // page is still resolved by its exact id rather than refused. The project
+        // TITLE is the same string `projects_list` reports as `name`: the row's
+        // custom display name, else the directory basename.
+        resolveDeps: {
+            listProjects: () =>
+                projectsDb.getProjectPaths().map((row) => ({
+                    id: row.project_id,
+                    title: row.custom_project_name?.trim() || path.basename(row.project_path),
+                })),
+            listSessions: () =>
+                sessionsDb.getAllSessions().map((row) => ({
+                    id: row.session_id,
+                    title: row.custom_name?.trim() || row.session_id,
+                })),
+        },
         readTools: {
             sessions: sessionsService,
             hosts: sessionHostManager,
