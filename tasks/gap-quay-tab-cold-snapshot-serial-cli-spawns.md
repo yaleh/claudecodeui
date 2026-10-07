@@ -2,7 +2,7 @@
 id: gap-quay-tab-cold-snapshot-serial-cli-spawns
 title: Quay tab 冷缓存快照 9.5s：collectSnapshot 串行 spawn 6 条 quay CLI，其中 server
   status 3.9s 只为取一个可选 dashboard URL（该读数失败还被静默吞掉）
-status: ready
+status: done
 labels:
   - gap
   - defect
