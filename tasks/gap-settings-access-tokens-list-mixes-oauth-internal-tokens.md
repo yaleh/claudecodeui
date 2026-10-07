@@ -2,7 +2,7 @@
 id: gap-settings-access-tokens-list-mixes-oauth-internal-tokens
 title: Settings「Access tokens」列表混入 OAuth 内部令牌（全显示 Unnamed token）：只列 PAT，OAuth
   令牌移入只读「高级」折叠区，PAT 创建给默认名
-status: todo
+status: ready
 labels:
   - gap
   - defect
