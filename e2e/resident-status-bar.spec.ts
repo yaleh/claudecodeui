@@ -117,9 +117,15 @@ const ARM_A_SCENARIO = {
  *
  * Each plateau is wide enough for the status bar's one-second poll to land inside it, and the offsets
  * are absolute from the run's start, so the shape of the walk — and therefore where each reading can
- * be taken — does not depend on how long this file took to get there. The long `wait` between the
- * second turn and its end is the window the abort is clicked in; `exit` is last because a host that
- * has exited serves no further step.
+ * be taken — does not depend on how long this file took to get there.
+ *
+ * The cross-session turn is the one exception, and it is held by a barrier rather than an offset. The
+ * reload below lands when the host's own network decides, which can be later than any fixed plateau
+ * would allow — a bounded replay is allowed up to `STARTUP_PROBE_DEADLINE_MS` (14s), and the plateau
+ * it has to land inside was 6s — so `turn-end` and `exit` sit behind an `await-release` and fire on
+ * the reading's own progress instead. The barrier is one-shot (`releaseDebugAgentRun` flips the flag
+ * for the whole run), so a single release opens it for every step behind it. `exit` is last because a
+ * host that has exited serves no further step.
  */
 const ARM_B_SCENARIO = {
   version: 1,
@@ -133,7 +139,7 @@ const ARM_B_SCENARIO = {
     { at: 3_000, op: 'turn-end' },
     { at: 5_000, op: 'keepalive-add', kind: 'monitor' },
     { at: 7_000, op: 'unattended-turn', text: CROSS_SESSION_TURN_TEXT, trigger: 'cross-session', sender: PEER_NAME },
-    { at: 12_000, op: 'wait' },
+    { at: 8_000, op: 'await-release' },
     { at: 13_000, op: 'turn-end' },
     { at: 14_000, op: 'exit', detail: 'oom' },
     { at: 14_500, op: 'wait' },
@@ -1021,6 +1027,21 @@ test.describe('resident status bar', () => {
       hostAfterAbort?.state ?? '',
     );
     expect(hostAfterAbort?.closeReason ?? null, 'a stopped turn must not close the host').toBeNull();
+
+    // The barrier opened above is released only here, after the abort's own readings. Releasing it any
+    // earlier would let the scenario's `turn-end` and `exit` fire before the abort is clicked, and the
+    // `['idle','lingering']` line just above would then read an `exited` host. The abort does not wait
+    // on the walk: stopping a turn is a host-layer action — it revokes the turn's lease — and that
+    // assertion already holds in the unbarriered case where the click lands before `turn-end@13000`.
+    //
+    // The release is asserted rather than fired and forgotten. A release that never lands leaves the
+    // walk on `DEBUG_AGENT_RELEASE_CEILING_MS` (20s) and the run ends red with
+    // `DEBUG_AGENT_RELEASE_TIMEOUT` — a reading about the barrier, not about the product. Asserting
+    // `ok` here names the layer the failure is on instead of letting the timeout above blame the mark.
+    const releaseResponse = await api.post('/api/debug-agent/release', { data: { sessionId: armB } });
+    const released = await releaseResponse.json().catch(() => null);
+    console.log(`release.status=${releaseResponse.status()} body=${JSON.stringify(released)}`);
+    expect(releaseResponse.ok(), `the barrier must be released: ${JSON.stringify(released)}`).toBe(true);
 
     // --- the process exits on its own: exited(oom) -----------------------------------------------
     await expect(markOf(page, armB)).toHaveAttribute('data-resident-state', 'exited', { timeout: 15_000 });
