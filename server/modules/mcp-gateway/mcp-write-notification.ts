@@ -37,7 +37,7 @@
  * module's criterion, which drives every export directly.
  */
 
-import { oauthClientsDb, sessionsDb } from '@/modules/database/index.js';
+import { accessTokensDb, oauthClientsDb, sessionsDb } from '@/modules/database/index.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '@/modules/notifications/index.js';
 
 import type { McpPrincipal } from './mcp-gateway.auth.js';
@@ -233,29 +233,66 @@ export type McpWriteNotificationDeps = {
   windowMs?: number;
   /** Individual notifications per window, default 5. */
   threshold?: number;
-  /** Client-name reader; defaults to the OAuth client row, else a fixed label. */
+  /** Client-name reader; defaults to the gateway's one {@link resolveClientName}. */
   resolveClientName?: (principal: McpPrincipal) => string;
   /** Session-title reader; defaults to the session row's display name. */
   resolveSessionTitle?: (sessionId: string | null) => string | null;
 };
 
-/** The name a client with no resolvable identity is reported under. */
-const PERSONAL_TOKEN_LABEL = '个人访问令牌';
-/** The name an OAuth client whose row carries no name is reported under. */
+/** How many characters of a resolved client name survive; a longer name is cut to this bound. */
+export const MCP_CLIENT_NAME_MAX_LENGTH = 64;
+
+/** The name a personal access token with no stored `name` is reported under. */
+export const PERSONAL_TOKEN_LABEL = '个人访问令牌';
+/** The name an OAuth client whose id is empty (so nothing readable remains) is reported under. */
 const OAUTH_CLIENT_LABEL = 'OAuth 客户端';
 
 /**
- * The default client-name reader: the OAuth client row's `client_name`, or one
- * of two fixed labels for a personal access token (which has no client) and an
- * unnamed OAuth client. Never throws — a lookup miss is a label, not a failure.
+ * Resolves the human-readable name of the client behind a principal — the ONE
+ * such resolution in the gateway.
+ *
+ * An OAuth principal is named by its client row's `client_name`; when the row
+ * carries no display name the CLIENT ID itself stands in (bounded by
+ * {@link MCP_CLIENT_NAME_MAX_LENGTH}), because the id is still a readable
+ * identity and a prompt that shows nothing tells the user less. A personal
+ * access token has no client, so it is named by its token row's `name`; a
+ * nameless token falls back to {@link PERSONAL_TOKEN_LABEL}. Never throws — a
+ * lookup that cannot run (or finds no row) is a fixed label, not a failure.
+ *
+ * Consumers: {@link createMcpWriteNotification} (the write notification's
+ * `clientName`) and `mcp-ui-open-session.ts` (the confirmation bar's requester,
+ * carried on the `ui.navigate` frame and the navigation record). Both read THIS
+ * function rather than a second copy, so the name a user sees on the bar and the
+ * name recorded for `ui_visible_context` cannot drift.
  */
-function defaultResolveClientName(principal: McpPrincipal): string {
-  if (principal.clientId === null) {
-    return PERSONAL_TOKEN_LABEL;
+export function resolveClientName(principal: McpPrincipal): string {
+  return boundClientName(readClientName(principal));
+}
+
+/** The raw name before bounding: the row's display name, else the best readable fallback. */
+function readClientName(principal: McpPrincipal): string {
+  try {
+    if (principal.clientId !== null) {
+      const name = oauthClientsDb.findById(principal.clientId)?.client_name;
+      if (typeof name === 'string' && name.length > 0) {
+        return name;
+      }
+      // No display name: the client id is the only readable identity left.
+      const id = principal.clientId.trim();
+      return id.length > 0 ? id : OAUTH_CLIENT_LABEL;
+    }
+    const name = accessTokensDb.findById(principal.tokenId)?.name;
+    return typeof name === 'string' && name.length > 0 ? name : PERSONAL_TOKEN_LABEL;
+  } catch {
+    // A lookup that cannot run (e.g. before the database is open) still must not
+    // leave the caller unnamed.
+    return principal.clientId !== null ? OAUTH_CLIENT_LABEL : PERSONAL_TOKEN_LABEL;
   }
-  const client = oauthClientsDb.findById(principal.clientId);
-  const name = client?.client_name;
-  return typeof name === 'string' && name.length > 0 ? name : OAUTH_CLIENT_LABEL;
+}
+
+/** Cuts a name to {@link MCP_CLIENT_NAME_MAX_LENGTH}, so a fixed-width bar cannot be blown out. */
+function boundClientName(name: string): string {
+  return name.length > MCP_CLIENT_NAME_MAX_LENGTH ? name.slice(0, MCP_CLIENT_NAME_MAX_LENGTH) : name;
 }
 
 /**
@@ -319,7 +356,7 @@ export function createMcpWriteNotification(deps: McpWriteNotificationDeps = {}):
     now: deps.now,
     windowMs: deps.windowMs ?? DEFAULT_WINDOW_MS,
     threshold: deps.threshold ?? DEFAULT_THRESHOLD,
-    resolveClientName: deps.resolveClientName ?? defaultResolveClientName,
+    resolveClientName: deps.resolveClientName ?? resolveClientName,
     resolveSessionTitle: deps.resolveSessionTitle ?? defaultResolveSessionTitle,
   });
 

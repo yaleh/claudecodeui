@@ -117,8 +117,13 @@ const LONG_MESSAGE = `${MESSAGE_HEAD}${MESSAGE_TAIL}`;
 /** An argument value that must never reach the payload (`args` 授权码/密钥). */
 const ARG_SECRET = 'SECRET-AUTH-CODE-VALUE';
 
-/** The PAT label `createMcpWriteNotification`'s default client-name reader returns. */
-const PERSONAL_TOKEN_LABEL = '个人访问令牌';
+/**
+ * The FULL write token's stored `name`. `createMcpWriteNotification`'s default
+ * client-name reader names a personal access token by its OWN row name (the
+ * token is the caller's identity — it has no OAuth client), so this is the name
+ * every write call's payload carries.
+ */
+const FULL_TOKEN_NAME = 'ac303-full';
 
 /** One line of this criterion's readings. The readings are the evidence. */
 function say(line: string): void {
@@ -343,7 +348,7 @@ async function withHarness(options: HarnessOptions, run: (harness: Harness) => P
     const tokens = createAccessTokensService({ now: () => new Date(NOW) });
     const fullToken = tokens.issueToken({
       userId: USER_ONE,
-      name: 'ac303-full',
+      name: FULL_TOKEN_NAME,
       scopes: [...ACCESS_TOKEN_SCOPES],
       expiresInDays: 30,
     });
@@ -576,7 +581,7 @@ test('(a) every write tool from tools/list notifies once with the four facts and
       assert.equal(matching.length, 1, `${plan.tool} must notify exactly once`);
       const payload = matching[0];
       assert.equal(payload.count, 1, `${plan.tool}'s individual notification carries count 1`);
-      assert.equal(payload.clientName, PERSONAL_TOKEN_LABEL, `${plan.tool}'s payload names the client`);
+      assert.equal(payload.clientName, FULL_TOKEN_NAME, `${plan.tool}'s payload names the client`);
       assert.equal(payload.sessionTitle, plan.sessionTitle, `${plan.tool}'s payload carries the session title`);
       const expectedPreview = plan.tool === 'session_send' ? MESSAGE_HEAD : null;
       assert.equal(payload.messagePreview, expectedPreview, `${plan.tool}'s preview is the first 40 chars or null`);
