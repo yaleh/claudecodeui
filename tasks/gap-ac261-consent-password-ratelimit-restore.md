@@ -51,16 +51,45 @@ GOAL-021 退出条件 3 逐字要求「授权页（AC-260、AC-261）：转义�
 
 ## AC
 
-- [ ] AC1 判据红态基线逐字记录：改动前运行 `for f in server/modules/oauth/tests/oauth-consent-ratelimit.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`（写下完整命令与完整输出）。
-- [ ] AC2 判据绿：同一条 AC-261 命令退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
-- [ ] AC3 (a) 同来源连续 10 次错密码后，第 11 次（这次密码正确）→ 429；前 10 次非 429；第 11 次 `provider.authorize` 间谍计数为 0 且无 `redirectTo`；逐字写出 11 个状态码。
-- [ ] AC4 (b) `nowMs += windowMs + 1` 后同来源 POST 正确密码 → 200（含 `redirectTo`），不再 429；逐字写出推进量与状态码。
-- [ ] AC5 (c) `trustProxy: true` 下来源 A（`CF-Connecting-IP: 1.1.1.1`）第 11 次 → 429，来源 B（`2.2.2.2`）首次 → 非 429（各自独立计数）；逐字写出。
-- [ ] AC6 (d) 未配置代理时伪造的 `CF-Connecting-IP`/`X-Forwarded-For` 不改变来源：10 次失败在 `9.9.9.9` 与 `8.8.8.8`（及仅 `X-Forwarded-For: 7.7.7.7`）间交替，第 11 次 → 429；逐字写出伪造头值与状态码。
-- [ ] AC7 (e) A、B 各失败 5 次后 A 用正确密码成功（200），B 再失败 6 次其第 6 次 → 429（B 桶未被清零），且 A 自身计数被重置（A 再失败 10 次才 429）；逐字写出两来源各次状态码。
-- [ ] AC8 取假形态三条先红后恢复（逐条记录变异 diff、逐字失败行、恢复命令）：(i) 无条件信任 `CF-Connecting-IP` ⇒ AC6 红；(ii) 成功清零全部桶 ⇒ AC7 红；(iii) 窗口永不过期 ⇒ AC4 红；每条恢复命令 + 恢复后重跑回绿。
-- [ ] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-260 判据 `server/modules/oauth/tests/oauth-consent-page.test.ts` 不改一字仍绿；SPA 前端判据 `src/modules/oauth-consent/tests/oauthConsentPage.test.tsx` 与两条 e2e（`e2e/oauth-consent-page.spec.ts`、`server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts`）按新增的密码确认同步后仍绿；新增 `server/**/*.test.ts` 触发的计数钉死值（`server/shared/tests/quay-test-script.test.ts`）已同步。
-- [ ] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+- [x] AC1 判据红态基线逐字记录：改动前运行 `for f in server/modules/oauth/tests/oauth-consent-ratelimit.test.ts; do [ -f "$f" ] || { echo "缺判据文件：$f" >&2; exit 1; }; done; npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`，存在性闸退出码 1 并逐字输出 `缺判据文件：server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`（写下完整命令与完整输出）。
+  - 运行树：分支点树 —— `git -C <worktree> archive develop | tar -x -C /tmp/ac261-baseline-develop`（develop = db8743d2，即本任务的分支点；判据文件只存在于本任务分支，故「改动前」即分支点）。`server/modules/oauth/tests/` 下同目录 11 个既有文件俱在，唯独本判据缺席。
+  - 命令（逐字，上面的 for 闸 + `npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`）
+  - 输出（逐字，stderr）：`缺判据文件：server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`
+  - 退出码：**1**（存在性闸即退出，`npx tsx` 未被执行）。
+- [x] AC2 判据绿：同一条 AC-261 命令退出 0；写下 `# tests` / `# pass` / `# fail` 读数。
+  - 命令：`npx tsx --tsconfig server/tsconfig.json --test server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`（工作树内）→ **EXIT=0**
+  - 读数（逐字）：`ℹ tests 4` / `ℹ pass 4` / `ℹ fail 0` / `ℹ cancelled 0` / `ℹ skipped 0`。
+- [x] AC3 (a) 同来源连续 10 次错密码后，第 11 次（这次密码正确）→ 429；前 10 次非 429；第 11 次 `provider.authorize` 间谍计数为 0 且无 `redirectTo`；逐字写出 11 个状态码。
+  - 逐字读数：`(a) statuses=401,401,401,401,401,401,401,401,401,401,429; the 11th carried the correct password and answered 429; authorizeCalls=0; redirectTo=null`
+  - 判据断言：前 10 个状态码均 `!== 429`；第 11 次 `=== 429`；`provider.authorize` 间谍计数 `=== 0`；响应体无 `redirectTo`。
+- [x] AC4 (b) `nowMs += windowMs + 1` 后同来源 POST 正确密码 → 200（含 `redirectTo`），不再 429；逐字写出推进量与状态码。
+  - 逐字读数：`(b) nowMs += 900001; same source POST correct password -> 200; redirectTo="https://app.example/cb?code=code-1&state=state-1"; authorizeCalls=1`
+  - 推进量 `windowMs + 1 = 15*60*1000 + 1 = 900001` ms；状态码 200，`redirectTo` 非空，`authorizeCalls=1`。
+- [x] AC5 (c) `trustProxy: true` 下来源 A（`CF-Connecting-IP: 1.1.1.1`）第 11 次 → 429，来源 B（`2.2.2.2`）首次 → 非 429（各自独立计数）；逐字写出。
+  - 逐字读数：`(c) source A(1.1.1.1) statuses=401,401,401,401,401,401,401,401,401,401,429; source B(2.2.2.2) first=200 redirectTo="https://app.example/cb?code=code-1&state=state-1"`
+- [x] AC6 (d) 未配置代理时伪造的 `CF-Connecting-IP`/`X-Forwarded-For` 不改变来源：10 次失败在 `9.9.9.9` 与 `8.8.8.8`（及仅 `X-Forwarded-For: 7.7.7.7`）间交替，第 11 次 → 429；逐字写出伪造头值与状态码。
+  - 逐字读数：`(d) forged headers per attempt={"CF-Connecting-IP":"9.9.9.9"} {"CF-Connecting-IP":"8.8.8.8"} {"X-Forwarded-For":"7.7.7.7"} {"CF-Connecting-IP":"9.9.9.9"} {"CF-Connecting-IP":"8.8.8.8"} {"X-Forwarded-For":"7.7.7.7"} {"CF-Connecting-IP":"9.9.9.9"} {"CF-Connecting-IP":"8.8.8.8"} {"X-Forwarded-For":"7.7.7.7"} {"CF-Connecting-IP":"9.9.9.9"}; statuses=401,401,401,401,401,401,401,401,401,401,429; the 11th answered 429`
+  - 全部 10 次伪造头都落在同一桶（socket 远端地址），第 11 次（密码正确）仍 429。
+- [x] AC7 (e) A、B 各失败 5 次后 A 用正确密码成功（200），B 再失败 6 次其第 6 次 → 429（B 桶未被清零），且 A 自身计数被重置（A 再失败 10 次才 429）；逐字写出两来源各次状态码。
+  - 逐字读数：`(e) A failures=401,401,401,401,401; B failures=401,401,401,401,401; A success=200 (redirectTo="https://app.example/cb?code=code-1&state=state-1"); B next six=401,401,401,401,401,429; A next eleven=401,401,401,401,401,401,401,401,401,401,429`
+  - B 的 5 次在 A 成功之后仍在（第 6 次 → 429）；A 的计数确被清零（再 10 次才 429）。
+- [x] AC8 取假形态三条先红后恢复（逐条记录变异 diff、逐字失败行、恢复命令）：(i) 无条件信任 `CF-Connecting-IP` ⇒ AC6 红；(ii) 成功清零全部桶 ⇒ AC7 红；(iii) 窗口永不过期 ⇒ AC4 红；每条恢复命令 + 恢复后重跑回绿。
+  - 前置：实现先提交（`e9c60b30`），故恢复命令一律是 `git checkout -- server/modules/oauth/oauth-consent-ratelimit.service.ts`。
+  - **(i) 无条件信任 `CF-Connecting-IP`** —— diff：`-  if (trustProxy) {` / `+  if (trustProxy || true) {`（`resolveSource`）。运行读数：`✖ (d) without a trusted proxy, forged CF-Connecting-IP / X-Forwarded-For never change the source`；`(d) … statuses=401,401,401,401,401,401,401,401,401,401,200; the 11th answered 200`；失败行逐字：`AssertionError [ERR_ASSERTION]: the forged headers must not buy the client an extra identity` / `200 !== 429`；`ℹ tests 4 / pass 3 / fail 1`，EXIT=1。(a)(b)(c)(e) 仍绿——变异只动来源解析。(d) 红即 AC6 红。
+  - **(ii) 成功清零全部桶** —— diff：`-      buckets.delete(source);` / `+      void source;` / `+      buckets.clear();`（`resetSource`）。运行读数：`✖ (e) a confirmed password clears only its own source`；`(e) … B next six=401,401,401,401,401,401; …`（B 的第 6 次不再是 429）；失败行逐字：`AssertionError [ERR_ASSERTION]: B must still be blocked on its eleventh attempt after A succeeded` / `401 !== 429`；`ℹ tests 4 / pass 3 / fail 1`，EXIT=1。(e) 红即 AC7 红。
+  - **(iii) 窗口永不过期** —— diff：`-  const expired = (bucket: { windowStart: number }, time: number): boolean =>` / `-    time - bucket.windowStart >= windowMs;` / `+  const expired = (_bucket: { windowStart: number }, _time: number): boolean => false;`。运行读数：`✖ (a)+(b) ten failures block the source; the eleventh is 429 even with the right password; the next window admits it`；`(b) nowMs += 900001; same source POST correct password -> 429; redirectTo=null; authorizeCalls=0`；失败行逐字：`AssertionError [ERR_ASSERTION]: after the window, a correct password must be admitted` / `429 !== 200`；`ℹ tests 4 / pass 3 / fail 1`，EXIT=1。(b) 红即 AC4 红。
+  - 三条各自恢复后重跑：`git diff --stat -- <file>` 为空（字节级复原），判据 **EXIT=0 / tests 4 / pass 4 / fail 0**（三条各一次，逐条确认回绿）。
+- [x] AC9 不回归与仓库门：`npm run typecheck` 退出 0、`npm run lint` 无 `: error `（写下计数）；AC-260 判据 `server/modules/oauth/tests/oauth-consent-page.test.ts` 不改一字仍绿；SPA 前端判据 `src/modules/oauth-consent/tests/oauthConsentPage.test.tsx` 与两条 e2e（`e2e/oauth-consent-page.spec.ts`、`server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts`）按新增的密码确认同步后仍绿；新增 `server/**/*.test.ts` 触发的计数钉死值（`server/shared/tests/quay-test-script.test.ts`）已同步。
+  - `npm run typecheck` → **EXIT=0**（`tsc --noEmit -p tsconfig.json && -p server/tsconfig.json && -p scripts/tsconfig.json`，无输出）。
+  - `npm run lint` → **EXIT=0**；`: error ` 计数 **0**，`: warning ` 计数 **227**（与改动前同量；无新增 `error`）。
+  - AC-260 判据未改一字：`git diff --stat develop...HEAD -- server/modules/oauth/tests/oauth-consent-page.test.ts` 为空；运行 → **EXIT=0 / `ℹ tests 13` / `ℹ pass 13` / `ℹ fail 0`**（与 AC-261 判据合计 17/17）。
+  - SPA 前端判据 `npx vitest run src/modules/oauth-consent/tests/oauthConsentPage.test.tsx` → **EXIT=0 / `Test Files 1 passed (1)` / `Tests 12 passed (12)`**。
+  - e2e 实浏览器：`npx playwright test e2e/oauth-consent-page.spec.ts` → **EXIT=0 / `1 passed`**；逐字读数 `(b) the confirmation field gated Allow: disabled before the password was re-entered=true, enabled after=true`，且 (g) 各 locale key 数 29 一致、(f) 375x812 `scrollWidth=375 clientWidth=375`。
+  - e2e 实服务（真 `server/index.ts` + 真 bcrypt 账户）：`server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts` → **EXIT=0 / 1 pass**；新增反例 (e4) 逐字 `[e4] POST /api/oauth/authorize/decision (wrong confirmation password) -> 401 {"error":"invalid_credentials","error_description":"Incorrect username or password"}`。
+  - 计数钉死值已同步：`npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/quay-test-script.test.ts` → **EXIT=0 / `ℹ tests 11` / `ℹ pass 11` / `ℹ fail 0`**（`known=3 unknown=247`、`known=1 unknown=249`）。
+- [x] AC10 `git diff --stat develop...HEAD` 与 `## Touches` 逐条对齐（新增文件用 ASCII ` (new)` 标注）；列出实际改动文件清单。
+  - `git diff --stat develop...HEAD`：**24 files changed, 922 insertions(+), 47 deletions(-)**。
+  - 清单 ↔ Touches 对齐：`server/modules/oauth/oauth-consent-ratelimit.service.ts`(new)、`server/modules/oauth/oauth-consent.routes.ts`、`server/modules/oauth/oauth-server.mount.ts`、`server/index.ts`、`server/modules/oauth/tests/oauth-consent-ratelimit.test.ts`(new)、`src/shared/types.ts`、`src/modules/oauth-consent/OAuthConsentRoute.tsx`、`src/modules/oauth-consent/hooks/useOAuthConsent.ts`、`src/modules/oauth-consent/tests/oauthConsentPage.test.tsx`、`e2e/oauth-consent-page.spec.ts`、`server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts`、`server/shared/tests/quay-test-script.test.ts`（12 条），加上 `src/modules/i18n/locales/*/consent.json` 一条 glob 覆盖 diffstat 里的 12 个 locale 文件 = 24；`tasks/gap-ac261-consent-password-ratelimit-restore.md` 为本任务自身（在 store 分支上，不入 diffstat）。
 
 ## DoD
 
@@ -79,9 +108,11 @@ GOAL-021 退出条件 3 逐字要求「授权页（AC-260、AC-261）：转义�
 - server/modules/oauth/oauth-server.mount.ts（`MountOAuthServerDeps` 增加 `credentialVerifier` 并传给 JSON API 路由器）
 - server/index.ts（把 auth barrel 的 `credentialVerifier` 注入 `mountOAuthServer`）
 - server/modules/oauth/tests/oauth-consent-ratelimit.test.ts (new)（AC-261 判据）
+- src/shared/types.ts（`OAuthConsentDecisionRequest` 增加 `password` 字段：Allow 的密码确认，空值即失败确认、绝不旁路）
 - src/modules/oauth-consent/OAuthConsentRoute.tsx（Allow 前的密码确认字段）
 - src/modules/oauth-consent/hooks/useOAuthConsent.ts（decision body 增加 `password`）
 - src/modules/oauth-consent/tests/oauthConsentPage.test.tsx（前端判据同步密码确认）
+- src/modules/i18n/locales/*/consent.json（新增密码确认与限速文案键 `passwordLabel`/`passwordHint`/`errors.invalidCredentials`/`errors.rateLimited`，全部 12 个 locale）
 - e2e/oauth-consent-page.spec.ts（e2e 决策带密码确认）
 - server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts（e2e 决策带密码确认）
 - server/shared/tests/quay-test-script.test.ts（新增 server 测试文件的计数钉死值同步）
@@ -95,3 +126,12 @@ GOAL-021 退出条件 3 逐字要求「授权页（AC-260、AC-261）：转义�
 - `TRUST_PROXY` 的全局 `app.set('trust proxy', …)` 属 AC-262，不在本任务；本任务限速器只读 `TRUST_PROXY` 环境或注入的 `trustProxy`，判据直接注入该选项，不依赖全局接线。
 - 固定窗口（非滑动）即可满足 (a)–(e)；判据用注入时钟推进，不睡真时间。429 响应沿用本面既有的防嵌套/不缓存头，另加 `Retry-After`。
 - 内存提示：`labels`/`goal_ac` 等 frontmatter 字段的写入面由 pre-commit 守卫校验（delivery-critical 才强制 `goal_ac`；本任务非 delivery-critical，但仍带上 `goal_ac: AC-261` 以便驱动下一轮独立核验）。
+
+### 实现记录（本轮）
+
+- 密码/限速整块**以 `options.verifyCredentials !== undefined` 为闸**：不注入校验器的挂载（AC-260 的判据）逐字节不变——这是让「Allow 必须带密码」与「AC-260 判据不改一字仍绿」两条同时成立的关键，AC9 已实测二者并行绿。
+- 凭据校验走既有窄口 `createCredentialVerifier`（auth barrel 的 `credentialVerifier`），未新建第二份实现、未引入新依赖。
+- 前端把 401 `invalid_credentials` 与 429 `too_many_requests` 作为**就地可重试**错误（`submitError`，决策仍在屏上），与「会话失效」的 401（页面级 `consent-error`，无 Allow）区分；区分依据是 RFC 6749 的 `error` 码，不是状态码。
+- 12 个 locale 的 `consent.json` 用文本插入补键（保留各文件既有格式与尾换行），插入后逐文件 `JSON.parse` 校验并断言 12 个 locale 的顶层与 `errors` 键集与 `en` 完全一致（Playwright (g) 腿亦独立复核 29 键 × 12 locale）。
+- `oauth-flow.e2e.test.ts` 的种子账户原用占位串 `'placeholder-hash'`（当时注释称密码未被使用）；本任务起密码**被真正校验**，故改为 `bcrypt.hashSync('oauth-e2e-password', 10)` 的真题哈希。
+- 计数钉死值：`server/shared/tests/quay-test-script.test.ts` 的 `known=3 unknown=246` → `247`、`known=1 unknown=248` → `249`（新增 1 个 server 判据文件）。
