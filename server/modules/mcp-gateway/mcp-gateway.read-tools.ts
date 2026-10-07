@@ -5,9 +5,12 @@
  * {@link MCP_STAGE3_READ_TOOLS} names each tool with the scope it requires, and
  * {@link registerMcpReadTools} installs exactly those names through the audited
  * registration seam AC-244 landed. A later task that fills in `overview`,
- * `run_get` or `quay_snapshot` replaces a handler here; it must NOT add or
- * rename a tool, because the name set is a contract the criterion compares
- * against `tools/list` byte for byte.
+ * `run_get` or `quay_snapshot` replaces a handler here, and must NOT rename a
+ * tool, because the name set is a contract the criteria compare against
+ * `tools/list` byte for byte. The set has grown exactly once on purpose —
+ * `ui_last_opened_session` (gap-mcp-ui-last-opened-session) — and the criteria
+ * that pinned the old size (the stage-3 count and the error-probe table) were
+ * updated with it; a further addition must do the same rather than slip in.
  *
  * Every tool in this module is READ-ONLY. The four implemented ones answer from
  * the services the composition root injects (projects, providers' sessions,
@@ -18,6 +21,12 @@
  * named `MCP_TOOL_NOT_IMPLEMENTED` code. `run_get` is AC-248's and is routed the
  * same way to `mcp-run-get.js` when the deps carry its bag; until then it keeps
  * the same refusal.
+ *
+ * `ui_last_opened_session` (gap-mcp-ui-last-opened-session) is the one tool this
+ * table GAINED after AC-245 rather than having a handler replaced: it is routed
+ * to `mcp-ui-tools.js` when the deps carry the browser pointer reader, and keeps
+ * the same named refusal otherwise. Its summary is `session_get`'s own reading
+ * ({@link buildSessionDetail}), so the two can never drift apart.
  *
  * Two text-shaping helpers are exported because the criterion drives them
  * directly as well as through a tool: {@link paginateMcpText} (the 4000-character
@@ -39,6 +48,8 @@ import { isOverviewWired, registerMcpOverviewTools } from './mcp-overview-tools.
 import type { McpActivityReader, McpOverviewDeps, McpOverviewRegistration, McpQuayRunner } from './mcp-overview-tools.js';
 import { isRunGetWired, registerMcpRunGetTool } from './mcp-run-get.js';
 import type { McpRunGetDeps, McpRunGetRegistration } from './mcp-run-get.js';
+import { isUiLastOpenedWired, registerMcpUiTools } from './mcp-ui-tools.js';
+import type { McpUiLastOpenedDeps, McpUiLastOpenedStore } from './mcp-ui-tools.js';
 
 // --------------------------- the stage-3 tool table ---------------------------
 
@@ -87,6 +98,12 @@ export const MCP_STAGE3_READ_TOOLS = [
     name: 'quay_snapshot',
     requiredScope: READ_SCOPE,
     description: 'Refresh and read the quay snapshot for a project.',
+  },
+  {
+    name: 'ui_last_opened_session',
+    requiredScope: READ_SCOPE,
+    description:
+      'Read the session the user last opened in the browser UI: its summary, host and current run, plus when it was opened.',
   },
 ] as const;
 
@@ -188,6 +205,17 @@ export type McpReadToolDeps = {
    * assembles it from the process singletons.
    */
   runGet?: McpRunGetDeps;
+  /**
+   * The browser's last-opened-session pointer (gap-mcp-ui-last-opened-session):
+   * a read-only reader over the one row the provider's session-read routes write.
+   * Optional so a mount that predates this task — or a criterion that exercises
+   * the other read tools — is still a valid `McpReadToolDeps`; when absent
+   * `ui_last_opened_session` keeps its named `MCP_TOOL_NOT_IMPLEMENTED` refusal,
+   * when present `registerMcpReadTools` routes the name to
+   * {@link registerMcpUiTools}. `server/index.ts` binds it to
+   * `uiLastOpenedSessionService.readLastOpened`.
+   */
+  uiLastOpened?: McpUiLastOpenedStore;
   /** Clock seam, so every relative time is reproducible in a criterion. */
   now: () => number;
 };
@@ -495,6 +523,64 @@ function isResident(reading: McpSessionReading): boolean {
   return reading.lifecycleMode === 'resident';
 }
 
+/**
+ * The one reading behind `session_get` and `ui_last_opened_session`: one
+ * session's listing row, its live host (or a stated absence) and its current run.
+ *
+ * `ui_last_opened_session` reuses this rather than re-projecting the same three
+ * fields, so "the same shape as `session_get`" is a structural fact — a field
+ * added here appears on both tools at once — instead of a promise two copied
+ * bodies would have to keep by hand. Consumers: `session_get`'s body table, and
+ * `mcp-ui-tools.js`'s `buildUiLastOpened`.
+ */
+export function buildSessionDetail(deps: McpReadToolDeps, sessionId: string) {
+  const rows = readRecentSessionRows(deps);
+  const row = rows.find((candidate) => candidate.id === sessionId);
+  if (!row) {
+    throw new McpToolError(MCP_ERROR_CODES.SESSION_NOT_FOUND, `No session has id "${sessionId}".`);
+  }
+
+  const running = new Set(deps.runs.listRunningRuns().map((run) => run.sessionId));
+  const session = toSessionReading(row, deps, running);
+  const live = deps.hosts.liveHostForSession(sessionId);
+  const binding = live?.bindings.get(sessionId) ?? null;
+  const run = deps.runs.listRunningRuns().find((candidate) => candidate.sessionId === sessionId) ?? null;
+
+  return {
+    session,
+    host: live === null || binding === null
+      ? null
+      : {
+          hostId: live.hostId,
+          mode: live.mode,
+          state: live.state,
+          pid: live.pid,
+          startedAt: formatMcpTime(live.startedAt, deps.now),
+          idleForMs: Math.max(0, deps.now() - binding.lastActivityAt),
+          peerName: binding.peerName,
+          // Verbatim, never summarized: a lease IS the reason a process is
+          // still alive, and a client that has to guess it cannot tell a
+          // held host from a stuck one.
+          leases: binding.leases.map((lease) => ({ ...lease })),
+        },
+    // A cold session says so in words rather than by an absent key: "there
+    // is no host" is a reading, and a missing field is not.
+    hostNote:
+      live === null || binding === null
+        ? 'No host: this session currently has no host process (per-invocation process mode and not running).'
+        : null,
+    run:
+      run === null
+        ? null
+        : {
+            sessionId: run.sessionId,
+            provider: run.provider,
+            startedAt: formatMcpTime(run.startedAt, deps.now),
+            lastSeq: run.lastSeq,
+          },
+  };
+}
+
 // --------------------------- tool bodies ---------------------------
 
 /** The registered body of one tool: everything except the table-owned scope. */
@@ -547,6 +633,18 @@ const runSchema = z.object({
   startedAt: timeSchema,
   lastSeq: z.number(),
 });
+
+/**
+ * The output shape of one session's detail reading — `session_get`'s four fields
+ * and the base `ui_last_opened_session` extends with `openedAt`. One statement,
+ * two tools: a field added here is advertised by both at once.
+ */
+const sessionDetailOutputSchema = {
+  session: sessionSchema,
+  host: hostSchema.nullable(),
+  hostNote: z.string().nullable(),
+  run: runSchema.nullable(),
+} satisfies z.ZodRawShape;
 
 /**
  * The refusal a registered-but-unwired tool answers with: `overview` /
@@ -663,60 +761,19 @@ const TOOL_BODIES = {
   },
   session_get: {
     inputSchema: { session: z.string() },
-    outputSchema: {
-      session: sessionSchema,
-      host: hostSchema.nullable(),
-      hostNote: z.string().nullable(),
-      run: runSchema.nullable(),
-    },
-    handle(args, deps) {
-      const sessionId = requireStringArgument(args, 'session');
-      const rows = readRecentSessionRows(deps);
-      const row = rows.find((candidate) => candidate.id === sessionId);
-      if (!row) {
-        throw new McpToolError(MCP_ERROR_CODES.SESSION_NOT_FOUND, `No session has id "${sessionId}".`);
-      }
-
-      const running = new Set(deps.runs.listRunningRuns().map((run) => run.sessionId));
-      const session = toSessionReading(row, deps, running);
-      const live = deps.hosts.liveHostForSession(sessionId);
-      const binding = live?.bindings.get(sessionId) ?? null;
-      const run = deps.runs.listRunningRuns().find((candidate) => candidate.sessionId === sessionId) ?? null;
-
-      return {
-        session,
-        host: live === null || binding === null
-          ? null
-          : {
-              hostId: live.hostId,
-              mode: live.mode,
-              state: live.state,
-              pid: live.pid,
-              startedAt: formatMcpTime(live.startedAt, deps.now),
-              idleForMs: Math.max(0, deps.now() - binding.lastActivityAt),
-              peerName: binding.peerName,
-              // Verbatim, never summarized: a lease IS the reason a process is
-              // still alive, and a client that has to guess it cannot tell a
-              // held host from a stuck one.
-              leases: binding.leases.map((lease) => ({ ...lease })),
-            },
-        // A cold session says so in words rather than by an absent key: "there
-        // is no host" is a reading, and a missing field is not.
-        hostNote:
-          live === null || binding === null
-            ? 'No host: this session currently has no host process (per-invocation process mode and not running).'
-            : null,
-        run:
-          run === null
-            ? null
-            : {
-                sessionId: run.sessionId,
-                provider: run.provider,
-                startedAt: formatMcpTime(run.startedAt, deps.now),
-                lastSeq: run.lastSeq,
-              },
-      };
-    },
+    outputSchema: { ...sessionDetailOutputSchema },
+    handle: (args, deps) => buildSessionDetail(deps, requireStringArgument(args, 'session')),
+  },
+  ui_last_opened_session: {
+    inputSchema: {},
+    // `session_get`'s reading plus `openedAt` — the same four fields, then when
+    // the browser opened it.
+    outputSchema: { ...sessionDetailOutputSchema, openedAt: timeSchema },
+    // The real handler lives in `mcp-ui-tools.js` and is installed by
+    // `registerMcpReadTools` when the deps carry the pointer reader. A mount
+    // without it reads this named refusal, exactly like the overview/run_get
+    // placeholders before their tasks landed.
+    handle: () => notImplemented('ui_last_opened_session', 'gap-mcp-ui-last-opened-session'),
   },
   session_read: {
     inputSchema: sessionReadInputSchema,
@@ -828,11 +885,15 @@ export type McpReadToolSeam = (registration: McpReadToolRegistration) => void;
  *
  * `run_get` is AC-248's and follows the same routing: when `deps.runGet` is
  * supplied it is registered by `mcp-run-get.js`'s real handler, otherwise it
- * keeps the body-table refusal. The name set is untouched either way.
+ * keeps the body-table refusal. `ui_last_opened_session` follows it too: when
+ * `deps.uiLastOpened` is supplied it is registered by `mcp-ui-tools.js`, and
+ * otherwise it keeps the body-table refusal. The registered NAME SET is the
+ * table either way.
  */
 export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDeps): void {
   const overviewDeps: McpOverviewDeps | null = isOverviewWired(deps) ? deps : null;
   const runGetDeps: McpRunGetDeps | null = isRunGetWired(deps) ? deps.runGet : null;
+  const uiDeps: McpUiLastOpenedDeps | null = isUiLastOpenedWired(deps) ? deps : null;
   const table = new Map<string, (typeof MCP_STAGE3_READ_TOOLS)[number]>(
     MCP_STAGE3_READ_TOOLS.map((tool) => [tool.name, tool]),
   );
@@ -860,6 +921,9 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
     if (runGetDeps !== null && tool.name === 'run_get') {
       continue;
     }
+    if (uiDeps !== null && tool.name === 'ui_last_opened_session') {
+      continue;
+    }
     const body = TOOL_BODIES[tool.name];
     seam({
       name: tool.name,
@@ -881,5 +945,9 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
   if (runGetDeps !== null) {
     const runGet: McpRunGetRegistration = registration('run_get');
     registerMcpRunGetTool(seam, runGetDeps, runGet);
+  }
+
+  if (uiDeps !== null) {
+    registerMcpUiTools(seam, uiDeps, registration('ui_last_opened_session'));
   }
 }

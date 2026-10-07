@@ -514,6 +514,27 @@ CREATE TABLE IF NOT EXISTS oauth_code_redemptions (
 );
 `;
 
+/**
+ * The browser's last-opened session (gap-mcp-ui-last-opened-session).
+ *
+ * One row at a time: the table holds the SINGLE session the UI last opened, so a
+ * new open replaces the previous row rather than accumulating a history. That
+ * invariant is what makes "the last-opened session" a reading rather than a
+ * query — a row that is written only by the browser's own session-read path
+ * (never by an MCP token, which reaches the transcript through the service and
+ * not through these routes).
+ *
+ * `opened_at` is epoch milliseconds (not `CURRENT_TIMESTAMP`): the tool renders
+ * it as a relative + ISO pair from an injected clock, which needs the same
+ * numeric instant every other read tool's time field is built from.
+ */
+export const UI_LAST_OPENED_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS ui_last_opened (
+  session_id TEXT PRIMARY KEY NOT NULL,
+  opened_at INTEGER NOT NULL
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;

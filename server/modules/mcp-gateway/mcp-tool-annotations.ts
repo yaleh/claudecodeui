@@ -46,6 +46,7 @@
  * | `session_read`        | none   | true     | false       | true       | false     | reads a transcript |
  * | `run_get`             | none   | true     | false       | true       | false     | reads the run registry; waiting does not mutate |
  * | `quay_snapshot`       | none   | true     | false       | true       | false     | reads the quay store; `refresh` only repopulates a derived cache |
+ * | `ui_last_opened_session`| none | true     | false       | true       | false     | reads the browser's last-opened pointer; the write is the browser's own route |
  * | `session_send`        | none   | false    | false       | false      | true      | additive: queues/sends a message, starts a run; two sends are two turns |
  * | `session_create`      | none   | false    | false       | false      | true      | additive: mints a session (and may start its first run); two creates are two sessions |
  * | `session_interrupt`   | none   | false    | true        | false      | true      | terminates the run in flight; the work it held is lost |
@@ -112,6 +113,9 @@ export const MCP_TOOL_ANNOTATIONS: Record<McpGatewayToolName, ToolAnnotations> =
   session_read: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   run_get: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   quay_snapshot: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  // reads the browser's last-opened-session pointer; the pointer's WRITE is the
+  // browser's own route, so an MCP call mutates nothing.
+  ui_last_opened_session: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 
   // -- stage-4 write tools ---------------------------------------------------
   // additive: a message is queued/sent and a run starts; nothing is discarded.

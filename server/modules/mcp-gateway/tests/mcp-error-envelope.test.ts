@@ -457,7 +457,15 @@ const PROBE_TABLE: Record<string, ToolProbe> = {
  * to say so is a reasoned entry here rather than deleting it from the table —
  * and so (d)'s coverage check covers BOTH buckets, not just the probe table.
  */
-const EXEMPT_TOOLS: Record<string, string> = {};
+const EXEMPT_TOOLS: Record<string, string> = {
+  // `ui_last_opened_session` takes NO arguments (it reads the browser's
+  // last-opened pointer), so the audited wrapper's declared-input validation
+  // branch — the shallowest failure every other tool is probed through — has
+  // nothing to reject. Its handler-thrown NOT_FOUND envelope is exercised by its
+  // own criterion (`mcp-ui-last-opened.test.ts`), not by this table.
+  ui_last_opened_session:
+    'declares no input arguments, so there is no INVALID_ARGUMENT probe to drive through the wrapper; its SESSION_NOT_FOUND envelope is covered by mcp-ui-last-opened.test.ts',
+};
 
 /** A class probe: either a real envelope reading, or a reasoned exemption. */
 type ClassProbe =
@@ -640,9 +648,9 @@ test('(d) the probe table covers exactly the tools the registry lists', async ()
   const covered = [...Object.keys(PROBE_TABLE), ...Object.keys(EXEMPT_TOOLS)].sort();
 
   // Non-vacuity: the registry really answered, and answered with the full set —
-  // seven read + five write + five resident tools. A mount that registered
+  // eight read + five write + five resident tools. A mount that registered
   // nothing would fail the equality below, not pass it.
-  assert.equal(registryNames.length, 17, `tools/list must return the full 17-tool set, got ${registryNames.join(', ')}`);
+  assert.equal(registryNames.length, 18, `tools/list must return the full 18-tool set, got ${registryNames.join(', ')}`);
   say(`(d) registry names: ${registryNames.join(', ')}`);
 
   assert.deepEqual(

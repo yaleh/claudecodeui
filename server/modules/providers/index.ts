@@ -20,6 +20,10 @@ export { providerModelsService } from './services/provider-models.service.js';
 // sessionsService: used by the websocket module's chat gateway to resolve an
 // edited message's resume point, which only the providers module can read.
 export { sessionsService } from './services/sessions.service.js';
+// uiLastOpenedSessionService: the browser's last-opened-session pointer. The
+// routes in this module write it; `server/index.ts` binds its reader into the
+// MCP gateway so `ui_last_opened_session` answers from the same one store.
+export { uiLastOpenedSessionService } from './services/ui-last-opened-session.service.js';
 // LifecycleModeSwitchResult: the answer `sessionsService.switchSessionLifecycleMode`
 // gives — the stored mode plus what happened to the host that was serving the
 // session — exported so a criterion can type what the lifecycle-mode route

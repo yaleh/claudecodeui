@@ -8,6 +8,7 @@ import { providerTokenUsageService } from '@/modules/providers/services/provider
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import { uiLastOpenedSessionService } from '@/modules/providers/services/ui-last-opened-session.service.js';
 import type {
   CustomProviderModelInput,
   HostMode,
@@ -966,6 +967,13 @@ router.get(
     const sessionId = parseSessionId(req.params.sessionId);
     const aroundId = readOptionalQueryString(req.query.around);
 
+    // The browser asking for this session's transcript IS the user opening the
+    // session: neither this route nor the outline route is called speculatively
+    // (see the task record's Finding). Recording happens on the request, before
+    // the read, so the pointer names the session being opened even when the
+    // transcript itself is empty.
+    uiLastOpenedSessionService.recordOpenedSession(sessionId);
+
     // `around` selects the neighborhood read (a window centered on one message
     // id); everything else is the unchanged tail page. When `around` is present
     // `limit`/`offset` are ignored on purpose — the window's shape is
@@ -1001,6 +1009,11 @@ router.get(
   '/sessions/:sessionId/outline',
   asyncHandler(async (req: Request, res: Response) => {
     const sessionId = parseSessionId(req.params.sessionId);
+    // The outline route is the second face of the same signal: the chat view
+    // fetches the input outline only for the session it has open, so it is
+    // recorded as opened here too. The write is idempotent — opening an already
+    // open session only moves its `opened_at`.
+    uiLastOpenedSessionService.recordOpenedSession(sessionId);
     const result = await sessionsService.fetchOutline(sessionId);
     res.json(createApiSuccessResponse(result));
   }),

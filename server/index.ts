@@ -24,6 +24,7 @@ import {
     setActivityChangeNotifier,
     stopClaudeSessionScopes,
     sweepOrphanClaudeSessionScopes,
+    uiLastOpenedSessionService,
 } from '@/modules/providers/index.js';
 import { activityStore, BOOT_ID, broadcastHostsChanged, chatRunRegistry, createActivityRouter, createChatControlService, createWebSocketServer } from '@/modules/websocket/index.js';
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
@@ -620,6 +621,10 @@ const mcpGateway = mountMcpGateway(
                 refresh: (projectId: string) => quayService.getQuaySnapshot(projectId, { forceRefresh: true }),
             },
             runGet: mcpRunGetDeps,
+            // gap-mcp-ui-last-opened-session: the browser's last-opened pointer.
+            // READ-ONLY here on purpose — the providers module's session-read
+            // routes are the only writers, so an MCP token can never move it.
+            uiLastOpened: { read: () => uiLastOpenedSessionService.readLastOpened() },
             now: () => Date.now(),
         },
         // The stage-4 write tools (AC-249). The control service is handed in at

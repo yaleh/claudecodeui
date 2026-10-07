@@ -23,6 +23,7 @@ import {
   USER_PREFERENCES_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
   VAPID_KEYS_TABLE_SCHEMA_SQL,
+  UI_LAST_OPENED_TABLE_SCHEMA_SQL,
   VOICE_USER_IDENTIFIERS_TABLE_SCHEMA_SQL,
 } from '@/modules/database/schema.js';
 
@@ -1006,6 +1007,10 @@ export const runMigrations = (db: Database) => {
     db.exec(MCP_AUDIT_LOG_TABLE_SCHEMA_SQL);
     addMcpAuditLogDeniedScopesColumn(db);
     db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_audit_log_at ON mcp_audit_log(at)');
+    // The browser's last-opened session (gap-mcp-ui-last-opened-session). One row,
+    // no index beyond the primary key: the table is read whole and written whole.
+    // `CREATE TABLE IF NOT EXISTS` makes a second startup a no-op.
+    db.exec(UI_LAST_OPENED_TABLE_SCHEMA_SQL);
     // The revocation cascades scan by grant, so without these the cascade and
     // the per-client listing table-scan access_tokens.
     db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_grants_client ON oauth_grants(client_id)');

@@ -26,7 +26,7 @@
  * host fields itself.
  *
  * Readings, one leg each:
- *   (a) `tools/list` is exactly the seven stage-3 read tools, no write tool among
+ *   (a) `tools/list` is exactly the eight stage-3 read tools, no write tool among
  *       them, every one requiring `cloudcli:read` — enforced, not just declared;
  *   (b) `projects_list`/`sessions_list` return the whole fixture, and the three
  *       `state` predicates partition it (an empty result is not an error);
@@ -503,7 +503,7 @@ test('(a) tools/list is exactly the stage-3 read tools, none of them a write too
     }
 
     assert.deepEqual(registered, declared, 'tools/list must be exactly the declared stage-3 read tools');
-    assert.equal(registered.length, 7, 'the stage-3 read set is seven tools');
+    assert.equal(registered.length, 8, 'the stage-3 read set is eight tools');
 
     const WRITE_TOOLS = ['session_send', 'session_create', 'session_interrupt', 'session_start', 'session_close'];
     for (const writeTool of WRITE_TOOLS) {

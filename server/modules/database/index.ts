@@ -55,6 +55,11 @@ export {
   stripSelfAssignedSuffix,
 } from '@/modules/database/repositories/sessions.db.js';
 export type { SessionNameHiddenByFilterJson, SessionNameSource, SessionNameVisibility } from '@/modules/database/repositories/sessions.db.js';
+// uiLastOpenedDb: used by the providers module to record the session the browser
+// last opened, and by the MCP gateway (through that service) to answer
+// `ui_last_opened_session`.
+export { uiLastOpenedDb } from '@/modules/database/repositories/ui-last-opened.db.js';
+export type { UiLastOpenedRecord } from '@/modules/database/repositories/ui-last-opened.db.js';
 export { userDb } from '@/modules/database/repositories/users.js';
 // userPreferencesDb: used by the User module to persist the settings that used to live in browser localStorage.
 export { userPreferencesDb } from '@/modules/database/repositories/user-preferences.db.js';
