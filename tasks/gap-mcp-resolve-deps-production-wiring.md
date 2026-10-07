@@ -2,7 +2,7 @@
 id: gap-mcp-resolve-deps-production-wiring
 title: MCP project/session 参数解析统一：把已实现的 resolveMcpTarget/resolveInputTargets
   接入生产 server/index.ts，并修正 overview 声明 project 却忽略的问题
-status: todo
+status: ready
 labels:
   - gap
   - defect
