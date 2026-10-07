@@ -2,7 +2,7 @@
 id: gap-oauth-consent-spa-ui
 title: OAuth 授权页改为 SPA（前端半）：/oauth/consent
   路由用应用主界面组件与主题渲染授权确认页（客户端身份、回调主机、按风险分组的 scope、Allow/Deny），未登录先登录再回到授权
-status: ready
+status: done
 labels:
   - gap
 parent: null
