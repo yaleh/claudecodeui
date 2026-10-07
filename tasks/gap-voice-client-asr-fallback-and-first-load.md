@@ -1,7 +1,7 @@
 ---
 id: gap-voice-client-asr-fallback-and-first-load
 title: 客户端识别的回退与首次加载：设备放弃后回退必须交给服务端能处理的识别器、设备放弃的原因要让用户看见，选中识别器时预加载模型并显示下载进度
-status: todo
+status: ready
 labels:
   - gap
   - defect
