@@ -111,7 +111,7 @@ AC**（这与 AC-199 的情形不同：那里的 40s 是 `expect:` 明文要求�
 - [x] 预算重标：若走抬上限路线，`e2e/activity-dock-truthful.spec.ts` 中 AC-188 用例体的预算（原 `:1384` 的 `toBeLessThanOrEqual(20_000)`）被抬到实测地板之上并留余量（参考 30_000，以实测为准），且整次调用仍 `< SINGLE_SPEC_CEILING_MS = 55_000`
 - [ ] 或削地板：若走削地板路线，收尾/行走的固定成本已对负载不敏感，且 AC6 的回合结束窗口采样与 AC7 的移动读数一条未删（二选一，二者必居其一，并给出实测理由）——**未走此路线**（走的是抬上限路线，见上一条），故本条不适用而非未达成；收尾成本经实测仍是刚性的（§2）
 - [x] 假形态 (i)：恢复 `.chat-activity-tab` 与 `data-slot="chat-activity-inline"` 的挂载后重跑，AC-188 的数量读数**必须红**，并记下红的输出
-- [ ] 假形态 (ii)：令 `src/modules/sidebar/RunningView.tsx` 读 1 秒 `/api/session-hosts` 轮询后重跑，`consistency.turnOpen` 在回合刚结束的窗口内**必须红**，并记下红的输出 —— ⛔ 实测**不可满足**：两种实现（读 `useSessionHosts()` 快照的 lease 列表；字面 `api.sessionHosts.list()` + `setInterval(…, 1000)`）都让判据 **exit 0**。根因是本任务之前的 `421afb84`（回合结束窗口改成重新导航后采 ~0.5s）、`b9b177d1` + `7fd3598b`（坞不再在回合间读 `idle`），与本次预算改动无关。逐字读数与对照见 `## Evidence` §4；本任务置 `needs-human` 待人工裁决
+- [ ] 假形态 (ii)：令 `src/modules/sidebar/RunningView.tsx` 读 1 秒 `/api/session-hosts` 轮询后重跑，`consistency.turnOpen` 在回合刚结束的窗口内**必须红**，并记下红的输出 —— ⛔ 实测**不可满足**：两种实现（读 `useSessionHosts()` 快照的 lease 列表；字面 `api.sessionHosts.list()` + `setInterval(…, 1000)`）都让判据 **exit 0**。根因是本任务之前的 `e3f86d82`（2026-10-02 16:29 把回合结束窗口改成重新导航后采 ~0.5s，见 §4 的更正）、`b9b177d1` + `7fd3598b`（坞不再在回合间读 `idle`），与本次预算改动无关。逐字读数与对照见 `## Evidence` §4；本任务置 `needs-human` 待人工裁决
 - [x] 稳定性：改后判据连续 ≥8 次 pass，其中至少一次在与立案同量级的负载（round 425 记 `load1: 43.5`）下运行，且每次 `dock.count`/`legacy.*`/`resident.*`/`consistency.*` 读数与 AC-188 的 `expect:` 相符
 - [x] 静态闸：改动文件过 `npm run typecheck` 与 oxlint（或本仓对该 spec 的等价静态检查），exit 0
 - [x] 任务自身 `tasks/gap-ac188-criterion-body-budget-below-its-turn-walk-floor.md` 已落账（自触）
@@ -206,8 +206,14 @@ dock.wall=20556ms  →  1 passed
 
 根因（两条都在本任务之前，且都在 HEAD 与 develop 的祖先里）：
 
-1. **`421afb84`**（2026-10-02 17:00，"e2e(activity-dock-truthful): add the family's bounded startup guard"，
-   即 `ad1bb63a` 之后 80 分钟）把回合结束后的窗口从**活页面**（从坞离开 `in-turn` 起采 **24×55ms ≈ 1.3s**，
+⚠️ **2026-10-07 复核更正**：本条早先记为 `421afb84`（17:00 的 bounded startup guard）。复核不成立——
+`git show 421afb84 -- e2e/activity-dock-truthful.spec.ts` 的 spec diff **完全不触**回合结束窗口；
+`git log -S"i < 24"` 与 `-S"one-second poll"` 都只指向 `ad1bb63a`（引入 24×55ms 活页面窗口）与
+**`e3f86d82`**（改写为重新导航后 8×55ms），两者都是 HEAD 的祖先（`git merge-base --is-ancestor` 各返回 0）。
+结论不变（窗口确已被改窄、假形态 (ii) 确实惰性），但根因提交更正为 `e3f86d82`。
+
+1. **`e3f86d82`**（2026-10-02 16:29，"activity dock: share the announced silence budget across dock mounts"，
+   即 `ad1bb63a` 之后 49 分钟）把回合结束后的窗口从**活页面**（从坞离开 `in-turn` 起采 **24×55ms ≈ 1.3s**，
    注释明写「span ~1.3s — past the one-second poll's own beat, which is the interval the old sidebar lagged by」）
    改成**重新导航两个页面之后**采 **8×55ms ≈ 0.5s**，起点已是坞转 `absent` 之后约 2.5s：1 秒轮询早已追平。
 2. **`b9b177d1`**（2026-10-04，「heartbeat carries run-in-flight bit so an idle phase no longer clears a live turn anchor」）
