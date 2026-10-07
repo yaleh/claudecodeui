@@ -1043,6 +1043,18 @@ test.describe('resident status bar', () => {
     console.log(`release.status=${releaseResponse.status()} body=${JSON.stringify(released)}`);
     expect(releaseResponse.ok(), `the barrier must be released: ${JSON.stringify(released)}`).toBe(true);
 
+    // Read the walk's own verdict here, before the state it produces. The `exited` mark below is *made
+    // by* the scenario's `exit` step, so a walk that never finished — the barrier above timing out,
+    // which is the only way this scenario ends without reaching `exit` — has to be named before the
+    // mark it would have moved, rather than surfacing as a locator timeout on a state nothing wrote.
+    // `clockB` is the same promise the row checks below await; a healthy walk has already ended by the
+    // time the release lands, so reading it here costs no wall clock.
+    const clockBReading = await clockB;
+    console.log(
+      `walk.verdict ok=${String(clockBReading.ok)} status=${clockBReading.status} `
+      + `body=${JSON.stringify(clockBReading.body).slice(0, 400)}`,
+    );
+
     // --- the process exits on its own: exited(oom) -----------------------------------------------
     await expect(markOf(page, armB)).toHaveAttribute('data-resident-state', 'exited', { timeout: 15_000 });
     const exitedMark = await readMark(page, armB);
@@ -1060,7 +1072,6 @@ test.describe('resident status bar', () => {
     expect(exitedMark.detail, 'the mark carries the same exit detail the listing publishes').toBe('oom');
 
     page.off('response', recordTraffic);
-    const clockBReading = await clockB;
     const runSource = clockBReading.body?.data?.runSource ?? null;
     const seamRefusals = controlPlaneTraffic.filter((text) => text.includes('DEBUG_AGENT_RUN_SEAM_UNAVAILABLE')).length;
     console.log(`unattended.run.source=${String(runSource)} seam.unwired=${String(seamRefusals > 0)}`);
