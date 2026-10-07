@@ -2,7 +2,7 @@
 id: gap-mcp-ui-navigate-frontend
 title: 前端执行 ui.navigate：按本设备策略（接受/询问/拒绝）分流，确认提示条（跳转/忽略/总是接受/总是拒绝），导航到会话并定位消息，回
   ack 与最终结果
-status: ready
+status: done
 labels:
   - gap
 parent: null
