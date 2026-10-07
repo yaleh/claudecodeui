@@ -529,6 +529,12 @@ export const sessionsDb = {
    * `jsonl_path` immediately, because a fork's transcript file exists before
    * the row does — and the filesystem watcher would otherwise index it as an
    * unrelated session under its own id.
+   *
+   * `lifecycleMode` is copied from the source by the caller. It is a stored
+   * *preference*, not a running process: this row is written with no host, and
+   * the process (if the mode is `resident`) is started by the first send, not
+   * here. That is why writing the column never has to consult the host manager
+   * and why a fork cannot leave a process behind.
    */
   createForkedSession(input: {
     sessionId: string;
@@ -541,6 +547,7 @@ export const sessionsDb = {
     model: string | null;
     effort: string | null;
     permissionMode: string | null;
+    lifecycleMode: HostMode;
   }): string {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPathForProvider(input.provider, input.projectPath);
@@ -554,8 +561,8 @@ export const sessionsDb = {
       db.prepare('DELETE FROM sessions WHERE session_id = ? AND session_id <> ?')
         .run(input.providerSessionId, input.sessionId);
       db.prepare(
-        `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, model, effort, permission_mode, forked_from_session_id, isArchived, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, model, effort, permission_mode, lifecycle_mode, forked_from_session_id, isArchived, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
       ).run(
         input.sessionId,
         input.provider,
@@ -566,6 +573,7 @@ export const sessionsDb = {
         input.model,
         input.effort,
         input.permissionMode,
+        input.lifecycleMode,
         input.forkedFromSessionId,
       );
     })();

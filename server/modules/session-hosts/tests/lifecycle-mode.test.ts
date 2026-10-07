@@ -346,14 +346,18 @@ function assertModeRefusedForProvider(reading: ApiReading, provider: string): vo
   );
 }
 
-function assertForkDoesNotInherit(
+function assertForkInherits(
   sourceMode: HostMode,
   forkedMode: HostMode,
   forkedFrom: string | null,
   sourceId: string,
 ): void {
   assert.equal(sourceMode, 'resident', 'the source must really be resident for this to be a test');
-  assert.equal(forkedMode, 'per-run', 'a fork must not inherit the source lifecycle mode');
+  // AC-169's "(3) a fork does not inherit" was overturned by the human ruling of
+  // 2026-10-07: a resident source produces a resident fork. The reading is
+  // `resident`, so a branch that silently fell back to the column default reds
+  // here.
+  assert.equal(forkedMode, 'resident', 'a fork must inherit the source lifecycle mode');
   assert.equal(forkedFrom, sourceId, 'the fork must point back at its source');
 }
 
@@ -510,7 +514,7 @@ test('(2) a mode the provider never declared is refused with its own code, and a
   });
 });
 
-test('(3) a fork of a resident session reads back per-run and points at its source', async () => {
+test('(3) a fork of a resident session inherits its mode and points at its source', async () => {
   await withHarness(async (context) => {
     const sourceId = 'ac169-fork-source';
     seedSession(sourceId, 'claude', context.directory, path.join(context.directory, 'native-source.jsonl'));
@@ -525,7 +529,7 @@ test('(3) a fork of a resident session reads back per-run and points at its sour
       const forkedRow = sessionsDb.getSessionById(fork.sessionId);
       const forkedMode = sessionsDb.getSessionLifecycleMode(fork.sessionId);
 
-      assertForkDoesNotInherit(sourceMode, forkedMode, forkedRow?.forked_from_session_id ?? null, sourceId);
+      assertForkInherits(sourceMode, forkedMode, forkedRow?.forked_from_session_id ?? null, sourceId);
 
       console.log(`[lifecycle] fork: sourceMode=${sourceMode} forkedMode=${forkedMode}`);
     });
@@ -715,7 +719,9 @@ test('the five fake forms each red the reading they are aimed at', async () => {
     assert.equal(sessionsDb.getSessionLifecycleMode(codexId), 'resident', 'the mutation really did store it');
     console.log('[lifecycle] fake (a): red');
 
-    // (b) The fork path copies the source's stored mode onto the branch.
+    // (b) The fork path drops the mode: the branch is really forked (it points
+    // back at its source), but its row reads back per-run — the regression AC-169
+    // used to require, and the one the inheritance reading now exists to catch.
     const sourceId = 'ac169-fake-fork-source';
     seedSession(sourceId, 'claude', context.directory, path.join(context.directory, 'native-fake-source.jsonl'));
     sessionsDb.assignProviderSessionId(sourceId, 'native-source');
@@ -723,16 +729,17 @@ test('the five fake forms each red the reading they are aimed at', async () => {
 
     await withStubFork(async () => {
       const fork = await sessionsService.forkSessionById(sourceId);
-      sessionsDb.setSessionLifecycleMode(fork.sessionId, sessionsDb.getSessionLifecycleMode(sourceId));
+      // The mutation: the branch loses the mode the real path copies onto it.
+      sessionsDb.setSessionLifecycleMode(fork.sessionId, 'per-run');
       const forkedRow = sessionsDb.getSessionById(fork.sessionId);
       assert.throws(
-        () => assertForkDoesNotInherit(
+        () => assertForkInherits(
           sessionsDb.getSessionLifecycleMode(sourceId),
           sessionsDb.getSessionLifecycleMode(fork.sessionId),
           forkedRow?.forked_from_session_id ?? null,
           sourceId,
         ),
-        /must not inherit/,
+        /must inherit/,
         'fake (b) must red the inheritance reading',
       );
       console.log('[lifecycle] fake (b): red');
