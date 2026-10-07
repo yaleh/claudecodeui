@@ -11,9 +11,8 @@
  *      (after the tag is already made) rather than doing nothing.
  *   2. `.release-it.json` publishes to npm (`npm.publish=true`, `--access public`) in addition to
  *      cutting the GitHub Release, on `develop`, pushing to the `yaleh` remote.
- *   3. `release.yml` authenticates that publish with the `NPM_TOKEN` secret via
- *      `NODE_AUTH_TOKEN`. Trusted publishing (OIDC) is deliberately NOT used: this fork is not
- *      configured for it on the registry side.
+ *   3. `release.yml` authenticates that publish with npm trusted publishing (OIDC, `id-token:
+ *      write`), not an npm token: npm rejects 2FA-bypass tokens for publishing.
  *   4. No user-facing install/upgrade command in the repository points at the upstream scope —
  *      every one of them must name `@yalehwang/cloudcli`, or the fork ships users a command that
  *      installs somebody else's package.
@@ -32,7 +31,7 @@
  * WHAT IT PRINTS. The readings named by the criterion are printed unconditionally, before the
  * assertions, so a red run still shows which reading was wrong:
  *
- *   pkg.name=@yalehwang/cloudcli  npm.publish=true  auth.env=NODE_AUTH_TOKEN  legacy.upgradeCmds=0
+ *   pkg.name=@yalehwang/cloudcli  npm.publish=true  auth.env=OIDC  legacy.upgradeCmds=0
  *   requireBranch=develop  pushRepo=yaleh  macos.jobs=0  dmg.refs=0  readme.upstream_refs_outside_notice=0
  */
 
@@ -88,8 +87,8 @@ const UPSTREAM_NAME = '@cloudcli-ai/cloudcli';
 
 const npmPublish = releaseIt?.npm?.publish;
 
-// The env key release.yml wires the `NPM_TOKEN` secret to, or `none` when nothing is wired.
-const authEnv = /NODE_AUTH_TOKEN/.test(releaseYml) ? 'NODE_AUTH_TOKEN' : 'none';
+// How release.yml authenticates the publish: `OIDC` when the release job holds `id-token: write`.
+const authEnv = /id-token:\s*write/.test(releaseYml) ? 'OIDC' : 'none';
 
 const requireBranch = releaseIt?.git?.requireBranch;
 const pushRepo = releaseIt?.git?.pushRepo;
@@ -217,9 +216,9 @@ test('.release-it.json publishes to npm from the fork release path', () => {
   assert.equal(releaseIt?.github?.release, true, 'the GitHub Release must stay enabled');
 });
 
-test('release.yml authenticates the npm publish with the NPM_TOKEN secret', () => {
-  assert.equal(authEnv, 'NODE_AUTH_TOKEN', 'release.yml must pass the npm token as NODE_AUTH_TOKEN');
-  assert.match(releaseYml, /secrets\.NPM_TOKEN/, 'release.yml must source the token from the NPM_TOKEN secret');
+test('release.yml authenticates the npm publish with trusted publishing (OIDC)', () => {
+  assert.equal(authEnv, 'OIDC', 'release.yml must grant id-token: write for npm trusted publishing');
+  assert.doesNotMatch(releaseYml, /NODE_AUTH_TOKEN|secrets\.NPM_TOKEN/, 'release.yml must not use an npm token');
   assert.match(
     releaseYml,
     /registry-url:\s*['"]?https:\/\/registry\.npmjs\.org/,

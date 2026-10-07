@@ -22,8 +22,8 @@ permissions:
 #
 # This is the FORK release path for yaleh/claudecodeui. It cuts a GitHub Release
 # and publishes the package to npm as `@yalehwang/cloudcli`, authenticated with
-# the `NPM_TOKEN` secret (this fork is not configured for npm trusted publishing,
-# so OIDC is deliberately not used). It pushes the release commit/tag to the
+# npm trusted publishing (OIDC): the `@yalehwang/cloudcli` package trusts this repo's
+# release.yml, so no npm token is involved (npm now rejects 2FA-bypass tokens). It pushes the release commit/tag to the
 # `yaleh` remote named by .release-it.json's `git.pushRepo`, never `origin`
 # (which points at upstream siteboon/claudecodeui).
 jobs:
@@ -31,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -38,12 +39,15 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
-      # `registry-url` writes an .npmrc that reads the token from NODE_AUTH_TOKEN at publish time,
-      # so the secret never lands in the workflow file or the release commit.
+      # `registry-url` points npm at the public registry; authentication is OIDC (id-token above).
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships an older npm.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest && npm --version
 
       - name: git config
         run: |
@@ -75,8 +79,7 @@ jobs:
         id: release
         run: |
           # Stream subprocess output so publishing errors are visible immediately.
-          # The npm publish is driven by .release-it.json's `npm.publish: true`;
-          # NODE_AUTH_TOKEN below is what actions/setup-node's registry-url .npmrc reads.
+          # The npm publish is driven by .release-it.json's `npm.publish: true`, authenticated by OIDC.
           ARGS=(--ci --verbose --verbose "--increment=$RELEASE_INCREMENT")
           if [ -n "$RELEASE_NAME" ]; then
             ARGS+=("--github.releaseName=$RELEASE_NAME")
@@ -86,4 +89,3 @@ jobs:
           RELEASE_INCREMENT: ${{ inputs.increment }}
           RELEASE_NAME: ${{ inputs.release_name }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
