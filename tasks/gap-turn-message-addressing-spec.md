@@ -2,7 +2,7 @@
 id: gap-turn-message-addressing-spec
 title: 调查设计：Turn/Message 稳定寻址与 retry/fork/resume 语义的最小公共接口（优先复用 Quay 已有概念，避免在
   CloudCodeUI 重复定义）
-status: ready
+status: needs-human
 labels:
   - gap
 parent: null
