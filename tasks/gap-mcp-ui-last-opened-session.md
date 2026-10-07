@@ -2,7 +2,7 @@
 id: gap-mcp-ui-last-opened-session
 title: MCP 只读工具 ui_last_opened_session：浏览器读取会话历史/outline 时落库
   last_opened，工具返回用户最后打开的会话（无记录返回 NOT_FOUND，不退回 lastActivity）
-status: todo
+status: ready
 labels:
   - gap
 parent: null
