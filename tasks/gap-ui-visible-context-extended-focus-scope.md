@@ -2,7 +2,7 @@
 id: gap-ui-visible-context-extended-focus-scope
 title: 规划 ui_visible_context 扩展范围：focused/selected message、selected text、current
   diff、current task 四个维度各自的现状与落地范围（先定范围，避免过度扩展）
-status: ready
+status: done
 labels:
   - gap
 parent: null
