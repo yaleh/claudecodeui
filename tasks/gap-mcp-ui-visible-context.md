@@ -36,11 +36,11 @@ depends_on:
 
 ## AC
 
-- [ ] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-visible-context.test.ts` 退出码 0：用假的 WS 客户端断言工具广播带 `requestId` 的 `ui.state_request`，并发收集多个设备的应答，按 `lastFocusedAt` 降序返回；传 `client`（`deviceId` 或设备名子串）时只向该设备发请求。
-- [ ] 同一测试文件断言：一个设备不应答时，整次调用在约 1.5s 内返回，该设备标 `unresponsive`，其余设备的结果不受影响；没有设备时返回 `devices: []`；迟到或 `requestId` 不匹配的应答被丢弃；`client` 多个命中或无命中时返回带候选或查询词的错误。
-- [ ] 同一测试文件断言：应答里即使带了正文或选中文本字段，工具返回的 `structuredContent` 也不含它们（只放行白名单字段）；返回含 `deviceId`、`deviceName`、`navigationPolicy`。
-- [ ] 前端单元测试 `src/modules/chat/tests/uiStateResponder.test.tsx` 退出码 0：收到 `ui.state_request` 后回复的帧含白名单字段且 `requestId` 原样回传；页面隐藏时回报 `visibility: hidden`；`navigationPolicy` 反映 localStorage 中的设置。
-- [ ] `npm run typecheck` 退出码 0；已有的 `mcp-tool-annotations.test.ts`、`mcp-error-vocabulary.test.ts` 逐文件运行退出码 0；`quay-test-script.test.ts` 退出码 0。
+- [x] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-visible-context.test.ts` 退出码 0：用假的 WS 客户端断言工具广播带 `requestId` 的 `ui.state_request`，并发收集多个设备的应答，按 `lastFocusedAt` 降序返回；传 `client`（`deviceId` 或设备名子串）时只向该设备发请求。
+- [x] 同一测试文件断言：一个设备不应答时，整次调用在约 1.5s 内返回，该设备标 `unresponsive`，其余设备的结果不受影响；没有设备时返回 `devices: []`；迟到或 `requestId` 不匹配的应答被丢弃；`client` 多个命中或无命中时返回带候选或查询词的错误。
+- [x] 同一测试文件断言：应答里即使带了正文或选中文本字段，工具返回的 `structuredContent` 也不含它们（只放行白名单字段）；返回含 `deviceId`、`deviceName`、`navigationPolicy`。
+- [x] 前端单元测试 `src/modules/chat/tests/uiStateResponder.test.tsx` 退出码 0：收到 `ui.state_request` 后回复的帧含白名单字段且 `requestId` 原样回传；页面隐藏时回报 `visibility: hidden`；`navigationPolicy` 反映 localStorage 中的设置。
+- [x] `npm run typecheck` 退出码 0；已有的 `mcp-tool-annotations.test.ts`、`mcp-error-vocabulary.test.ts` 逐文件运行退出码 0；`quay-test-script.test.ts` 退出码 0。
 
 ## DoD
 
@@ -50,6 +50,7 @@ depends_on:
 
 - server/modules/websocket/services/ui-state-request.service.ts
 - server/modules/websocket/services/chat-websocket.service.ts
+- server/modules/websocket/services/ui-client-registry.service.ts
 - server/modules/websocket/index.ts
 - server/shared/types.ts
 - server/modules/mcp-gateway/mcp-ui-visible-context.ts
@@ -61,7 +62,16 @@ depends_on:
 - src/shared/context/WebSocketContext.tsx
 - src/shared/types.ts
 - src/modules/chat/hooks/useUiStateResponder.ts
+- src/modules/chat/ChatInterface.tsx
 - server/modules/mcp-gateway/tests/mcp-ui-visible-context.test.ts
+- server/modules/mcp-gateway/tests/mcp-read-tools.test.ts
 - src/modules/chat/tests/uiStateResponder.test.tsx
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-mcp-ui-visible-context.md
+
+## Notes
+
+- **应答 hook 挂在 `src/modules/chat/ChatInterface.tsx` 而不是 `src/shared/context/WebSocketContext.tsx`**：`WebSocketContext` 位于 router 之上，读不到当前面板 / 选中项目与会话 / 待审批数 / 排队数；而 shared 反向 import 前端模块会被 oxlint boundaries 判红。`ChatInterface` 与既有 `useUiNavigate` 同处，正是这份状态所在。`WebSocketContext.tsx` 因此未被改动。
+- `ui-client-registry.service.ts` 新增了一个只增不改的读口 `listUiClientTargets(deviceId?)`：往返必须拿到 socket 才能写，而 `listUiClients` 刻意不暴露连接。socket 不出服务端（服务写完即弃），调用方仍旧只按设备/标签页寻址。
+- 计数 pin 更新：`mcp-read-tools.test.ts` 的 stage-3 读工具数 8 → 9；`quay-test-script.test.ts` 的 known/unknown 由 244/246 → 245/247（新增 1 个 server 测试文件，总数 248）。
+- **DoD 未在此会话执行**：真实服务 + 浏览器 + PAT 的走查属于外层/人工验证；本次交付的证据是 AC 的 5 条机械判据全部逐条退出码 0。
