@@ -469,10 +469,14 @@ function makeResidentTools(control: ReturnType<typeof makeControl>): McpResident
             },
           ],
         }),
+        // AC-287: `approval_answer` for a request that names no live approval is
+        // an ERROR, so a success walk must answer one that IS held. `req-1` is
+        // the pending entry `pendingApprovals` above reports, so this verb
+        // succeeds — the old fixture answered not-found and leaned on the
+        // pre-AC-287 "not found is a success" shape.
         answerApproval: async () => ({
-          ok: false as const,
-          code: 'APPROVAL_EXPIRED_OR_NOT_FOUND' as const,
-          message: 'The approval request has expired or does not exist (it may have timed out and been auto-denied).',
+          ok: true as const,
+          requestId: 'req-1',
         }),
       },
       now: () => FIXED_NOW,
@@ -1013,25 +1017,41 @@ test('(a) the notable server-authored readings are the translated English senten
   assertServerCopyEnglish('sessions_list.sessions[0].lastActivity.relative', String(activityTime.relative));
   say(`(a) sessions_list relative = ${JSON.stringify(activityTime.relative)}`);
 
-  const miss = (await call(probeClient, 'run_get', { runId: 'zzz-no-such-run' })).structuredContent as AnyRecord;
-  const missFallback = miss.fallback as AnyRecord;
-  assert.equal(miss.explanation, 'This runId was never issued.', 'an unknown run id carries the translated explanation');
+  // AC-287: an unknown run id is now a `RUN_NOT_FOUND` error whose `message` is
+  // the translated explanation and whose `details.fallback` carries the note —
+  // the old success-shaped `explanation` field no longer reaches the wire.
+  const missReading = await call(probeClient, 'run_get', { runId: 'zzz-no-such-run' });
+  assert.equal(missReading.isError, true, 'an unknown run id is a RUN_NOT_FOUND error (AC-287)');
+  const miss = missReading.structuredContent as AnyRecord;
+  assert.equal(miss.code, 'RUN_NOT_FOUND', 'the unknown run id error carries RUN_NOT_FOUND');
+  const missFallback = (miss.details as AnyRecord).fallback as AnyRecord;
+  assert.equal(miss.message, 'This runId was never issued.', 'an unknown run id carries the translated explanation');
   assert.equal(
     missFallback.note,
     'No session can be determined, so there is nothing to fall back to.',
     'a miss with no session names the translated fallback note',
   );
-  assertServerCopyEnglish('run_get.explanation', String(miss.explanation));
-  assertServerCopyEnglish('run_get.fallback.note', String(missFallback.note));
-  say(`(a) run_get miss explanation = ${JSON.stringify(miss.explanation)}`);
+  assertServerCopyEnglish('run_get.message', String(miss.message));
+  assertServerCopyEnglish('run_get.details.fallback.note', String(missFallback.note));
+  say(`(a) run_get miss message = ${JSON.stringify(miss.message)}`);
 
-  // The other two session_cancel_queued outcome sentences, from the one mount.
+  // The other two session_cancel_queued sentences, from the one mount. AC-287
+  // moved `uuid-other` (a uuid no live queue holds) from a SUCCESS outcome to a
+  // `QUEUED_MESSAGE_NOT_FOUND` error, so the SAME English sentence now rides the
+  // envelope's `message`; `uuid-started` stays the already-started success.
   for (const [uuid, expected] of [
     ['uuid-started', 'The message is no longer in the queue (it was taken out to start executing) and can no longer be withdrawn.'],
     ['uuid-other', 'The session queue has no message with this uuid (it may never have existed, belong to another session, or there is no resident host).'],
   ] as const) {
     const reading = await call(probeClient, 'session_cancel_queued', { session: 'sess-1', messageUuid: uuid });
     const payload = reading.structuredContent as AnyRecord;
+    if (uuid === 'uuid-other') {
+      assert.equal(reading.isError, true, 'an unknown queue uuid is an error (AC-287)');
+      assert.equal(payload.code, 'QUEUED_MESSAGE_NOT_FOUND', 'the unknown uuid error carries QUEUED_MESSAGE_NOT_FOUND');
+    } else {
+      assert.equal(reading.isError, false, 'an already-started message stays a success (AC-287)');
+      assert.equal(payload.outcome, 'already-started', 'a dequeued message reads already-started');
+    }
     assert.equal(payload.message, expected, `session_cancel_queued (${uuid}) must be the translated sentence`);
     say(`(a) session_cancel_queued (${uuid}) = ${JSON.stringify(expected)}`);
   }
