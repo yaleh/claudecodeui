@@ -38,12 +38,12 @@ depends_on:
 
 ## AC
 
-- [ ] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-open-session.test.ts` 退出码 0：断言单设备在线时 `client` 可省略；多设备时缺省返回 `CLIENT_REQUIRED` 且错误里列出候选；无设备返回 `NO_CLIENT`；`client` 多个命中或无命中返回候选或查询词；只向选中的设备发 `ui.navigate`，不向其他设备发。
-- [ ] 同一测试文件断言：前端回 `shown` 时工具返回 `pending_user`，回 `applied` 时返回 `applied`，回 `declined` 时返回 `declined`，送达超时返回 `unresponsive`；工具在送达 ack 到达后立即返回，不等 `ui.navigate_result`。
-- [ ] 同一测试文件断言：随后到达的 `ui.navigate_result` 更新内存导航记录，`ui_visible_context` 的 `navigations[]` 反映最终状态，可按 `navigationId` 过滤；未知 `navigationId` 的结果帧被丢弃；记录超过 50 条或 10 分钟后被清理。
-- [ ] 同一测试文件断言：同一令牌第 7 次调用（一分钟内）返回 `RATE_LIMITED`，限速值取自导出常量；缺少 `cloudcli:navigate` scope 时返回 `INSUFFICIENT_SCOPE` 且名出缺失的 scope；对调用方自己所在的会话照常执行，不返回 `SELF_TARGET`；只有最终 `applied` 的导航更新「最后打开」记录。
-- [ ] `grep -rn "cloudcli:navigate" server/modules/oauth/access-tokens.service.ts server/modules/oauth/oauth-consent.routes.ts src/shared/constants.ts` 三处均有命中；12 种语言的 `settings.json` 都含新 scope 的文案键；`i18nMcpSettingsCompleteness.test.ts`、`mcp-tool-annotations.test.ts`、`mcp-error-vocabulary.test.ts`、`mcp-insufficient-scope.test.ts` 逐文件运行退出码 0。
-- [ ] `npm run typecheck` 退出码 0；`quay-test-script.test.ts` 退出码 0（计数 pin 已同步）。
+- [x] `env TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/mcp-gateway/tests/mcp-ui-open-session.test.ts` 退出码 0：断言单设备在线时 `client` 可省略；多设备时缺省返回 `CLIENT_REQUIRED` 且错误里列出候选；无设备返回 `NO_CLIENT`；`client` 多个命中或无命中返回候选或查询词；只向选中的设备发 `ui.navigate`，不向其他设备发。
+- [x] 同一测试文件断言：前端回 `shown` 时工具返回 `pending_user`，回 `applied` 时返回 `applied`，回 `declined` 时返回 `declined`，送达超时返回 `unresponsive`；工具在送达 ack 到达后立即返回，不等 `ui.navigate_result`。
+- [x] 同一测试文件断言：随后到达的 `ui.navigate_result` 更新内存导航记录，`ui_visible_context` 的 `navigations[]` 反映最终状态，可按 `navigationId` 过滤；未知 `navigationId` 的结果帧被丢弃；记录超过 50 条或 10 分钟后被清理。
+- [x] 同一测试文件断言：同一令牌第 7 次调用（一分钟内）返回 `RATE_LIMITED`，限速值取自导出常量；缺少 `cloudcli:navigate` scope 时返回 `INSUFFICIENT_SCOPE` 且名出缺失的 scope；对调用方自己所在的会话照常执行，不返回 `SELF_TARGET`；只有最终 `applied` 的导航更新「最后打开」记录。
+- [x] `grep -rn "cloudcli:navigate" server/modules/oauth/access-tokens.service.ts server/modules/oauth/oauth-consent.routes.ts src/shared/constants.ts` 三处均有命中；12 种语言的 `settings.json` 都含新 scope 的文案键；`i18nMcpSettingsCompleteness.test.ts`、`mcp-tool-annotations.test.ts`、`mcp-error-vocabulary.test.ts`、`mcp-insufficient-scope.test.ts` 逐文件运行退出码 0。
+- [x] `npm run typecheck` 退出码 0；`quay-test-script.test.ts` 退出码 0（计数 pin 已同步）。
 
 ## DoD
 
@@ -53,9 +53,11 @@ depends_on:
 
 - server/modules/mcp-gateway/mcp-ui-open-session.ts
 - server/modules/mcp-gateway/mcp-ui-visible-context.ts
+- server/modules/mcp-gateway/mcp-gateway.read-tools.ts
 - server/modules/mcp-gateway/mcp-gateway.write-tools.ts
 - server/modules/mcp-gateway/mcp-tool-annotations.ts
 - server/modules/mcp-gateway/mcp-tool-error-codes.ts
+- server/modules/mcp-gateway/mcp-error-envelope.ts
 - server/modules/mcp-gateway/index.ts
 - server/index.ts
 - server/modules/websocket/services/ui-navigation.service.ts
@@ -79,5 +81,10 @@ depends_on:
 - src/modules/i18n/locales/zh-TW/settings.json
 - src/modules/settings/tests/i18nMcpSettingsCompleteness.test.ts
 - server/modules/mcp-gateway/tests/mcp-ui-open-session.test.ts
+- server/modules/mcp-gateway/tests/mcp-english-only.test.ts
+- server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts
+- server/modules/mcp-gateway/tests/mcp-error-vocabulary.test.ts
+- server/modules/mcp-gateway/tests/mcp-insufficient-scope.test.ts
+- server/modules/oauth/tests/access-token-scopes.test.ts
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-mcp-ui-open-session.md
