@@ -75,7 +75,7 @@ depends_on:
 - [x] AC8 防嵌套/不缓存头：SPA 路由 `/oauth/consent` 文档与 context、decision JSON 响应均含 `X-Frame-Options: DENY`、CSP `frame-ancestors 'none'`、`Cache-Control: no-store`；逐字写出原始头值。
   - 两条 JSON 路由：判据 (g) `(g) context x-frame-options=DENY csp="frame-ancestors 'none'" cache-control=no-store; decision 200/400 the same`（含 400 分支）。
   - SPA 文档（跨真实静态层 `createStaticAssetsMiddleware`）：判据 (h) `(h) /oauth/consent x-frame-options=DENY csp="frame-ancestors 'none'" cache-control="no-store"`。
-  - 真实服务（e2e，真 HTTP 头原值）：`[AC8] GET /oauth/consent -> 302 location=http://localhost:5173 x-frame-options=DENY csp="frame-ancestors 'none'" cache-control="no-store"`。
+  - 真实服务（e2e，真 HTTP 头原值）：`[AC8] GET /oauth/consent -> 302 location=http://localhost:5173 x-frame-options=DENY csp="frame-ancestors 'none'" cache-control=no-store`。
   - 挂载顺序（头中间件必须先于静态层，否则 `Cache-Control` 会被静态层覆写）：`[AC8] server/index.ts: mountOAuthServer@42971 < consentDocHeaders@43789 < createStaticAssetsMiddleware@44356`。
   - 判据 (i)：文档 CSP `frame-ancestors 'none'`（无 `default-src 'none'`、无 `form-action` —— `window.location` 下 `form-action` 无主体，且壳的 bundle 必须能加载）；错误页 CSP 仍为 `default-src 'none'; frame-ancestors 'none'`。
 - [x] AC9 全 PKCE 链 e2e 绿（`oauth-flow.e2e.test.ts` 新流：authorize 302 → context → decision → token 交换 → `/mcp` 调用）；(l) 多跳回调链真浏览器用例仍绿。
@@ -173,20 +173,20 @@ depends_on:
 
 `git diff --stat develop...HEAD` 逐条对齐（13 个文件；` (new)` = 新增，` (deleted)` = 删除）：
 
-- shared/oauthConsent.ts (new) — 唯一跨树常量 `OAUTH_CONSENT_SPA_PATH = '/oauth/consent'`（前端半 `gap-oauth-consent-spa-ui` 消费；后端根 `tsconfig` 的 `@shared/*` 与 `server/tsconfig.json` 的相对 `.js` specifier 两种可达性都成立）。
-- server/modules/oauth/oauth-consent.service.ts (new) — consent 策略层：`OAUTH_CONSENT_READ_SCOPE`、`SCOPE_DESCRIPTIONS`、`consentScopeOptions()`、`registeredRedirectUris()`、`readConsentRequest()`（client 存在且未禁用 → `response_type=code` → redirect_uri 逐字在登记集合）、`grantedScopes()`。
-- server/modules/oauth/oauth-consent.routes.ts — 传输层重写：`createOAuthConsentRouter`（`GET /oauth/authorize`：校验通过才 302 到相对 SPA 路由，否则 400 错误页）、`createOAuthAuthorizeApiRouter`（`GET /context`、`POST /decision`）、`createOAuthConsentDocumentHeadersMiddleware`（路由级文档头，含 `writeHead` 再断言，压过静态层的 `Cache-Control`）、`sendErrorPage`。（`git diff --stat` 显示 -527/+… 的重写。）
-- server/modules/oauth/oauth-server.mount.ts — 新增 `/api/oauth/authorize` 挂在注入的 `authenticateToken` 之后；`/oauth/token`、`/oauth/revoke` 不变；不再消费 `credentialVerifier`。
-- server/modules/oauth/index.ts — barrel += `createOAuthConsentRouter`、`createOAuthAuthorizeApiRouter`、`createOAuthConsentDocumentHeadersMiddleware`、`OAuthConsentRouterOptions`、`OAuthAuthorizeApiOptions`。
-- server/modules/oauth/oauth-consent-ratelimit.service.ts (deleted) — AC12 核查为零消费者，退役。
-- server/index.ts — 去掉 `credentialVerifier` 构造；在 `OAUTH_CONSENT_SPA_PATH` 挂文档头中间件（必须先于 `createStaticAssetsMiddleware`）；请求日志前缀加入 `/api/oauth/authorize`；`mountOAuthServer` 调用改传 `{ provider, store, clients, authenticateToken }`。
-- server/modules/oauth/tests/oauth-consent-page.test.ts — 判据整体转译到新契约（13 例：(a)–(m)）。(a) 转义→(b) 的 JSON 数据用例；(c) 密码、(f) CSRF、(h) `createCredentialVerifier` 相关腿按 AC-260 退役并在文件头写明理由；(g)(i)(j)(l)(m)(n) 的意图保留真实牙齿。
-- server/modules/oauth/tests/oauth-consent-ratelimit.test.ts (deleted) — AC12 的退役。
-- server/modules/oauth/tests/oauth-request-log.test.ts — 挂载前缀加入 `/api/oauth/authorize`；新增 leg (g) 新路径形状/脱敏用例；leg (f) 扩到 6 行 8 个标记。
-- server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts — 端到端流转改为 GET authorize 302 → context → decision → token；`obtainCode()` 不再解析 CSRF；新增真实服务 `/oauth/consent` 头探针与挂载顺序读数。
-- server/modules/mcp-gateway/tests/mcp-english-only.test.ts — 仅删掉 `createOAuthConsentRouter(...)` 调用中已移除的 `provider`/`verifyCredentials` 入参（-2 行）。
-- server/shared/tests/quay-test-script.test.ts — 测试文件计数钉死值随删除 1 个测试文件减 1（`unknown=247→246`、`unknown=249→248`）。
-- tasks/gap-oauth-consent-spa-backend-contract.md — 本任务账本（由 `task_write` 分支感知提交，不在上述分支 `git diff` 中）。
+- shared/oauthConsent.ts (new)（唯一跨树常量 `OAUTH_CONSENT_SPA_PATH = '/oauth/consent'`；前端半 `gap-oauth-consent-spa-ui` 消费）
+- server/modules/oauth/oauth-consent.service.ts (new)（consent 策略层：`OAUTH_CONSENT_READ_SCOPE`、`SCOPE_DESCRIPTIONS`、`consentScopeOptions()`、`registeredRedirectUris()`、`readConsentRequest()`、`grantedScopes()`）
+- server/modules/oauth/oauth-consent.routes.ts（传输层重写：`createOAuthConsentRouter`、`createOAuthAuthorizeApiRouter`、`createOAuthConsentDocumentHeadersMiddleware`、`sendErrorPage`）
+- server/modules/oauth/oauth-server.mount.ts（新增 `/api/oauth/authorize` 挂在注入的 `authenticateToken` 之后；不再消费 `credentialVerifier`）
+- server/modules/oauth/index.ts（barrel += `createOAuthConsentRouter`、`createOAuthAuthorizeApiRouter`、`createOAuthConsentDocumentHeadersMiddleware`、`OAuthConsentRouterOptions`、`OAuthAuthorizeApiOptions`）
+- server/modules/oauth/oauth-consent-ratelimit.service.ts (deleted)（AC12 核查为零消费者，退役）
+- server/index.ts（去掉 `credentialVerifier` 构造；在 `OAUTH_CONSENT_SPA_PATH` 挂文档头中间件，必须先于 `createStaticAssetsMiddleware`；请求日志前缀加入 `/api/oauth/authorize`；`mountOAuthServer` 调用改传 `{ provider, store, clients, authenticateToken }`）
+- server/modules/oauth/tests/oauth-consent-page.test.ts（判据整体转译到新契约，13 例 (a)–(m)；密码/CSRF 腿按 AC-260 退役并写明理由）
+- server/modules/oauth/tests/oauth-consent-ratelimit.test.ts (deleted)（AC12 的退役）
+- server/modules/oauth/tests/oauth-request-log.test.ts（挂载前缀加入 `/api/oauth/authorize`；新增 leg (g) 新路径形状/脱敏用例）
+- server/modules/mcp-gateway/tests/oauth-flow.e2e.test.ts（端到端流转改为 GET authorize 302 → context → decision → token；新增 `/oauth/consent` 头探针与挂载顺序读数）
+- server/modules/mcp-gateway/tests/mcp-english-only.test.ts（仅删掉 `createOAuthConsentRouter(...)` 调用中已移除的 `provider`/`verifyCredentials` 入参）
+- server/shared/tests/quay-test-script.test.ts（测试文件计数钉死值随删除 1 个测试文件减 1）
+- tasks/gap-oauth-consent-spa-backend-contract.md（本任务账本，由 `task_write` 分支感知提交）
 
 原 Touches 候选里**实际未触及**的：`server/modules/oauth/oauth-provider.service.ts`（无需改）、`server/modules/oauth/oauth-request-log.service.ts`（logger 本体无需改，脱敏按构造已覆盖新路径）、`server/shared/constants.ts`（常量落 `shared/oauthConsent.ts`，模块名更贴切）、`server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts`（未枚举这些路由，7/7 仍绿）。
 
