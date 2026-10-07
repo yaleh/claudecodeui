@@ -74,21 +74,47 @@ test('createAccessToken rejects a lifetime outside 7/30/90 without issuing', () 
   assert.equal(issued, 1);
 });
 
-test('listAccessTokens projects rows without the token hash', () => {
+/** A stored personal-access-token row: `kind` 'pat' and a real `name`. */
+const PAT_ROW = {
+  id: 9,
+  user_id: 1,
+  kind: 'pat',
+  token_hash: 'deadbeef'.repeat(8),
+  token_prefix: 'ccp_abc1',
+  name: 'laptop',
+  scopes: JSON.stringify(['cloudcli:read']),
+  expires_at: '2026-02-01T00:00:00.000Z',
+  created_at: '2026-01-01T00:00:00.000Z',
+  last_used: null,
+  revoked_at: null,
+};
+
+/** A stored OAuth row exactly as the OAuth store writes it: `name` NULL, kind `oauth_access`. */
+const OAUTH_ROW = {
+  id: 42,
+  user_id: 1,
+  kind: 'oauth_access',
+  token_hash: 'cafebabe'.repeat(8),
+  token_prefix: 'cca_abc1',
+  name: null,
+  scopes: JSON.stringify(['cloudcli:read']),
+  expires_at: '2026-02-01T00:00:00.000Z',
+  created_at: '2026-01-01T00:00:00.000Z',
+  last_used: null,
+  revoked_at: null,
+};
+
+test('listAccessTokens asks for PAT rows only and projects them without the token hash', () => {
+  const kindsAsked: (string | undefined)[] = [];
   const service = createSettingsService(dependencies({
     accessTokens: {
-      list: () => [{
-        id: 9,
-        user_id: 1,
-        token_hash: 'deadbeef'.repeat(8),
-        token_prefix: 'ccp_abc1',
-        name: 'laptop',
-        scopes: JSON.stringify(['cloudcli:read']),
-        expires_at: '2026-02-01T00:00:00.000Z',
-        created_at: '2026-01-01T00:00:00.000Z',
-        last_used: null,
-        revoked_at: null,
-      }],
+      // Mirrors the repository's SQL filter: the store only returns rows whose
+      // kind matches the argument, so dropping the argument lets the OAuth row
+      // through and this test reds.
+      list: (_userId, kind) => {
+        kindsAsked.push(kind);
+        return [PAT_ROW, OAUTH_ROW].filter((row) => kind === undefined || row.kind === kind);
+      },
       findById: () => undefined,
       issue: () => ({ ok: false, reason: 'invalid_expiry' }),
       revoke: () => false,
@@ -96,6 +122,7 @@ test('listAccessTokens projects rows without the token hash', () => {
   }));
 
   const listed = service.listAccessTokens(1);
+  assert.deepEqual(kindsAsked, ['pat']);
   assert.equal(listed.tokens.length, 1);
   assert.deepEqual(listed.tokens[0], {
     id: 9,
@@ -107,6 +134,32 @@ test('listAccessTokens projects rows without the token hash', () => {
     createdAt: '2026-01-01T00:00:00.000Z',
     revokedAt: null,
   });
+  // The nameless OAuth row is not in this list, so no entry renders as "Unnamed token".
+  assert.equal(listed.tokens.some((token) => token.id === OAUTH_ROW.id), false);
   assert.equal(Object.keys(listed.tokens[0]).includes('token_hash'), false);
   assert.equal(JSON.stringify(listed).includes('deadbeef'), false);
+});
+
+test('listOAuthTokens projects the non-PAT rows (client name, no token hash)', () => {
+  const service = createSettingsService(dependencies({
+    oauthTokens: {
+      list: () => [{ ...OAUTH_ROW, client_name: 'Preset App' }],
+    },
+  }));
+
+  const listed = service.listOAuthTokens(1);
+  assert.equal(listed.tokens.length, 1);
+  assert.deepEqual(listed.tokens[0], {
+    id: 42,
+    kind: 'oauth_access',
+    tokenPrefix: 'cca_abc1',
+    clientName: 'Preset App',
+    scopes: ['cloudcli:read'],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    expiresAt: '2026-02-01T00:00:00.000Z',
+    lastUsed: null,
+    revokedAt: null,
+  });
+  assert.equal(Object.keys(listed.tokens[0]).includes('token_hash'), false);
+  assert.equal(JSON.stringify(listed).includes('cafebabe'), false);
 });

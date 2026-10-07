@@ -20,6 +20,7 @@ import {
     providerRuntimeService,
     readClaudeSessionOccupancy,
     resolveResidentScopeSweepEnabled,
+    sessionConversationsSearchService,
     sessionsService,
     setActivityChangeNotifier,
     stopClaudeSessionScopes,
@@ -30,6 +31,7 @@ import { activityStore, BOOT_ID, broadcastHostsChanged, chatRunRegistry, createA
 import { createSessionHostsRouter, sessionHostManager } from '@/modules/session-hosts/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
+import { OAUTH_CONSENT_SPA_PATH } from '../shared/oauthConsent.js';
 
 import { createGitModule } from './modules/git/index.js';
 import {
@@ -46,6 +48,7 @@ import { settingsRoutes } from './modules/settings/index.js';
 import {
     createAccessTokensService,
     createOAuthClientsRouter,
+    createOAuthConsentDocumentHeadersMiddleware,
     createOAuthRequestLogger,
     createOAuthProvider,
     createOAuthSettingsRouter,
@@ -100,6 +103,7 @@ import {
     mountOAuthMetadata,
     readMcpDcrMode,
     readOAuthMetadataGate,
+    resolveClientName,
     startMcpAuditRetention,
 } from './modules/mcp-gateway/index.js';
 import type { McpOauthSeam } from './modules/mcp-gateway/index.js';
@@ -582,12 +586,20 @@ if (mountDebugAgentControlPlane(app, authenticateToken)) {
 // process `BOOT_ID`, the same identity the activity snapshots and every run this
 // registry opens carry, so `run_get` can report "服务已重启" when a run belongs to
 // a previous process boot.
-// One secret-free log line per request to the OAuth and MCP surfaces. Mounted before
-// any of them so the lines also cover requests an inner router refuses. Without it a
-// client that registered but never exchanged its code is indistinguishable from one
-// whose request never arrived.
+// One secret-free log line per request to the OAuth and MCP surfaces, including
+// the SPA consent API under `/api/oauth/authorize` (whose `state`/`code`/
+// `code_challenge` values the logger redacts). Mounted before any of them so the
+// lines also cover requests an inner router refuses. Without it a client that
+// registered but never exchanged its code is indistinguishable from one whose
+// request never arrived.
 app.use(
-    ['/oauth', '/mcp', '/.well-known/oauth-authorization-server', '/.well-known/oauth-protected-resource'],
+    [
+        '/oauth',
+        '/api/oauth/authorize',
+        '/mcp',
+        '/.well-known/oauth-authorization-server',
+        '/.well-known/oauth-protected-resource',
+    ],
     createOAuthRequestLogger(),
 );
 const oauthMetadataGate = readOAuthMetadataGate();
@@ -634,6 +646,36 @@ const mcpGateway = mountMcpGateway(
         tokens: accessTokensService,
         oauth: mcpOauth,
         control: chatControl,
+        // AC-246's target gate, WIRED in production here
+        // (gap-mcp-resolve-deps-production-wiring). Supplying `resolveDeps` turns
+        // the gateway's resolution gate on for every tool the mount registers, so
+        // a `project` / `session` argument may name its target: an exact id still
+        // wins verbatim, a unique title substring resolves, and an ambiguous or
+        // unknown reference is refused with the candidate list instead of being
+        // acted on. Before this it was never supplied, so `resolveInputTargets`
+        // short-circuited to the raw handler and `sessions_list({ project: "…" })`
+        // / `quay_snapshot({ project: "…" })` passed a name straight into the
+        // strict id lookup, which answered `PROJECT_NOT_FOUND`.
+        //
+        // Both lists carry ACTIVE entries only, read synchronously so the gate is
+        // one indexed SELECT per call. `getProjectPaths()` is the non-archived
+        // project listing; `getAllSessions()` is EVERY stored non-archived session
+        // (not a recents page), so a valid session id that sits past the first
+        // page is still resolved by its exact id rather than refused. The project
+        // TITLE is the same string `projects_list` reports as `name`: the row's
+        // custom display name, else the directory basename.
+        resolveDeps: {
+            listProjects: () =>
+                projectsDb.getProjectPaths().map((row) => ({
+                    id: row.project_id,
+                    title: row.custom_project_name?.trim() || path.basename(row.project_path),
+                })),
+            listSessions: () =>
+                sessionsDb.getAllSessions().map((row) => ({
+                    id: row.session_id,
+                    title: row.custom_name?.trim() || row.session_id,
+                })),
+        },
         readTools: {
             sessions: sessionsService,
             hosts: sessionHostManager,
@@ -674,6 +716,13 @@ const mcpGateway = mountMcpGateway(
             uiClientsList: {
                 listUiClients,
                 requestUiState: (options) => uiStateRequestService.requestUiState(options),
+            },
+            // gap-mcp-session-search: the conversation-search engine, bound to
+            // the SAME service the session-search route calls, so an MCP caller
+            // and the browser scan one transcript store through one scanner.
+            sessionSearch: {
+                search: (input) => sessionConversationsSearchService.search(input),
+                now: () => Date.now(),
             },
             now: () => Date.now(),
         },
@@ -731,11 +780,15 @@ const mcpGateway = mountMcpGateway(
             // navigation service built above (so its record and the frames routed
             // into it are the same table) and to the process-wide per-token
             // throttle, which must outlive a request because the MCP server is
-            // built per request.
+            // built per request. `resolveClientName` is the gateway's ONE
+            // principal-name resolution (the same one the write notifications
+            // name their caller with), so the confirmation bar tells the user
+            // WHO asked instead of showing a blank for a personal access token.
             uiOpenSession: {
                 listUiClients,
                 navigate: (request) => uiNavigations.navigate(request),
                 rateLimiter: uiOpenSessionRateLimiter,
+                resolveClientName,
             },
         },
         // AC-271's `session_cancel_queued` over the same one control service, plus
@@ -803,24 +856,41 @@ if (oauthMetadata.mounted) {
     );
 }
 
-// The authorization-server HTTP surface (AC-268): `/oauth/authorize` (AC-260's
-// consent page, reused verbatim), `/oauth/token` and `/oauth/revoke`, over the
-// ONE provider that also backs `/mcp`'s verification seam. Gated on OAuth being
-// on — the metadata mount's own reading, not a second read of the switch — and
-// attached BEFORE the static layer for the same reason as the two mounts above:
-// behind the SPA catch-all every one of these paths would answer `200 text/html`
-// and no OAuth client could complete a flow.
+// The authorization-server HTTP surface (AC-268; SPA consent,
+// gap-oauth-consent-spa-backend-contract): `/oauth/authorize` (the validating
+// redirect router), the JWT-guarded `/api/oauth/authorize` consent API,
+// `/oauth/token` and `/oauth/revoke`, over the ONE provider that also backs
+// `/mcp`'s verification seam. `authenticateToken` is the application's own bearer
+// middleware, so the consent API is session-bound and a form POST from another
+// origin carries no cookie authority. Gated on OAuth being on — the metadata
+// mount's own reading, not a second read of the switch — and attached BEFORE the
+// static layer for the same reason as the mounts above: behind the SPA catch-all
+// every one of these paths would answer `200 text/html` and no OAuth client could
+// complete a flow.
 if (oauthMetadata.mounted && oauthProvider !== undefined) {
     const oauthServer = mountOAuthServer(app, {
         provider: oauthProvider,
         store: oauthStore,
         clients: oauthClientsDb,
-        verifyCredentials: credentialVerifier,
+        authenticateToken,
+        // AC-261: the consent `allow` decision re-confirms the signed-in user's
+        // password through the SAME `authService.login` every other login uses,
+        // behind a per-source rate limiter. The verifier is the auth barrel's
+        // assembled instance — there is no second credential implementation.
+        credentialVerifier,
     });
     console.log(
-        `[MCP] oauth server ${oauthServer.mounted ? 'mounted' : 'not mounted'} at /oauth/authorize|token|revoke (${oauthServer.reason})`,
+        `[MCP] oauth server ${oauthServer.mounted ? 'mounted' : 'not mounted'} at /oauth/authorize|api/oauth/authorize|token|revoke (${oauthServer.reason})`,
     );
 }
+
+// The anti-framing / no-store posture on the SPA consent DOCUMENT. Mounted at the
+// exact consent route, ahead of the static layer, because that layer's SPA
+// catch-all sets its own `Cache-Control` for `index.html` and would otherwise win
+// on the one document the headers are for; the middleware re-asserts them at
+// `writeHead` so they land whether the static layer serves `dist/index.html` or
+// the dev branch redirects to the Vite server.
+app.use(OAUTH_CONSENT_SPA_PATH, createOAuthConsentDocumentHeadersMiddleware());
 
 // Static assets and the SPA entry, mounted after every API route so response
 // compression only ever applies to the bundle and HTML above (see the module

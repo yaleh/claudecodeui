@@ -649,7 +649,8 @@
       "createButton": "创建令牌",
       "cancelButton": "取消",
       "scopesLabel": "权限范围",
-      "writeScopeRisk": "此令牌可以发送、创建和控制会话，请妥善保管。"
+      "writeScopeRisk": "此令牌可以发送、创建和控制会话，请妥善保管。",
+      "defaultName": "MCP 令牌 · {{date}}"
     },
     "newToken": {
       "alertTitle": "⚠️ 请保存您的访问令牌",
@@ -666,7 +667,9 @@
       "active": "有效",
       "revoked": "已吊销",
       "revokeButton": "吊销",
-      "revokeConfirm": "确定要吊销此令牌吗？此操作无法撤销。"
+      "revokeConfirm": "确定要吊销此令牌吗？此操作无法撤销。",
+      "created": "创建于：",
+      "expired": "已过期"
     },
     "scopes": {
       "read": "读取（cloudcli:read）",
@@ -675,6 +678,17 @@
       "sessionControl": "控制会话（cloudcli:session:control）",
       "approve": "批准（cloudcli:approve）",
       "navigate": "在您的浏览器中打开会话（cloudcli:navigate）"
+    },
+    "oauthTokens": {
+      "title": "高级：OAuth 令牌（只读）",
+      "description": "由 OAuth 流程（已连接的应用和 MCP 客户端）签发的令牌。它们由这些流程管理，无法在此创建或撤销。",
+      "empty": "尚未签发任何 OAuth 令牌。",
+      "showInactive": "显示已撤销和已过期",
+      "unknownClient": "未知客户端",
+      "kind": "类型：",
+      "kindAccess": "访问令牌",
+      "kindRefresh": "刷新令牌",
+      "scopes": "权限范围："
     }
   },
   "mcpGateway": {

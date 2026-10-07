@@ -7,6 +7,7 @@ import type {
   CreatedAccessToken,
   GithubCredentialItem,
   McpGatewayStatus,
+  OAuthTokenItem,
 } from '@/shared/types';
 import { copyTextToClipboard } from '@/shared/utils';
 
@@ -15,6 +16,11 @@ type AccessTokensResponse = {
   success?: boolean;
   error?: string;
   token?: CreatedAccessToken;
+};
+
+/** The advanced read-only OAuth-token list's own response, kept separate from the PAT one. */
+type OAuthTokensResponse = {
+  tokens?: OAuthTokenItem[];
 };
 
 type GithubCredentialsResponse = {
@@ -44,6 +50,10 @@ export function useCredentialsSettings({
   confirmDeleteGithubCredentialText,
 }: UseCredentialsSettingsArgs) {
   const [accessTokens, setAccessTokens] = useState<AccessTokenItem[]>([]);
+  // The read-only OAuth tokens the advanced section lists. Kept apart from
+  // `accessTokens` because the two are different resources: the PAT list is the
+  // user's own created tokens, this is what the OAuth flows issued.
+  const [oauthTokens, setOauthTokens] = useState<OAuthTokenItem[]>([]);
   const [githubCredentials, setGithubCredentials] = useState<GithubCredentialItem[]>([]);
   // True until the first list has been read; the tab shows a loading line rather than an empty list that looks real.
   const [loading, setLoading] = useState(true);
@@ -78,19 +88,22 @@ export function useCredentialsSettings({
     try {
       setLoading(true);
 
-      const [tokensResponse, credentialsResponse, mcpGatewayResponse] = await Promise.all([
+      const [tokensResponse, oauthTokensResponse, credentialsResponse, mcpGatewayResponse] = await Promise.all([
         api.settings.accessTokens(),
+        api.settings.oauthTokens(),
         api.settings.credentials('github_token'),
         api.settings.mcpGatewayStatus(),
       ]);
 
-      const [tokensPayload, credentialsPayload, mcpGatewayPayload] = await Promise.all([
+      const [tokensPayload, oauthTokensPayload, credentialsPayload, mcpGatewayPayload] = await Promise.all([
         tokensResponse.json() as Promise<AccessTokensResponse>,
+        oauthTokensResponse.json() as Promise<OAuthTokensResponse>,
         credentialsResponse.json() as Promise<GithubCredentialsResponse>,
         mcpGatewayResponse.json() as Promise<McpGatewayStatus>,
       ]);
 
       setAccessTokens(tokensPayload.tokens || []);
+      setOauthTokens(oauthTokensPayload.tokens || []);
       setGithubCredentials(credentialsPayload.credentials || []);
       setMcpGatewayStatus(mcpGatewayPayload);
     } catch (error) {
@@ -262,6 +275,7 @@ export function useCredentialsSettings({
 
   return {
     accessTokens,
+    oauthTokens,
     githubCredentials,
     loading,
     showNewTokenForm,

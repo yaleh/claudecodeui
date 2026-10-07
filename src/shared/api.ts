@@ -5,6 +5,7 @@ import {
 } from '@/shared/authToken';
 import type { SessionMessagesQuery } from '@/shared/types';
 import type { ActivitySnapshotFrame } from '@/shared/types';
+import type { OAuthConsentDecisionRequest } from '@/shared/types';
 import type { VoiceProviderRow } from '@/shared/types';
 import { IS_PLATFORM } from '@/shared/utils';
 import type { VoiceConfig } from '@/shared/voiceConfig';
@@ -223,6 +224,17 @@ export const api = {
     }),
     refresh: () => post('/api/auth/refresh'),
     user: () => get('/api/auth/user'),
+  },
+
+  // The OAuth consent hand-off: the SPA served at `/oauth/consent` reads the request's
+  // validated context and submits the user's decision here, both with the ordinary bearer
+  // JWT. `search` is the browser's own query string with its leading `?`, passed through
+  // unchanged so the server re-runs the same `(client_id, redirect_uri)` validation that
+  // `/oauth/authorize` already accepted.
+  oauthConsent: {
+    context: (search: string) => get(`/api/oauth/authorize/context${search}`),
+    decide: (decision: OAuthConsentDecisionRequest) =>
+      post('/api/oauth/authorize/decision', decision),
   },
 
   // Protected endpoints
@@ -610,6 +622,9 @@ export const api = {
   // Server-side settings: personal access tokens, stored credentials, notifications, web push
   settings: {
     accessTokens: () => get('/api/settings/access-tokens'),
+    // The advanced, read-only OAuth-token list beside the PAT list. GET only: there
+    // is no create/revoke here on purpose (OAuth tokens are revoked via grants).
+    oauthTokens: () => get('/api/settings/oauth-tokens'),
     createAccessToken: (payload: { name: string; expiresInDays: number; scopes: string[] }) =>
       post('/api/settings/access-tokens', payload),
     revokeAccessToken: (tokenId: number) => del(`/api/settings/access-tokens/${tokenId}`),

@@ -45,13 +45,23 @@ export type {
   RevokeGrantResult,
   VerifyOAuthTokenResult,
 } from '@/modules/oauth/oauth-store.service.js';
-// createOAuthConsentRouter: the server-rendered consent page (AC-260) — the
-// GET form and the POST that verifies the user's password and drives the
-// provider's authorize(). Consumers: the server entrypoint (mounted by AC-262)
-// and this module's oauth-consent-page criterion, which mounts this factory on a
-// real express server.
-export { createOAuthConsentRouter } from '@/modules/oauth/oauth-consent.routes.js';
-export type { CreateOAuthConsentRouterOptions } from '@/modules/oauth/oauth-consent.routes.js';
+// createOAuthConsentRouter / createOAuthAuthorizeApiRouter /
+// createOAuthConsentDocumentHeadersMiddleware: the SPA consent transport
+// (gap-oauth-consent-spa-backend-contract) — the validating `GET /oauth/authorize`
+// that 302s to the SPA route, the JWT-authenticated JSON API the SPA drives
+// (`/context`, `/decision`), and the route-level middleware carrying the
+// anti-framing / no-store headers onto the SPA document. Consumers: this module's
+// `oauth-server.mount.ts` and the server entrypoint, both through this barrel,
+// plus this module's oauth-consent-page criterion and the OAuth flow e2e.
+export {
+  createOAuthAuthorizeApiRouter,
+  createOAuthConsentDocumentHeadersMiddleware,
+  createOAuthConsentRouter,
+} from '@/modules/oauth/oauth-consent.routes.js';
+export type {
+  OAuthAuthorizeApiOptions,
+  OAuthConsentRouterOptions,
+} from '@/modules/oauth/oauth-consent.routes.js';
 // createOAuthProvider: the OAuth authorization-server SEMANTICS (PKCE S256,
 // single-use 60-second codes with replay revocation, refresh rotation/reuse
 // revocation, audience binding, exact redirect-uri matching, confidential-client
@@ -117,10 +127,12 @@ export type {
 // oauth-settings criterion.
 export { createOAuthSettingsRouter } from '@/modules/oauth/oauth-settings.routes.js';
 // mountOAuthServer: the production mount of the authorization-server HTTP surface
-// (AC-268) — /oauth/authorize (AC-260's consent router, reused verbatim),
+// (AC-268; SPA consent, gap-oauth-consent-spa-backend-contract) — /oauth/authorize
+// (the validating redirect router), the JWT-guarded /api/oauth/authorize JSON API,
 // /oauth/token and /oauth/revoke. Consumers: the server entrypoint (mounts it,
 // before the static layer, sharing the ONE provider that also backs /mcp's
-// verification seam) and this module's end-to-end oauth-flow criterion.
+// verification seam, and injects authenticateToken) and this module's
+// end-to-end oauth-flow criterion.
 export { mountOAuthServer } from '@/modules/oauth/oauth-server.mount.js';
 export type { MountOAuthServerDeps, OAuthServerMountReading } from '@/modules/oauth/oauth-server.mount.js';
 

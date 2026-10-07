@@ -32,7 +32,11 @@
  * (gap-mcp-ui-clients-list) are the other two: the observer and the discoverer
  * of the connected browsers, routed to `mcp-ui-visible-context.js` and
  * `mcp-ui-clients-list.js` when the deps carry the round trip, and keeping the
- * same named refusal otherwise. This module GAINING a tool is deliberate and
+ * same named refusal otherwise. `session_search` (gap-mcp-session-search) is the
+ * third GAINED after AC-245 and the first read tool that spans every project at
+ * once: routed to `mcp-session-search.js` when the deps carry the conversation
+ * search engine, and keeping the same named refusal otherwise. This module
+ * GAINING a tool is deliberate and
  * costs three edits in tandem (this table, `mcp-tool-annotations.ts`, and
  * `mcp-tool-error-codes.ts`, whose records are total over the name union), plus
  * the size pins the criteria hold — never a silent addition.
@@ -57,6 +61,8 @@ import { isOverviewWired, registerMcpOverviewTools } from './mcp-overview-tools.
 import type { McpActivityReader, McpOverviewDeps, McpOverviewRegistration, McpQuayRunner } from './mcp-overview-tools.js';
 import { isRunGetWired, registerMcpRunGetTool } from './mcp-run-get.js';
 import type { McpRunGetDeps, McpRunGetRegistration } from './mcp-run-get.js';
+import { isSessionSearchWired, registerMcpSessionSearchTool } from './mcp-session-search.js';
+import type { McpSessionSearchDeps, McpSessionSearchRegistration } from './mcp-session-search.js';
 import { isUiClientsListWired, registerMcpUiClientsListTool } from './mcp-ui-clients-list.js';
 import type { McpUiClientsListDeps } from './mcp-ui-clients-list.js';
 import {
@@ -93,7 +99,8 @@ export const MCP_STAGE3_READ_TOOLS = [
   {
     name: 'sessions_list',
     requiredScope: READ_SCOPE,
-    description: 'List sessions, optionally filtered by project and by state (running / idle / resident).',
+    description:
+      'List sessions, optionally filtered by project and by state (running / idle / resident). `limit` caps how many sessions are returned, from 1 to 200; `total` still reports the full filtered count, so a caller can tell the list was truncated.',
   },
   {
     name: 'session_get',
@@ -132,6 +139,12 @@ export const MCP_STAGE3_READ_TOOLS = [
     requiredScope: READ_SCOPE,
     description:
       'List the browsers connected right now: the identity of each device, its tabs, its navigation policy, and its current visibility and focus. Identity and status only — pick a device here, then read what it is showing with ui_visible_context.',
+  },
+  {
+    name: 'session_search',
+    requiredScope: READ_SCOPE,
+    description:
+      'Search every project\'s stored session transcripts and titles for literal text. FULL-TEXT, NOT SEMANTIC: the query is matched case-insensitively against the exact characters a transcript contains, so synonyms and reworded phrases do not match — pass several separate keyword sets (one query per call) rather than one long question. Returns one entry per matched session (sessionId, project, title, last activity, and a sort key called score that is a deterministic ranking, NOT a relevance probability) with the matched messages inside it: a message\'s messageId can be passed to session_read with mode "around" to expand that hit into its surrounding window (null for providers that hand out no per-message id, and messageId is not accepted by other modes). `limit` caps how many SESSIONS a page returns, from 1 to 50; `totalMatches` counts matches across every session the filters kept; `moreAvailable` says whether sessions remain, and the same `cursor` that pages to them is best-effort — it re-runs the scan, so a session whose matches changed between calls can shift the window.',
   },
 ] as const;
 
@@ -267,6 +280,16 @@ export type McpReadToolDeps = {
    * the same process-wide services `uiVisibleContext` binds above.
    */
   uiClientsList?: McpUiClientsListDeps;
+  /**
+   * The conversation-search engine (gap-mcp-session-search): the same scanner
+   * the session-search route calls. Optional so a mount that predates this task
+   * — or a criterion that exercises the other read tools — is still a valid
+   * `McpReadToolDeps`; when absent `session_search` keeps its named
+   * `MCP_TOOL_NOT_IMPLEMENTED` refusal, when present `registerMcpReadTools`
+   * routes the name to {@link registerMcpSessionSearchTool}. `server/index.ts`
+   * binds `search` to `sessionConversationsSearchService.search`.
+   */
+  sessionSearch?: McpSessionSearchDeps;
   /** Clock seam, so every relative time is reproducible in a criterion. */
   now: () => number;
 };
@@ -376,8 +399,13 @@ export function formatMcpTime(ms: number, now: () => number): McpTime {
  * form for one it did not. An unparseable value reads as null rather than as
  * "now", because a time field that quietly means "I do not know" is worse than
  * an absent one.
+ *
+ * Exported so the sibling read-tool modules render a stored stamp the SAME way:
+ * `mcp-session-search.js` reads a matched message's `timestamp` and a hit's
+ * `lastActivity` through this one function rather than restating the parse.
+ * Consumers: every read tool's time field, and `mcp-session-search.js`.
  */
-function readTimeField(value: string | null | undefined, now: () => number): McpTime | null {
+export function readTimeField(value: string | null | undefined, now: () => number): McpTime | null {
   if (typeof value !== 'string' || value.length === 0) {
     return null;
   }
@@ -501,6 +529,15 @@ function optionalPositiveInteger(value: unknown, fallback: number): number {
 
 /** How many recent sessions one `sessions_list` page reads. */
 const SESSION_LIST_PAGE_SIZE = 200;
+
+/**
+ * The largest `limit` `sessions_list` accepts. It IS {@link SESSION_LIST_PAGE_SIZE}:
+ * the reads already cap a page there, so a caller cannot ask for more rows than
+ * the page can hold — a larger `limit` would promise sessions the read never saw.
+ * Declared on the tool's input schema so the bound is advertised and enforced
+ * (an out-of-range value is an `INVALID_ARGUMENT`, never a silent truncation).
+ */
+const MCP_SESSION_LIST_MAX_LIMIT = SESSION_LIST_PAGE_SIZE;
 
 /** `session_read` returns this many messages when the caller names no limit. */
 const DEFAULT_LATEST_LIMIT = 5;
@@ -717,6 +754,77 @@ function notImplemented(name: McpStage3ReadToolName, owner: string): never {
 /** The largest page `session_read` will take. A caller asking for more is refused. */
 const MCP_SESSION_READ_MAX_LIMIT = 200;
 
+/** How many SESSIONS one `session_search` page returns when the caller names no `limit`. */
+export const MCP_SESSION_SEARCH_DEFAULT_LIMIT = 10;
+
+/**
+ * The largest `limit` `session_search` accepts, in SESSIONS. It lives here — with
+ * the other two read-tool bounds — because the tool's declared input schema is
+ * built in this module's body table, and a schema is read at module-evaluation
+ * time. `mcp-session-search.js` imports it for its own defaulting; the direction
+ * that would be unsafe (this module reading a constant out of its sibling) is the
+ * one this placement avoids.
+ */
+export const MCP_SESSION_SEARCH_MAX_LIMIT = 50;
+
+/**
+ * `session_search`'s declared input: a raw shape, because every constraint here
+ * is per-field (a required non-empty `query`, two closed enums, a bounded
+ * `limit`), so no cross-field rule needs a `superRefine`. The bounds are
+ * ADVERTISED on `tools/list` and ENFORCED by the audited wrapper, so an
+ * out-of-range `limit` is one `INVALID_ARGUMENT` naming `limit` rather than a
+ * silently clamped page. The one reserved field, `mode`, admits only `'fulltext'`
+ * today — the scan is literal, never semantic.
+ */
+const sessionSearchInputSchema = {
+  query: z.string().min(1).describe('Literal text to find in stored session transcripts and titles. Not semantic.'),
+  project: z.string().optional().describe('Restrict to one project ID.'),
+  provider: z.enum(['claude', 'codex']).optional().describe('Restrict to one provider.'),
+  speaker: z.enum(['user', 'assistant', 'any']).optional().describe('Restrict matches to one speaker.'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(MCP_SESSION_SEARCH_MAX_LIMIT)
+    .optional()
+    .describe(`How many sessions to return, 1..${MCP_SESSION_SEARCH_MAX_LIMIT}.`),
+  cursor: z.string().optional().describe('Continuation token from a previous call. Not stable across calls.'),
+  mode: z.enum(['fulltext']).optional().describe("Reserved; the only accepted value is 'fulltext'."),
+};
+
+/**
+ * `session_search`'s declared output shape, so `tools/list` advertises exactly
+ * what a hit carries — including the two nullable ids (`messageId` absent for a
+ * provider that hands out no per-row id, `projectId` for a session no project
+ * claims) and the optional `cursor`.
+ */
+const sessionSearchOutputSchema = {
+  query: z.string(),
+  totalMatches: z.number(),
+  moreAvailable: z.boolean(),
+  results: z.array(
+    z.object({
+      sessionId: z.string(),
+      provider: z.string(),
+      projectId: z.string().nullable(),
+      projectDisplayName: z.string(),
+      sessionTitle: z.string(),
+      lastActivity: nullableTimeSchema,
+      score: z.number(),
+      matches: z.array(
+        z.object({
+          messageId: z.string().nullable(),
+          role: z.string(),
+          timestamp: nullableTimeSchema,
+          snippet: z.string(),
+          highlights: z.array(z.object({ start: z.number(), end: z.number() })),
+        }),
+      ),
+    }),
+  ),
+  cursor: z.string().optional(),
+};
+
 /**
  * `session_read`'s declared input (AC-288): the shape of its arguments PLUS two
  * constraints a raw shape cannot state — `limit` is bounded to
@@ -787,6 +895,11 @@ const TOOL_BODIES = {
     inputSchema: {
       project: z.string().optional(),
       state: z.enum(['running', 'idle', 'resident', 'any']).optional(),
+      // Bounded HERE, not clamped by the handler: 0, a negative, a fraction or
+      // a value past the cap is an `INVALID_ARGUMENT` naming `limit`, so a typo
+      // is loud instead of silently answered with a page of the wrong size. The
+      // SAME schema is advertised on `tools/list` (AC-288 (f)).
+      limit: z.number().int().min(1).max(MCP_SESSION_LIST_MAX_LIMIT).optional(),
     },
     outputSchema: { sessions: z.array(sessionSchema), total: z.number() },
     async handle(args, deps) {
@@ -795,7 +908,7 @@ const TOOL_BODIES = {
       const rows = project === null ? readRecentSessionRows(deps) : await readProjectSessionRows(deps, project);
       const running = new Set(deps.runs.listRunningRuns().map((run) => run.sessionId));
 
-      const sessions = rows
+      const filtered = rows
         .map((row) => toSessionReading(row, deps, running))
         .filter((session) => {
           // An empty result is a legitimate answer, not a failure: "no session
@@ -807,7 +920,13 @@ const TOOL_BODIES = {
           return true;
         });
 
-      return { sessions, total: sessions.length };
+      // Filter FIRST, then cut the page: `limit` bounds the returned list, while
+      // `total` reports the filtered count BEFORE the cut, which is how a caller
+      // learns the answer was truncated rather than complete. An absent `limit`
+      // falls back to the filtered length — the whole page, so the no-limit
+      // reading is byte-for-byte what it was before `limit` was declared.
+      const limit = optionalPositiveInteger(args.limit, filtered.length);
+      return { sessions: filtered.slice(0, limit), total: filtered.length };
     },
   },
   session_get: {
@@ -914,6 +1033,16 @@ const TOOL_BODIES = {
     // it reads this named refusal, exactly like the overview/run_get placeholders
     // before their tasks landed.
     handle: () => notImplemented('ui_clients_list', 'gap-mcp-ui-clients-list'),
+  },
+  session_search: {
+    inputSchema: sessionSearchInputSchema,
+    outputSchema: sessionSearchOutputSchema,
+    // The real handler lives in `mcp-session-search.js` and is installed by
+    // `registerMcpReadTools` when the deps carry the search engine. A mount
+    // without it reads this named refusal, exactly like the overview/run_get
+    // placeholders before their tasks landed — and `{ query: 'anything' }` is
+    // the shallowest call that reaches it, since `query` is declared required.
+    handle: () => notImplemented('session_search', 'gap-mcp-session-search'),
   },
   session_read: {
     inputSchema: sessionReadInputSchema,
@@ -1030,7 +1159,9 @@ export type McpReadToolSeam = (registration: McpReadToolRegistration) => void;
  * otherwise it keeps the body-table refusal. `ui_visible_context` follows the
  * same routing through `mcp-ui-visible-context.js` and `deps.uiVisibleContext`,
  * and `ui_clients_list` through `mcp-ui-clients-list.js` and
- * `deps.uiClientsList`. The registered NAME SET is the table either way.
+ * `deps.uiClientsList`. `session_search` (gap-mcp-session-search) follows the
+ * same routing through `mcp-session-search.js` and `deps.sessionSearch`. The
+ * registered NAME SET is the table either way.
  */
 export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDeps): void {
   const overviewDeps: McpOverviewDeps | null = isOverviewWired(deps) ? deps : null;
@@ -1040,6 +1171,7 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
     ? deps.uiVisibleContext
     : null;
   const clientsListDeps: McpUiClientsListDeps | null = isUiClientsListWired(deps) ? deps.uiClientsList : null;
+  const sessionSearchDeps: McpSessionSearchDeps | null = isSessionSearchWired(deps) ? deps.sessionSearch : null;
   const table = new Map<string, (typeof MCP_STAGE3_READ_TOOLS)[number]>(
     MCP_STAGE3_READ_TOOLS.map((tool) => [tool.name, tool]),
   );
@@ -1076,6 +1208,9 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
     if (clientsListDeps !== null && tool.name === 'ui_clients_list') {
       continue;
     }
+    if (sessionSearchDeps !== null && tool.name === 'session_search') {
+      continue;
+    }
     const body = TOOL_BODIES[tool.name];
     seam({
       name: tool.name,
@@ -1109,5 +1244,10 @@ export function registerMcpReadTools(seam: McpReadToolSeam, deps: McpReadToolDep
 
   if (clientsListDeps !== null) {
     registerMcpUiClientsListTool(seam, clientsListDeps, registration('ui_clients_list'));
+  }
+
+  if (sessionSearchDeps !== null) {
+    const sessionSearch: McpSessionSearchRegistration = registration('session_search');
+    registerMcpSessionSearchTool(seam, sessionSearchDeps, sessionSearch);
   }
 }

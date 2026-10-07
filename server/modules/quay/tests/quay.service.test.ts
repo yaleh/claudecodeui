@@ -789,3 +789,194 @@ test('getQuaySnapshot projects the Tests and Fan-in cards and drops the heavy ro
   // Missing carrier files are a normal empty reading, never a warning.
   assert.deepEqual(snapshot.warnings, []);
 });
+
+// --------------------------- in-flight tasks (gap-cloudcli-quay-snapshot-inflight-tasks) ---------------------------
+
+/**
+ * A read-only boundary serving an in-memory `.quay/` corpus keyed by file BASENAME; a
+ * basename not in the corpus is absent (size `null`, `readText` throws), the same
+ * "carrier not on disk" state the production adapter reports.
+ */
+function createCarrierReader(corpus: Record<string, string>): QuayFileReader {
+  return createFileReader({
+    size: async (filePath) => {
+      const content = corpus[path.basename(filePath)];
+      return content === undefined ? null : content.length;
+    },
+    readChunk: async (filePath, position, length) => (corpus[path.basename(filePath)] ?? '').slice(position, position + length),
+    readText: async (filePath) => {
+      const content = corpus[path.basename(filePath)];
+      if (content === undefined) {
+        throw new Error('ENOENT');
+      }
+      return content;
+    },
+  });
+}
+
+/** A runner whose only non-empty answer is `driver status --kind worker --json`. */
+function createDriverRunningRunner(): QuayCommandRunner {
+  return async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
+    if (args.join(' ') === 'driver status --kind worker --json') {
+      return {
+        ok: true,
+        code: 0,
+        stdout: JSON.stringify({ alive: 1, running: 1, last_record_ts: '2026-10-07T00:00:00.000Z' }),
+        stderr: '',
+      };
+    }
+    return { ok: true, code: 0, stdout: '[]', stderr: '' };
+  };
+}
+
+/**
+ * The reading this task exists for (2026-10-07): `driver status --kind worker --json`
+ * says `running`, but the snapshot used to carry no field naming WHICH task was running —
+ * `.quay/worker-round.jsonl`, the only in-flight carrier, was never read, so a full
+ * `JSON.stringify(snapshot)` search for the in-flight task id found ZERO occurrences
+ * (AC1's recorded red baseline: `occurrences of "gap-example-task" = 0`,
+ * `snapshot.inFlight = undefined`). With the carrier wired in, the same fixture reads the
+ * task back verbatim (AC2), while `driver.state` stays the unchanged `'running'`.
+ */
+test('getQuaySnapshot reads the in-flight task from the worker-round carrier', async () => {
+  // The AC1 fixture, exactly.
+  const workerRound = `${JSON.stringify({
+    at: '2026-10-07T00:00:00.000Z',
+    pid: 4242,
+    inFlightTasks: ['gap-example-task'],
+    inFlightTaskStarts: { 'gap-example-task': '2026-10-06T23:50:00.000Z' },
+  })}\n`;
+
+  const service = createQuayService(createDependencies({
+    runCommand: createDriverRunningRunner(),
+    readFile: createCarrierReader({ 'worker-round.jsonl': workerRound }),
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+  assert.ok(snapshot);
+
+  // The driver reading is unchanged by this task — still only `running`, no task id.
+  assert.equal(snapshot.driver?.state, 'running');
+  assert.deepEqual(snapshot.driver, {
+    state: 'running',
+    alive: true,
+    running: true,
+    lastRecordAt: '2026-10-07T00:00:00.000Z',
+  });
+
+  // The in-flight reading the gap was about, verbatim (AC2).
+  assert.deepEqual(snapshot.inFlight, [
+    {
+      taskId: 'gap-example-task',
+      phase: 'implementing',
+      startedAt: '2026-10-06T23:50:00.000Z',
+      lastHeartbeat: '2026-10-07T00:00:00.000Z',
+      workerPid: 4242,
+    },
+  ]);
+  // The positive control for AC1's negative: the task id now appears in the serialized snapshot.
+  assert.ok(
+    JSON.stringify(snapshot).includes('gap-example-task'),
+    'the in-flight task id must reach the serialized snapshot',
+  );
+});
+
+test('in-flight phase distinguishes a task parked in fan-in from one implementing', async () => {
+  const workerRound = `${JSON.stringify({
+    ts: '2026-10-07T00:00:00.000Z',
+    pid: 999,
+    in_flight_tasks: ['gap-fan-in-task', 'gap-implementing-task'],
+    in_flight_task_starts: {
+      'gap-fan-in-task': '2026-10-06T23:00:00.000Z',
+      'gap-implementing-task': '2026-10-06T23:30:00.000Z',
+    },
+  })}\n`;
+  const workerOutcome = `${[
+    // Lock acquired and never released → still parked in fan-in.
+    JSON.stringify({
+      task: 'gap-fan-in-task',
+      mechanical_fan_in: { outcome: 'running', lockAcquireEpoch: 1_791_010_000, lockReleaseEpoch: null },
+    }),
+    // An earlier attempt that already released the lock → not parked.
+    JSON.stringify({
+      task: 'gap-implementing-task',
+      mechanical_fan_in: { outcome: 'landed', lockAcquireEpoch: 1_791_000_000, lockReleaseEpoch: 1_791_000_500 },
+    }),
+  ].join('\n')}\n`;
+
+  const service = createQuayService(createDependencies({
+    runCommand: createDriverRunningRunner(),
+    readFile: createCarrierReader({ 'worker-round.jsonl': workerRound, 'worker-outcome.jsonl': workerOutcome }),
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+  assert.ok(snapshot);
+
+  // Both phases really occur in one reading, so "always one state" cannot pass.
+  const phaseByTask = new Map((snapshot.inFlight ?? []).map((task) => [task.taskId, task.phase]));
+  assert.equal(phaseByTask.get('gap-fan-in-task'), 'fan-in');
+  assert.equal(phaseByTask.get('gap-implementing-task'), 'implementing');
+  assert.equal(snapshot.inFlight?.length, 2);
+});
+
+test('in-flight distinguishes "no reading" (null) from "nothing running" ([])', async () => {
+  // (a) No `.quay/worker-round.jsonl` on disk → null (the carrier-level "did not read").
+  const absent = createQuayService(createDependencies({
+    runCommand: createDriverRunningRunner(),
+    readFile: createCarrierReader({}),
+  }));
+  const absentSnapshot = await absent.getQuaySnapshot('project-1');
+  assert.equal(absentSnapshot?.inFlight, null, 'a missing carrier is null, never []');
+
+  // (b) The carrier reads but names no in-flight task → [] (a real "nothing running").
+  const emptyRound = `${JSON.stringify({
+    ts: '2026-10-07T00:00:00.000Z',
+    pid: 999,
+    in_flight_tasks: [],
+    in_flight_task_starts: {},
+  })}\n`;
+  const empty = createQuayService(createDependencies({
+    runCommand: createDriverRunningRunner(),
+    readFile: createCarrierReader({ 'worker-round.jsonl': emptyRound }),
+  }));
+  const emptySnapshot = await empty.getQuaySnapshot('project-1');
+  assert.deepEqual(emptySnapshot?.inFlight, [], 'a readable carrier with no in-flight task is [], never null');
+  assert.notEqual(emptySnapshot?.inFlight, null);
+});
+
+/**
+ * The reading is pinned to the shape a REAL `.quay/worker-round.jsonl` carries, read off
+ * disk (2026-10-07): `writeRound` builds each record from camelCase options but persists
+ * it through a snake_case projection (`ts`, `in_flight_tasks`, `in_flight_task_starts`).
+ * This test is the guard against an implementation that only understands the option
+ * spelling and would therefore read nothing in production.
+ */
+test('the in-flight reading understands the persisted snake_case worker-round shape', async () => {
+  const workerRound = `${JSON.stringify({
+    round: 412,
+    run_id: 'r1',
+    pid: 578_567,
+    action: 'dispatch',
+    ts: '2026-10-07T13:04:56.527Z',
+    in_flight: 1,
+    in_flight_tasks: ['gap-real-shape'],
+    in_flight_task_starts: { 'gap-real-shape': '2026-10-07T13:00:00.000Z' },
+    needs_human: [],
+  })}\n`;
+
+  const service = createQuayService(createDependencies({
+    runCommand: createDriverRunningRunner(),
+    readFile: createCarrierReader({ 'worker-round.jsonl': workerRound }),
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+  assert.deepEqual(snapshot?.inFlight, [
+    {
+      taskId: 'gap-real-shape',
+      phase: 'implementing',
+      startedAt: '2026-10-07T13:00:00.000Z',
+      lastHeartbeat: '2026-10-07T13:04:56.527Z',
+      workerPid: 578_567,
+    },
+  ]);
+});

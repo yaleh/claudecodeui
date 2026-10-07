@@ -533,7 +533,8 @@
       "createButton": "建立權杖",
       "cancelButton": "取消",
       "scopesLabel": "權限範圍",
-      "writeScopeRisk": "此權杖可以傳送、建立和控制工作階段，請妥善保管。"
+      "writeScopeRisk": "此權杖可以傳送、建立和控制工作階段，請妥善保管。",
+      "defaultName": "MCP 權杖 · {{date}}"
     },
     "newToken": {
       "alertTitle": "⚠️ 請儲存您的存取權杖",
@@ -550,7 +551,9 @@
       "active": "有效",
       "revoked": "已撤銷",
       "revokeButton": "撤銷",
-      "revokeConfirm": "確定要撤銷此權杖嗎？此操作無法復原。"
+      "revokeConfirm": "確定要撤銷此權杖嗎？此操作無法復原。",
+      "created": "建立於：",
+      "expired": "已過期"
     },
     "scopes": {
       "read": "讀取（cloudcli:read）",
@@ -559,6 +562,17 @@
       "sessionControl": "控制工作階段（cloudcli:session:control）",
       "approve": "核准（cloudcli:approve）",
       "navigate": "在您的瀏覽器中開啟工作階段（cloudcli:navigate）"
+    },
+    "oauthTokens": {
+      "title": "進階：OAuth 權杖（唯讀）",
+      "description": "由 OAuth 流程（已連結的應用程式與 MCP 用戶端）簽發的權杖。它們由這些流程管理，無法在此建立或撤銷。",
+      "empty": "尚未簽發任何 OAuth 權杖。",
+      "showInactive": "顯示已撤銷與已過期",
+      "unknownClient": "未知用戶端",
+      "kind": "類型：",
+      "kindAccess": "存取權杖",
+      "kindRefresh": "重新整理權杖",
+      "scopes": "權限範圍："
     }
   },
   "mcpGateway": {

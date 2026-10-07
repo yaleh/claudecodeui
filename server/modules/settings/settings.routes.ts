@@ -60,6 +60,10 @@ export function createSettingsRouter(
     includeReads: req.query.includeReads,
   })));
   router.get('/access-tokens', respond((req) => service.listAccessTokens(userId(req))));
+  // The advanced read-only OAuth-token list. GET only: OAuth tokens are issued by
+  // the OAuth flows and revoked through the grant/client cascades, so no POST or
+  // DELETE handler exists here (both answer 404).
+  router.get('/oauth-tokens', respond((req) => service.listOAuthTokens(userId(req))));
   router.post('/access-tokens', respond(
     (req) => service.createAccessToken(userId(req), req.body ?? {}),
     201,

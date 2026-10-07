@@ -26,8 +26,11 @@
  * host fields itself.
  *
  * Readings, one leg each:
- *   (a) `tools/list` is exactly the ten stage-3 read tools, no write tool among
- *       them, every one requiring `cloudcli:read` — enforced, not just declared;
+ *   (a) `tools/list` is exactly the eleven stage-3 read tools, no write tool
+ *       among them, every one requiring `cloudcli:read` — enforced, not just
+ *       declared; this mount wires no `sessionSearch` deps, so `session_search`
+ *       is registered in its body-table refusal form and is probed alongside the
+ *       other owners' placeholders;
  *   (b) `projects_list`/`sessions_list` return the whole fixture, and the three
  *       `state` predicates partition it (an empty result is not an error);
  *   (c) `session_get` carries the resident session's host (state, pid, leases,
@@ -503,7 +506,7 @@ test('(a) tools/list is exactly the stage-3 read tools, none of them a write too
     }
 
     assert.deepEqual(registered, declared, 'tools/list must be exactly the declared stage-3 read tools');
-    assert.equal(registered.length, 10, 'the stage-3 read set is ten tools');
+    assert.equal(registered.length, 11, 'the stage-3 read set is eleven tools');
 
     const WRITE_TOOLS = ['session_send', 'session_create', 'session_interrupt', 'session_start', 'session_close'];
     for (const writeTool of WRITE_TOOLS) {
@@ -532,15 +535,19 @@ test('(a) tools/list is exactly the stage-3 read tools, none of them a write too
     console.log(`[a] projects_list with a token lacking cloudcli:read -> isError=${denied.isError} text=${JSON.stringify(denied.text)}`);
     assert.equal(denied.isError, true, 'a token without cloudcli:read must be refused');
 
-    // The three tools owned by later tasks are registered but refuse by name.
+    // The tools owned by later tasks are registered but refuse by name; this
+    // mount passes no `sessionSearch` deps, so `session_search` joins them in its
+    // body-table refusal form (a legal `query`, so the refusal is the handler's
+    // placeholder rather than the wrapper's own declared-input `INVALID_ARGUMENT`).
     for (const [name, args] of [
       ['overview', {}],
       ['run_get', { run: 'anything' }],
       ['quay_snapshot', {}],
+      ['session_search', { query: 'anything' }],
     ] as Array<[string, AnyRecord]>) {
       const refusal = await harness.callWith(harness.probeClient, name, args);
       console.log(`[a] ${name} -> isError=${refusal.isError} text=${JSON.stringify(refusal.text)}`);
-      assert.equal(refusal.isError, true, `${name} must refuse until AC-247/AC-248 land`);
+      assert.equal(refusal.isError, true, `${name} must refuse while unwired`);
       assert.equal(
         refusal.structured?.code,
         MCP_TOOL_NOT_IMPLEMENTED_CODE,
@@ -605,6 +612,74 @@ test('(b) projects_list and sessions_list return the whole fixture and partition
 
     const betaOnly = await harness.call('sessions_list', { project: fixture.projectBetaId });
     assert.deepEqual(idsOf(betaOnly), [SESSION_QUIET, SESSION_RESIDENT].sort());
+  });
+});
+
+// --------------------------- (b2) sessions_list limit ---------------------------
+
+test('(b2) sessions_list declares and honours limit, and refuses an out-of-range one', { concurrency: false }, async () => {
+  await withMcpReadTools(async (harness, fixture) => {
+    const all = await harness.call('sessions_list');
+    const allIds = ((all.payload?.sessions as AnyRecord[] | undefined) ?? []).map((session) => String(session.id));
+    assert.equal(allIds.length, 4, 'the no-limit control must see the whole fixture (non-vacuity for the cut below)');
+    console.log(`[b2] no limit -> ${JSON.stringify(allIds)} total=${String(all.payload?.total)}`);
+
+    // `limit: 3` cuts the tail but keeps the page's own order, so the returned
+    // ids are exactly the first three of the unfiltered read — and `total` still
+    // reports the filtered count (4), which is how a caller learns it was cut.
+    const limited = await harness.call('sessions_list', { limit: 3 });
+    const limitedIds = ((limited.payload?.sessions as AnyRecord[] | undefined) ?? []).map((session) => String(session.id));
+    console.log(`[b2] limit=3 -> ${JSON.stringify(limitedIds)} total=${String(limited.payload?.total)}`);
+    assert.equal(limited.isError, false, 'a legal limit must not error');
+    assert.equal(limitedIds.length, 3, 'limit: 3 must return exactly three sessions');
+    assert.deepEqual(limitedIds, allIds.slice(0, 3), 'limit must keep the existing order and drop the tail');
+    assert.equal(limited.payload?.total, 4, 'total must be the filtered count BEFORE the limit cut');
+
+    // The three returned ARE the three most recently active: ordering is by
+    // activity, not by whatever order the rows happened to arrive in.
+    const isoOf = (session: AnyRecord): string => String((session.lastActivity as AnyRecord | null)?.iso ?? '');
+    const newestThree = ((all.payload?.sessions as AnyRecord[] | undefined) ?? [])
+      .slice()
+      .sort((left, right) => isoOf(right).localeCompare(isoOf(left)))
+      .slice(0, 3)
+      .map((session) => String(session.id))
+      .sort();
+    assert.deepEqual([...limitedIds].sort(), newestThree, 'limit must return the most recently active sessions');
+
+    // The limit applies AFTER the project/state filters: beta holds two idle
+    // sessions, so limit 1 returns one of them and `total` says two.
+    const betaLimited = await harness.call('sessions_list', { project: fixture.projectBetaId, limit: 1 });
+    const betaLimitedIds = ((betaLimited.payload?.sessions as AnyRecord[] | undefined) ?? []).map((s) => String(s.id));
+    console.log(`[b2] project=beta limit=1 -> ${JSON.stringify(betaLimitedIds)} total=${String(betaLimited.payload?.total)}`);
+    assert.equal(betaLimitedIds.length, 1, 'limit must cut after the project filter');
+    assert.equal(betaLimited.payload?.total, 2, 'total must count the filtered set, not the page');
+
+    const idleLimited = await harness.call('sessions_list', { state: 'idle', limit: 1 });
+    const idleLimitedIds = ((idleLimited.payload?.sessions as AnyRecord[] | undefined) ?? []).map((s) => String(s.id));
+    assert.equal(idleLimitedIds.length, 1, 'limit must cut after the state filter');
+    assert.equal(idleLimited.payload?.total, 2, 'two fixture sessions are idle');
+
+    // Out-of-range limits are the one INVALID_ARGUMENT envelope (AC-288), each
+    // naming `limit` — never a silently clamped page. Probed through the cold
+    // client, which does not validate `structuredContent` against the advertised
+    // success schema.
+    const OUT_OF_RANGE: ReadonlyArray<{ args: AnyRecord; problem: string }> = [
+      { args: { limit: 0 }, problem: 'must be >= 1' },
+      { args: { limit: -1 }, problem: 'must be >= 1' },
+      { args: { limit: 1.5 }, problem: 'expected int' },
+      { args: { limit: 201 }, problem: 'must be <= 200' },
+    ];
+    for (const probe of OUT_OF_RANGE) {
+      const refusal = await harness.callWith(harness.probeClient, 'sessions_list', probe.args);
+      const fields = (refusal.structured?.details as AnyRecord | undefined)?.fields as AnyRecord[] | undefined;
+      console.log(`[b2] limit=${JSON.stringify(probe.args.limit)} -> isError=${refusal.isError} code=${String(refusal.structured?.code)} fields=${JSON.stringify(fields)}`);
+      assert.equal(refusal.isError, true, `limit ${JSON.stringify(probe.args.limit)} must be refused`);
+      assert.equal(refusal.structured?.code, 'INVALID_ARGUMENT', 'the refusal must be INVALID_ARGUMENT');
+      assert.ok(
+        Array.isArray(fields) && fields.some((field) => field.path === 'limit' && field.problem === probe.problem),
+        `limit ${JSON.stringify(probe.args.limit)} must name limit with problem ${JSON.stringify(probe.problem)}, saw ${JSON.stringify(fields)}`,
+      );
+    }
   });
 });
 

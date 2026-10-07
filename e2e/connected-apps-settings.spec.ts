@@ -397,6 +397,49 @@ test.describe('connected apps and OAuth clients in settings', () => {
     expect(listedRowText).toContain('127.0.0.1');
     expect(listedRowText).toContain(READ_SCOPE);
 
+    // (e) The two OAuth rows this seed wrote have a NULL `name`, so the PAT list used to render them as
+    // "Unnamed token". They are now out of that list entirely and live in the advanced, read-only section below
+    // it — collapsed by default, so a troubleshooting list never buries the user's own tokens.
+    const patRows = page.getByTestId('access-token-row');
+    const oauthToggle = page.getByTestId('oauth-tokens-toggle');
+    const oauthContent = page.getByTestId('oauth-tokens-content');
+    await expect(oauthToggle).toBeVisible({ timeout: 15_000 });
+    await expect(oauthToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(oauthContent).toHaveAttribute('data-state', 'closed');
+    const patRowCount = await patRows.count();
+    const pageText = await page.locator('body').innerText();
+    console.log(
+      `(e) PAT rows = ${patRowCount}; the advanced OAuth section is collapsed `
+      + `(aria-expanded=${await oauthToggle.getAttribute('aria-expanded')}, data-state=${await oauthContent.getAttribute('data-state')}); `
+      + `page text contains "Unnamed token" = ${pageText.includes('Unnamed token')}`,
+    );
+    // The seeded OAuth tokens are in neither the PAT list nor the "Unnamed token" label that list used to show.
+    expect(patRowCount).toBe(0);
+    expect(pageText).not.toContain('Unnamed token');
+    // DoD evidence: the PAT list empty while two OAuth tokens exist, with the advanced section still collapsed.
+    // The settings pane scrolls independently of the document, so bring the section into view; a fullPage shot
+    // expands only the document, leaving the pane at its current scroll.
+    await oauthToggle.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'artifacts/gap-settings-access-tokens-dod-oauth-collapsed.png' });
+
+    // Expanded, the section shows the same two rows, each named by its grant's client — the identity the PAT
+    // list could never give them — and neither carries a Revoke control (revocation is the grant's, above).
+    await oauthToggle.click();
+    await expect(oauthToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(oauthContent).toHaveAttribute('data-state', 'open');
+    const oauthRows = page.getByTestId('oauth-token-row');
+    await expect(oauthRows).toHaveCount(2, { timeout: 15_000 });
+    const oauthRowText = (await oauthRows.allInnerTexts()).join('\n');
+    console.log(`(e) expanded: ${await oauthRows.count()} OAuth token rows -> ${JSON.stringify(oauthRowText)}`);
+    expect(oauthRowText).toContain(revokedClient.clientName);
+    expect(oauthRowText).toContain(disabledClient.clientName);
+    expect(await oauthRows.first().getByRole('button', { name: 'Revoke' }).count()).toBe(0);
+    // DoD evidence: the expanded read-only section, each OAuth token named by its grant's client.
+    await oauthRows.first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'artifacts/gap-settings-access-tokens-dod-oauth-expanded.png' });
+    await oauthToggle.click();
+    await expect(oauthContent).toHaveAttribute('data-state', 'closed');
+
     // (b) Positive control first: the preset token really authenticates against `/mcp`.
     const beforeRevoke = await callMcp(revokedPreset.accessToken);
     await beforeRevoke.text();

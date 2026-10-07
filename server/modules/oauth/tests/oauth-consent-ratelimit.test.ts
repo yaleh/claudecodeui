@@ -1,26 +1,32 @@
 /**
- * AC-261 criterion: per-source rate limiting of the consent password submission.
+ * AC-261 criterion (restored on the SPA data plane by
+ * gap-ac261-consent-password-ratelimit-restore): the consent page's password
+ * submission is rate limited PER SOURCE — ten failures per fifteen minutes, and
+ * the eleventh attempt is refused (429) even when its password is correct — and
+ * the source is decided by `TRUST_PROXY`: with it, `CF-Connecting-IP` names the
+ * client and two clients count independently; without it, forged
+ * `CF-Connecting-IP`/`X-Forwarded-For` headers change nothing and every request
+ * shares the socket peer's bucket.
  *
- * Drives the production consent router (`createOAuthConsentRouter`) over real
- * HTTP (`app.listen(0)` + `fetch`), backed by fake clients/provider/credentials
- * — the rate-limit readings only need a real socket, so no database is involved;
- * `provider.authorize` is a spy that proves a blocked attempt never issues a
- * code. The only other injected seam is the clock: a mutable `nowMs` drives the
- * router's `now`, so the fixed window is crossed without waiting on wall time.
+ * The criterion drives the PRODUCTION router factory
+ * (`createOAuthAuthorizeApiRouter`) on a bare express app over real HTTP
+ * (`app.listen(0)` + `fetch`). It is self-contained: a fake client lookup, a fake
+ * provider whose `authorize` is a counter, and a fake credential verifier — no
+ * database, no `server/index.ts`, no real JWT. The one mutable `nowMs` and the
+ * injected `now` advance the limiter's fixed window without sleeping real time.
  *
- * Legs map one-to-one onto the AC:
- *   (a) ten wrong passwords from one source are 401, the eleventh (with the
- *       CORRECT password) is 429 and never reaches `provider.authorize`;
- *   (b) advancing past the window lets the same source in again (302);
- *   (c) under a trusted proxy, distinct `CF-Connecting-IP`s have independent
- *       buckets (A's 11th is 429, B's first is not);
- *   (d) without a trusted proxy, forged `CF-Connecting-IP`/`X-Forwarded-For`
- *       headers do not move a request into a fresh bucket — the 11th is 429;
- *   (e) a success resets only its own source (B's earlier failures survive A's
- *       success; A itself starts over).
- *
- * A final `(env)` leg proves the `TRUST_PROXY` environment default selects the
- * header, so (a)/(d)'s "no proxy" servers are the genuine default.
+ * Legs, one per reading:
+ *   (a)+(b) one source: ten wrong-password POSTs are all refused but not 429;
+ *       the ELEVENTH carries the correct password, is 429, and mints no code;
+ *       after `nowMs += windowMs + 1` the same source succeeds with a code.
+ *   (c) `trustProxy: true`: source A's eleventh attempt is 429 while source B's
+ *       first attempt succeeds — the two buckets are independent.
+ *   (d) no trusted proxy: ten failures spread across forged `CF-Connecting-IP`
+ *       values (and one `X-Forwarded-For`-only) still share one bucket, so the
+ *       eleventh attempt is 429 regardless of the correct password.
+ *   (e) `trustProxy: true`: a success for A clears ONLY A — B keeps its five
+ *       failures and is blocked on its eleventh, while A can fail ten more times
+ *       before it is blocked again.
  */
 
 import assert from 'node:assert/strict';
@@ -32,315 +38,259 @@ import express from 'express';
 
 import type { CredentialVerifier } from '@/modules/auth/index.js';
 import type { OAuthClientRow } from '@/modules/database/index.js';
-import { createOAuthConsentRouter } from '@/modules/oauth/index.js';
-import type { CreateOAuthConsentRouterOptions, OAuthProvider } from '@/modules/oauth/index.js';
+import { createOAuthAuthorizeApiRouter } from '@/modules/oauth/index.js';
+import { createConsentPasswordRateLimiter } from '@/modules/oauth/oauth-consent-ratelimit.service.js';
+import type { OAuthProvider } from '@/modules/oauth/index.js';
 
+const CLIENT_ID = 'client-ratelimit';
 const REDIRECT_URI = 'https://app.example/cb';
-const START_MS = Date.UTC(2026, 0, 1, 0, 0, 0);
-/** The production default window, in milliseconds. */
-const WINDOW_MS = 15 * 60 * 1000;
-/** The production default attempt ceiling. */
-const MAX_ATTEMPTS = 10;
 const READ_SCOPE = 'cloudcli:read';
-const CLIENT_ID = 'client-1';
+/** Fifteen minutes, the AC's window; also the amount leg (b) advances past. */
+const WINDOW_MS = 15 * 60 * 1000;
+const MAX_ATTEMPTS = 10;
+/** An arbitrary fixed epoch the injected clock starts at. */
+const START_MS = Date.UTC(2026, 0, 1, 0, 0, 0);
+const CORRECT_PASSWORD = 'correct-horse';
+/** The signed-in principal the harness attaches; the route reads its username as the fallback. */
 const OWNER = 'owner';
-const CORRECT_PASSWORD = 'correct-password';
+
+/** The fake client row the consent routes validate the request against. */
+const CLIENT_ROW = {
+  client_id: CLIENT_ID,
+  client_name: 'Rate Limit App',
+  redirect_uris: JSON.stringify([REDIRECT_URI]),
+  disabled_at: null,
+} as unknown as OAuthClientRow;
+
+const clients = {
+  findById: (clientId: string): OAuthClientRow | undefined =>
+    clientId === CLIENT_ID ? CLIENT_ROW : undefined,
+};
+
+/** The fake credential check the AC pins the failure/correct boundary on. */
+const verifyCredentials: CredentialVerifier = async (_username, password) =>
+  password === CORRECT_PASSWORD ? { ok: true, userId: 1 } : { ok: false };
+
+type DecisionReading = { status: number; redirectTo: string | null; body: unknown };
 
 type Harness = {
-  /** Base URL of the mounted consent router, e.g. `http://127.0.0.1:PORT/oauth`. */
   baseUrl: string;
-  /** Advances the injected clock, so window expiry is reached without real waiting. */
-  advance: (ms: number) => void;
-  /** How many times `provider.authorize` has been called on this server. */
+  /** How many times the fake provider minted a code (the AC's "no code was issued" reading). */
   authorizeCalls: () => number;
+  /** Advances the injected clock; the criterion never sleeps real time. */
+  advance: (deltaMs: number) => void;
 };
 
-type ServerOptions = {
-  /** Passed through to the router; omitted leaves the service's env default in force. */
-  trustProxy?: boolean;
-  /** When set, `TRUST_PROXY` is given this value for the router's construction. */
-  envTrustProxy?: string;
-};
-
-/** Runs `run` against a fresh real HTTP server over fakes and an injectable clock. */
-async function withConsentServer(
-  run: (harness: Harness) => Promise<void>,
-  options: ServerOptions = {}
+/**
+ * Runs `run` against a freshly mounted consent JSON API on a bare app, over real
+ * HTTP. `trustProxy` is injected into the limiter directly — never read from the
+ * ambient environment — so the unproxied legs are deterministic.
+ */
+async function withRateLimitServer(
+  trustProxy: boolean,
+  run: (harness: Harness) => Promise<void>
 ): Promise<void> {
-  const clock = { nowMs: START_MS };
-  const now = (): Date => new Date(clock.nowMs);
-
-  const authorizeSpy = { calls: 0 };
+  let nowMs = START_MS;
+  let authorizeCount = 0;
   const provider = {
-    authorize: () => {
-      authorizeSpy.calls += 1;
-      return { ok: true as const, code: 'test-code' };
+    authorize: (): { ok: true; code: string } => {
+      authorizeCount += 1;
+      return { ok: true, code: `code-${authorizeCount}` };
     },
   } as unknown as OAuthProvider;
 
-  const clients = {
-    findById: (clientId: string) =>
-      ({
-        client_id: clientId,
-        client_name: 'consent-app',
-        // A real client always carries the callbacks it registered, and the consent
-        // route refuses any callback outside that list before it reaches the limiter.
-        redirect_uris: JSON.stringify([REDIRECT_URI]),
-        disabled_at: null,
-      }) as unknown as OAuthClientRow,
-  };
-
-  const verifyCredentials: CredentialVerifier = async (username, password) =>
-    username === OWNER && password === CORRECT_PASSWORD
-      ? { ok: true as const, userId: 1 }
-      : { ok: false as const };
-
-  const routerOptions: CreateOAuthConsentRouterOptions = { provider, clients, verifyCredentials, now };
-  if (options.trustProxy !== undefined) {
-    routerOptions.trustProxy = options.trustProxy;
-  }
-
-  // The service reads TRUST_PROXY at construction, so the env has to be settled
-  // before the router is built (and restored afterwards).
-  const previousEnv = process.env.TRUST_PROXY;
-  if (options.envTrustProxy === undefined) {
-    delete process.env.TRUST_PROXY;
-  } else {
-    process.env.TRUST_PROXY = options.envTrustProxy;
-  }
-
   const app = express();
-  app.use('/oauth', createOAuthConsentRouter(routerOptions));
+  // The JWT middleware is out of scope here (AC-268's leg covers it); the route
+  // only needs `req.user` for the username fallback, so a pass-through stands in.
+  app.use((req, _res, next) => {
+    (req as express.Request & { user?: { id: number; username: string } }).user = {
+      id: 1,
+      username: OWNER,
+    };
+    next();
+  });
+  app.use(
+    '/api/oauth/authorize',
+    createOAuthAuthorizeApiRouter({
+      provider,
+      clients,
+      verifyCredentials,
+      rateLimiter: createConsentPasswordRateLimiter({
+        now: () => new Date(nowMs),
+        windowMs: WINDOW_MS,
+        maxAttempts: MAX_ATTEMPTS,
+        trustProxy,
+      }),
+    })
+  );
+
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address() as AddressInfo;
-
   try {
     await run({
-      baseUrl: `http://127.0.0.1:${address.port}/oauth`,
-      advance: (ms) => {
-        clock.nowMs += ms;
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      authorizeCalls: () => authorizeCount,
+      advance: (deltaMs: number) => {
+        nowMs += deltaMs;
       },
-      authorizeCalls: () => authorizeSpy.calls,
     });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    if (previousEnv === undefined) {
-      delete process.env.TRUST_PROXY;
-    } else {
-      process.env.TRUST_PROXY = previousEnv;
-    }
   }
 }
 
-/** GETs the consent form and returns the freshly issued single-use CSRF token. */
-async function fetchCsrf(harness: Harness): Promise<string> {
-  const query = new URLSearchParams({
-    client_id: CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
-    response_type: 'code',
-    scope: READ_SCOPE,
-    state: 'xyz',
-    code_challenge: 'challenge-value',
-    code_challenge_method: 'S256',
-  }).toString();
-  const response = await fetch(`${harness.baseUrl}/authorize?${query}`);
-  const body = await response.text();
-  const match = body.match(/name="csrf_token" value="([0-9a-f]+)"/);
-  if (!match) {
-    throw new Error('the rendered consent form carried no csrf_token');
-  }
-  return match[1];
-}
-
-type PostResult = { status: number; location: string | null; retryAfter: string | null; body: string };
-
-/** One consent submission: mints a fresh CSRF token, then POSTs `password`. */
-async function attempt(
+/** POSTs one allow decision; `password` and any extra headers are the leg's variable. */
+async function postDecision(
   harness: Harness,
   password: string,
   headers: Record<string, string> = {}
-): Promise<PostResult> {
-  const csrfToken = await fetchCsrf(harness);
-  const params = new URLSearchParams({
-    action: 'allow',
-    client_id: CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
-    state: 'xyz',
-    code_challenge: 'challenge-value',
-    code_challenge_method: 'S256',
-    username: OWNER,
-    password,
-    scope: READ_SCOPE,
-    csrf_token: csrfToken,
-  });
-  const response = await fetch(`${harness.baseUrl}/authorize`, {
+): Promise<DecisionReading> {
+  const response = await fetch(`${harness.baseUrl}/api/oauth/authorize/decision`, {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
-    body: params.toString(),
-    redirect: 'manual',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({
+      client_id: CLIENT_ID,
+      redirect_uri: REDIRECT_URI,
+      state: 'state-1',
+      code_challenge: 'challenge-1',
+      code_challenge_method: 'S256',
+      scopes: [READ_SCOPE],
+      action: 'allow',
+      password,
+    }),
   });
-  return {
-    status: response.status,
-    location: response.headers.get('location'),
-    retryAfter: response.headers.get('retry-after'),
-    body: await response.text(),
-  };
+  const body = (await response.json().catch(() => null)) as { redirectTo?: string } | null;
+  return { status: response.status, redirectTo: body?.redirectTo ?? null, body };
 }
 
-test('(a) the 11th submission from one source is 429 even with the correct password', async () => {
-  await withConsentServer(async (harness) => {
+const WRONG = 'wrong-horse';
+
+test('(a)+(b) ten failures block the source; the eleventh is 429 even with the right password; the next window admits it', async () => {
+  await withRateLimitServer(false, async (harness) => {
     const statuses: number[] = [];
-    for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
-      const result = await attempt(harness, 'wrong-password');
-      statuses.push(result.status);
-      assert.notEqual(result.status, 429, `attempt ${i + 1} must not be blocked`);
-      assert.equal(result.status, 401);
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      statuses.push((await postDecision(harness, WRONG)).status);
     }
-
-    const eleventh = await attempt(harness, CORRECT_PASSWORD);
-    statuses.push(eleventh.status);
-    assert.equal(eleventh.status, 429, 'the correct password must still be answered 429');
-    assert.equal(eleventh.location, null, 'a blocked attempt carries no redirect (no code)');
-    assert.equal(harness.authorizeCalls(), 0, 'a blocked attempt must never reach provider.authorize');
-    assert.equal(eleventh.retryAfter, String(Math.ceil(WINDOW_MS / 1000)));
-
-    console.log(
-      `(a) statuses=${statuses.join(',')} authorizeCalls=${harness.authorizeCalls()} `
-      + `(11th used the correct password) retry-after=${eleventh.retryAfter}`
-    );
-  });
-});
-
-test('(b) the window expires: past it the same source is allowed again', async () => {
-  await withConsentServer(async (harness) => {
-    const statuses: number[] = [];
-    for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
-      statuses.push((await attempt(harness, 'wrong-password')).status);
-    }
-    const blocked = await attempt(harness, CORRECT_PASSWORD);
+    const blocked = await postDecision(harness, CORRECT_PASSWORD);
     statuses.push(blocked.status);
-    assert.equal(blocked.status, 429);
+    console.log(
+      `(a) statuses=${statuses.join(',')}; the 11th carried the correct password and answered ${blocked.status}; `
+      + `authorizeCalls=${harness.authorizeCalls()}; redirectTo=${JSON.stringify(blocked.redirectTo)}`
+    );
+    assert.ok(
+      statuses.slice(0, MAX_ATTEMPTS).every((status) => status === 401),
+      `the first ten wrong-password attempts must each be 401, got ${statuses.slice(0, MAX_ATTEMPTS).join(',')}`
+    );
+    assert.equal(blocked.status, 429, 'the eleventh attempt must be refused, even with the correct password');
+    assert.equal(harness.authorizeCalls(), 0, 'a blocked attempt must not mint a code');
+    assert.equal(blocked.redirectTo, null, 'a blocked attempt must not hand back a redirectTo');
 
-    harness.advance(WINDOW_MS + 1);
-    const recovered = await attempt(harness, CORRECT_PASSWORD);
-    statuses.push(recovered.status);
-    assert.equal(recovered.status, 302, 'past the window the correct password redirects');
-    assert.ok((recovered.location ?? '').startsWith(REDIRECT_URI));
-
-    console.log(`(b) advance=${WINDOW_MS + 1}ms statuses=${statuses.join(',')} recovered=${recovered.status}`);
+    // (b) Advance past the fixed window: the same source is readable again.
+    const advanceBy = WINDOW_MS + 1;
+    harness.advance(advanceBy);
+    const recovered = await postDecision(harness, CORRECT_PASSWORD);
+    console.log(
+      `(b) nowMs += ${advanceBy}; same source POST correct password -> ${recovered.status}; `
+      + `redirectTo=${JSON.stringify(recovered.redirectTo)}; authorizeCalls=${harness.authorizeCalls()}`
+    );
+    assert.equal(recovered.status, 200, 'after the window, a correct password must be admitted');
+    assert.ok(recovered.redirectTo !== null, 'the recovery must hand back a redirectTo');
   });
 });
 
-test('(c) under a trusted proxy, distinct CF-Connecting-IPs have independent buckets', async () => {
-  await withConsentServer(
-    async (harness) => {
-      const sourceA = { 'CF-Connecting-IP': '1.1.1.1' };
-      const sourceB = { 'CF-Connecting-IP': '2.2.2.2' };
-      const aStatuses: number[] = [];
-      for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
-        aStatuses.push((await attempt(harness, 'wrong-password', sourceA)).status);
-      }
-      const aEleventh = await attempt(harness, 'wrong-password', sourceA);
-      aStatuses.push(aEleventh.status);
-      assert.equal(aEleventh.status, 429);
-
-      const bFirst = await attempt(harness, 'wrong-password', sourceB);
-      assert.notEqual(bFirst.status, 429, "source B's first attempt must not inherit A's budget");
-      assert.equal(bFirst.status, 401);
-
-      console.log(`(c) A(1.1.1.1)=${aStatuses.join(',')} B(2.2.2.2) first=${bFirst.status}`);
-    },
-    { trustProxy: true }
-  );
+test('(c) with a trusted proxy, CF-Connecting-IP separates sources: A is blocked, B is not', async () => {
+  await withRateLimitServer(true, async (harness) => {
+    const aHeaders = { 'CF-Connecting-IP': '1.1.1.1' };
+    const bHeaders = { 'CF-Connecting-IP': '2.2.2.2' };
+    const aStatuses: number[] = [];
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      aStatuses.push((await postDecision(harness, WRONG, aHeaders)).status);
+    }
+    const aEleventh = await postDecision(harness, CORRECT_PASSWORD, aHeaders);
+    aStatuses.push(aEleventh.status);
+    const bFirst = await postDecision(harness, CORRECT_PASSWORD, bHeaders);
+    console.log(
+      `(c) source A(1.1.1.1) statuses=${aStatuses.join(',')}; source B(2.2.2.2) first=${bFirst.status} `
+      + `redirectTo=${JSON.stringify(bFirst.redirectTo)}`
+    );
+    assert.equal(aEleventh.status, 429, 'the eleventh attempt from A must be refused');
+    assert.notEqual(bFirst.status, 429, 'B has its own bucket, so its first attempt is not refused');
+    assert.equal(bFirst.status, 200, 'B with the correct password must be admitted');
+  });
 });
 
-test('(d) without a trusted proxy, forged forwarding headers share one bucket', async () => {
-  await withConsentServer(async (harness) => {
-    const forged: { header: string; sent: Record<string, string> }[] = [
-      { header: 'CF-Connecting-IP: 9.9.9.9', sent: { 'CF-Connecting-IP': '9.9.9.9' } },
-      { header: 'CF-Connecting-IP: 8.8.8.8', sent: { 'CF-Connecting-IP': '8.8.8.8' } },
-      { header: 'X-Forwarded-For: 7.7.7.7', sent: { 'X-Forwarded-For': '7.7.7.7' } },
+test('(d) without a trusted proxy, forged CF-Connecting-IP / X-Forwarded-For never change the source', async () => {
+  await withRateLimitServer(false, async (harness) => {
+    const forged: Array<Record<string, string>> = [
+      { 'CF-Connecting-IP': '9.9.9.9' },
+      { 'CF-Connecting-IP': '8.8.8.8' },
+      { 'X-Forwarded-For': '7.7.7.7' },
     ];
     const statuses: number[] = [];
-    const used: string[] = [];
-    for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
-      const header = forged[i % forged.length];
-      used.push(header.header);
-      statuses.push((await attempt(harness, 'wrong-password', header.sent)).status);
+    const headerLog: string[] = [];
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      const headers = forged[attempt % forged.length];
+      headerLog.push(JSON.stringify(headers));
+      statuses.push((await postDecision(harness, WRONG, headers)).status);
     }
-    const eleventh = await attempt(harness, CORRECT_PASSWORD, { 'CF-Connecting-IP': '9.9.9.9' });
+    const eleventh = await postDecision(harness, CORRECT_PASSWORD, { 'CF-Connecting-IP': '9.9.9.9' });
     statuses.push(eleventh.status);
-    assert.equal(
-      eleventh.status,
-      429,
-      'forged headers must not have moved any request into a fresh bucket'
-    );
-
     console.log(
-      `(d) forged=[${used.join(' | ')}] statuses=${statuses.join(',')} `
-      + `11th(CF-Connecting-IP:9.9.9.9, correct pw)=${eleventh.status}`
+      `(d) forged headers per attempt=${headerLog.join(' ')}; statuses=${statuses.join(',')}; `
+      + `the 11th answered ${eleventh.status}`
     );
+    assert.ok(
+      statuses.slice(0, MAX_ATTEMPTS).every((status) => status === 401),
+      'every forged-header failure must be an ordinary 401, not a fresh-source success'
+    );
+    assert.equal(statuses[MAX_ATTEMPTS], 429, 'the forged headers must not buy the client an extra identity');
   });
 });
 
-test('(e) a success resets only its own source', async () => {
-  await withConsentServer(
-    async (harness) => {
-      const sourceA = { 'CF-Connecting-IP': '1.1.1.1' };
-      const sourceB = { 'CF-Connecting-IP': '2.2.2.2' };
-      const aFail: number[] = [];
-      const bFail: number[] = [];
-      for (let i = 0; i < 5; i += 1) {
-        aFail.push((await attempt(harness, 'wrong-password', sourceA)).status);
-        bFail.push((await attempt(harness, 'wrong-password', sourceB)).status);
-      }
+test('(e) a confirmed password clears only its own source', async () => {
+  await withRateLimitServer(true, async (harness) => {
+    const aHeaders = { 'CF-Connecting-IP': '1.1.1.1' };
+    const bHeaders = { 'CF-Connecting-IP': '2.2.2.2' };
 
-      const aOk = await attempt(harness, CORRECT_PASSWORD, sourceA);
-      assert.equal(aOk.status, 302);
+    const aFailures: number[] = [];
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      aFailures.push((await postDecision(harness, WRONG, aHeaders)).status);
+    }
+    const bFailures: number[] = [];
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      bFailures.push((await postDecision(harness, WRONG, bHeaders)).status);
+    }
+    const aSuccess = await postDecision(harness, CORRECT_PASSWORD, aHeaders);
 
-      const bAfter: number[] = [];
-      for (let i = 0; i < 6; i += 1) {
-        bAfter.push((await attempt(harness, 'wrong-password', sourceB)).status);
-      }
-      assert.equal(bAfter[5], 429, "B's five earlier failures must survive A's success (5+5+1=11)");
+    const bMore: number[] = [];
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      bMore.push((await postDecision(harness, WRONG, bHeaders)).status);
+    }
 
-      const aAfter: number[] = [];
-      for (let i = 0; i < 11; i += 1) {
-        aAfter.push((await attempt(harness, 'wrong-password', sourceA)).status);
-      }
-      assert.ok(
-        aAfter.slice(0, 10).every((status) => status === 401),
-        "A's counter was reset: its first ten fresh failures pass"
-      );
-      assert.equal(aAfter[10], 429, 'A is blocked only on its eleventh fresh failure');
+    const aSuffix: number[] = [];
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      aSuffix.push((await postDecision(harness, WRONG, aHeaders)).status);
+    }
 
-      console.log(
-        `(e) A fails=[${aFail.join(',')}] A ok=${aOk.status} B fails=[${bFail.join(',')}] `
-        + `B after=[${bAfter.join(',')}] A after=[${aAfter.join(',')}]`
-      );
-    },
-    { trustProxy: true }
-  );
-});
+    console.log(
+      `(e) A failures=${aFailures.join(',')}; B failures=${bFailures.join(',')}; `
+      + `A success=${aSuccess.status} (redirectTo=${JSON.stringify(aSuccess.redirectTo)}); `
+      + `B next six=${bMore.join(',')}; A next eleven=${aSuffix.join(',')}`
+    );
 
-test('(env) a non-blank TRUST_PROXY selects CF-Connecting-IP as the source', async () => {
-  await withConsentServer(
-    async (harness) => {
-      const sourceA = { 'CF-Connecting-IP': '3.3.3.3' };
-      for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
-        assert.equal((await attempt(harness, 'wrong-password', sourceA)).status, 401);
-      }
-      const blocked = await attempt(harness, 'wrong-password', sourceA);
-      assert.equal(blocked.status, 429);
-
-      const other = await attempt(harness, 'wrong-password', { 'CF-Connecting-IP': '4.4.4.4' });
-      assert.equal(other.status, 401);
-
-      console.log(
-        `(env) TRUST_PROXY=1 A(3.3.3.3) 11th=${blocked.status} B(4.4.4.4) first=${other.status}`
-      );
-    },
-    { envTrustProxy: '1' }
-  );
+    // B's six after A's success: the first five are ordinary failures; the sixth
+    // is B's eleventh overall, so it is refused — B's bucket was never cleared.
+    assert.equal(bMore[5], 429, 'B must still be blocked on its eleventh attempt after A succeeded');
+    assert.ok(
+      bMore.slice(0, 5).every((status) => status === 401),
+      'B must keep counting through its first five post-success failures'
+    );
+    // A was cleared by its own success: it takes ten more failures to be blocked again.
+    assert.ok(
+      aSuffix.slice(0, MAX_ATTEMPTS).every((status) => status === 401),
+      'A must have been reset by its own success, so ten more failures are admitted'
+    );
+    assert.equal(aSuffix[MAX_ATTEMPTS], 429, 'A must be blocked again only on its eleventh failure');
+  });
 });

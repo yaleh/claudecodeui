@@ -30,6 +30,13 @@ export { uiLastOpenedSessionService } from './services/ui-last-opened-session.se
 // answered without restating the shape.
 export type { LifecycleModeSwitchResult } from './services/sessions.service.js';
 export { searchConversations } from './services/session-conversations-search.service.js';
+// sessionConversationsSearchService: the conversation-search ENGINE as the MCP
+// gateway's `session_search` tool consumes it — `server/index.ts` binds its
+// `search` verb into the read tools' `sessionSearch` deps, so an MCP caller and
+// the session-search route scan through one implementation rather than two.
+// (`searchConversations` above is the same engine's plain-function face, kept
+// for the route that already imports it.)
+export { sessionConversationsSearchService } from './services/session-conversations-search.service.js';
 
 // readSessionAiTitle: used by the commands module's `/cost` handler to show the
 // title Claude generated for a session. Only the providers module knows a

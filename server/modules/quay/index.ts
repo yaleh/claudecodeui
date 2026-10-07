@@ -12,6 +12,8 @@ export type {
   QuayCommandRunner,
   QuayDriverState,
   QuayDriverSummary,
+  /** Consumed by the MCP gateway's `quay_snapshot` tool: one task the worker driver reports in flight. */
+  QuayInFlightTask,
   QuayProjectStatus,
   QuaySnapshot,
 } from './quay.service.js';

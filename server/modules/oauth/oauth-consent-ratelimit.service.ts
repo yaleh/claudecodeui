@@ -1,128 +1,167 @@
 /**
- * Consent-password submission rate limiter (mcp-gateway-SPEC stage 5, AC-261).
+ * Per-source password-submission rate limiter for the consent decision endpoint
+ * (AC-261, restored on the SPA data plane by
+ * gap-ac261-consent-password-ratelimit-restore).
  *
- * The authorization server's consent page accepts a user password on
- * `POST /authorize`, so it is a brute-force target. This service counts failures
- * per *source* in a fixed window and reports when a source has spent its budget;
- * the consent router consumes it to answer `429` before the password is ever
- * checked.
+ * The consent SPA authenticates the browser user with their local password
+ * before it will issue an authorization code (`oauth-consent.routes.ts` calls
+ * the injected credential verifier in the `allow` branch). That check is a
+ * password oracle, so it must be bounded: ten failures per source per fifteen
+ * minutes, and the eleventh attempt is refused whether or not its password is
+ * correct — otherwise an attacker who lifted a session JWT could brute-force the
+ * account's password from the same machine.
  *
- * Source resolution is the security-relevant half: behind cloudflared the socket
- * remote address is always the docker bridge, so a trusted proxy deployment
- * (`TRUST_PROXY`, which the entrypoint also hands to `app.set('trust proxy', …)`)
- * keys on the `CF-Connecting-IP` header instead. Without that configuration the
- * header — like every other request header — is ignored, so a forged
- * `CF-Connecting-IP`/`X-Forwarded-For` cannot move a request into a fresh bucket.
+ * The limiter is deliberately a FIXED window, not sliding: the AC pins "ten in
+ * fifteen minutes" as a count within one window, and a fixed window makes an
+ * injected clock (`now`) advance the state deterministically — the criterion
+ * never sleeps real time.
  *
- * The window is fixed (not sliding): the first failure after an idle window opens
- * a new window; `now` is injectable so no caller waits on wall time.
+ * SOURCE is the whole point of the `trustProxy` switch. Behind Cloudflare (the
+ * deployment this endpoint serves) the socket peer is the edge, so every real
+ * client shares one bucket unless the proxy header is read. When `TRUST_PROXY`
+ * is unset the header is attacker-controlled and reading it would let one client
+ * spread its attempts across unlimited forged identities, so the socket address
+ * is used and every header is ignored. `resolveSource` is the single place that
+ * decides.
  *
- * Consumers: `oauth-consent.routes.ts`, which builds one limiter per router and
- * gates the password branch with it. Not re-exported through the module barrel —
- * it has no cross-module consumer.
+ * Consumers: `oauth-consent.routes.ts` (the consent JSON API) and this module's
+ * criterion `tests/oauth-consent-ratelimit.test.ts`.
  */
 
-import type { Request } from 'express';
+/**
+ * The narrow slice of an HTTP request the source resolver reads: the socket's
+ * peer address and a header getter. Kept structural (not `express.Request`) so
+ * the resolver can be exercised without a live server.
+ */
+export type ConsentRateLimitRequest = {
+  socket?: { remoteAddress?: string | null } | null;
+  get(name: string): string | undefined;
+};
 
-/** Default fixed window length: 15 minutes. */
-const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
+/** Caller-supplied seams for {@link createConsentPasswordRateLimiter}. */
+export type ConsentPasswordRateLimiterOptions = {
+  /** Injectable clock; defaults to `() => new Date()`. The criterion advances this. */
+  now?: () => Date;
+  /** Length of one fixed window; defaults to fifteen minutes. */
+  windowMs?: number;
+  /** Failures allowed within a window before the source is blocked; defaults to ten. */
+  maxAttempts?: number;
+  /** Whether the source may come from `CF-Connecting-IP`; defaults to `TRUST_PROXY` being set. */
+  trustProxy?: boolean;
+};
 
-/** Default failures allowed per source within one window. */
-const DEFAULT_MAX_ATTEMPTS = 10;
-
-/** One source's fixed-window counter: failures recorded and when the window opened. */
-type RateLimitBucket = { count: number; windowStart: number };
-
-/** The limiter surface the consent router consumes. */
+/** The per-source password limiter the consent decision endpoint consults. */
 export type ConsentPasswordRateLimiter = {
-  /**
-   * The true source key for `req`: the `CF-Connecting-IP` header when the proxy
-   * is trusted, the socket remote address otherwise. Request headers that are not
-   * trusted cannot influence the result.
-   */
-  source(req: Request): string;
-  /** True once `source` has reached the attempt ceiling within its current window. */
+  /** The rate-limit key for a request: the proxy-forwarded client or the socket peer. */
+  source(req: ConsentRateLimitRequest): string;
+  /** Whether `source` has already spent its attempts in the current window. */
   isBlocked(source: string): boolean;
-  /** Counts one failed password attempt, opening a fresh window if the old one expired. */
+  /** Counts one failed password check for `source`, opening a window when none is live. */
   recordFailure(source: string): void;
-  /** Clears only `source`'s counter (a successful login); other sources are untouched. */
+  /** Clears `source`'s bucket only (a successful confirmation); other sources are untouched. */
   resetSource(source: string): void;
-  /** Milliseconds until `source`'s window expires (0 when it has no live window). */
+  /** Milliseconds until `source`'s window rolls over (0 when it is not blocked). */
   retryAfterMs(source: string): number;
 };
 
+/** Fifteen minutes, the AC's window. */
+const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
+/** Ten attempts, the AC's allowance. */
+const DEFAULT_MAX_ATTEMPTS = 10;
+/** The key used when the transport cannot name a peer address (never expected in production). */
+const UNKNOWN_SOURCE = 'unknown';
+
+/** `TRUST_PROXY` is the deployment's declaration that a header-forwarding edge sits in front of us. */
+function defaultTrustProxy(): boolean {
+  return String(process.env.TRUST_PROXY ?? '').trim() !== '';
+}
+
 /**
- * Builds a fixed-window, per-source limiter for consent-password submissions.
- * `trustProxy` defaults to whether `TRUST_PROXY` is set to a non-blank value.
+ * The single source-resolution rule. With `trustProxy` the `CF-Connecting-IP`
+ * header wins when it carries a non-blank value and otherwise the socket peer is
+ * the fallback; without it the header is ignored entirely, because an unproxied
+ * deployment would be letting the client choose its own rate-limit key.
+ */
+function resolveSource(req: ConsentRateLimitRequest, trustProxy: boolean): string {
+  if (trustProxy) {
+    const forwarded = req.get('CF-Connecting-IP');
+    if (typeof forwarded === 'string' && forwarded.trim() !== '') {
+      return forwarded.trim();
+    }
+  }
+  const remote = req.socket?.remoteAddress;
+  return typeof remote === 'string' && remote !== '' ? remote : UNKNOWN_SOURCE;
+}
+
+/**
+ * Builds a fixed-window, per-source counter over a `Map`. Each bucket is
+ * `{count, windowStart}`; a bucket whose age reaches `windowMs` is expired and is
+ * reset before it is read, so the next attempt after a window opens a fresh one.
  */
 export function createConsentPasswordRateLimiter(
-  options: {
-    now?: () => Date;
-    windowMs?: number;
-    maxAttempts?: number;
-    trustProxy?: boolean;
-  } = {}
+  options: ConsentPasswordRateLimiterOptions = {}
 ): ConsentPasswordRateLimiter {
-  const now = options.now ?? (() => new Date());
+  const now = options.now ?? ((): Date => new Date());
   const windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-  const trustProxy = options.trustProxy ?? String(process.env.TRUST_PROXY ?? '').trim() !== '';
-  const buckets = new Map<string, RateLimitBucket>();
+  const trustProxy = options.trustProxy ?? defaultTrustProxy();
+  const buckets = new Map<string, { count: number; windowStart: number }>();
 
-  function nowMs(): number {
-    return now().getTime();
-  }
+  const at = (): number => now().getTime();
+  const expired = (bucket: { windowStart: number }, time: number): boolean =>
+    time - bucket.windowStart >= windowMs;
 
-  /** Drops every expired bucket so the map tracks only live windows. */
-  function pruneExpired(currentMs: number): void {
+  // Drops every expired bucket so an unbounded set of one-off sources cannot
+  // grow the map without limit. `retryAfterMs` is the natural place for it: it is
+  // called on the refusal path only, never on the hot record path.
+  const prune = (time: number): void => {
     for (const [source, bucket] of buckets) {
-      if (currentMs - bucket.windowStart >= windowMs) {
+      if (expired(bucket, time)) {
         buckets.delete(source);
       }
     }
-  }
+  };
 
   return {
-    source(req: Request): string {
-      if (trustProxy) {
-        const header = req.get('CF-Connecting-IP');
-        const trimmed = typeof header === 'string' ? header.trim() : '';
-        if (trimmed.length > 0) {
-          return trimmed;
-        }
-      }
-      return req.socket?.remoteAddress ?? 'unknown';
+    source(req: ConsentRateLimitRequest): string {
+      return resolveSource(req, trustProxy);
     },
+
     isBlocked(source: string): boolean {
+      const time = at();
       const bucket = buckets.get(source);
       if (bucket === undefined) {
         return false;
       }
-      if (nowMs() - bucket.windowStart >= windowMs) {
+      if (expired(bucket, time)) {
         buckets.delete(source);
         return false;
       }
       return bucket.count >= maxAttempts;
     },
+
     recordFailure(source: string): void {
-      const currentMs = nowMs();
-      pruneExpired(currentMs);
+      const time = at();
       const bucket = buckets.get(source);
-      if (bucket === undefined) {
-        buckets.set(source, { count: 1, windowStart: currentMs });
+      if (bucket === undefined || expired(bucket, time)) {
+        buckets.set(source, { count: 1, windowStart: time });
         return;
       }
       bucket.count += 1;
     },
+
     resetSource(source: string): void {
       buckets.delete(source);
     },
+
     retryAfterMs(source: string): number {
+      const time = at();
+      prune(time);
       const bucket = buckets.get(source);
       if (bucket === undefined) {
         return 0;
       }
-      const remaining = bucket.windowStart + windowMs - nowMs();
+      const remaining = bucket.windowStart + windowMs - time;
       return remaining > 0 ? remaining : 0;
     },
   };

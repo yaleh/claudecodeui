@@ -103,6 +103,12 @@ export const MCP_TOOL_ERROR_CODES: Record<McpGatewayToolName, readonly McpErrorC
   // AC-246's target gate adds nothing and no resolution can be refused. Unwired,
   // it keeps the body-table refusal, hence `MCP_TOOL_NOT_IMPLEMENTED`.
   ui_clients_list: [...WRAPPER_CODES, 'MCP_TOOL_NOT_IMPLEMENTED'],
+  // `session_search` takes no `session` and resolves no target of its own: its
+  // optional `project` is a FILTER over the results the scan already found, not
+  // an AC-246 reference, so a project id nothing matches is simply an empty
+  // result rather than `PROJECT_NOT_FOUND`. Unwired, it keeps the body-table
+  // refusal, hence `MCP_TOOL_NOT_IMPLEMENTED`.
+  session_search: [...WRAPPER_CODES, 'MCP_TOOL_NOT_IMPLEMENTED'],
 
   // -- stage-4 write tools ---------------------------------------------------
   // `session_send` normalizes the control service's `RUN_IN_PROGRESS` to the

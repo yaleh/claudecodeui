@@ -532,7 +532,8 @@
       "createButton": "Token erstellen",
       "cancelButton": "Abbrechen",
       "scopesLabel": "Bereiche",
-      "writeScopeRisk": "Dieses Token kann Sitzungen senden, erstellen und steuern. Halte es geheim."
+      "writeScopeRisk": "Dieses Token kann Sitzungen senden, erstellen und steuern. Halte es geheim.",
+      "defaultName": "MCP-Token · {{date}}"
     },
     "newToken": {
       "alertTitle": "⚠️ Speichern Sie Ihren Zugriffstoken",
@@ -549,7 +550,9 @@
       "active": "Aktiv",
       "revoked": "Widerrufen",
       "revokeButton": "Widerrufen",
-      "revokeConfirm": "Möchten Sie diesen Token wirklich widerrufen? Dies kann nicht rückgängig gemacht werden."
+      "revokeConfirm": "Möchten Sie diesen Token wirklich widerrufen? Dies kann nicht rückgängig gemacht werden.",
+      "created": "Erstellt:",
+      "expired": "Abgelaufen"
     },
     "scopes": {
       "read": "Lesen (cloudcli:read)",
@@ -558,6 +561,17 @@
       "sessionControl": "Sitzungen steuern (cloudcli:session:control)",
       "approve": "Genehmigen (cloudcli:approve)",
       "navigate": "Sitzung in einem Ihrer Browser öffnen (cloudcli:navigate)"
+    },
+    "oauthTokens": {
+      "title": "Erweitert: OAuth-Token (schreibgeschützt)",
+      "description": "Von OAuth-Abläufen (verbundene Apps und MCP-Clients) ausgestellte Token. Sie werden von diesen Abläufen verwaltet und können hier weder erstellt noch widerrufen werden.",
+      "empty": "Es wurden noch keine OAuth-Token ausgestellt.",
+      "showInactive": "Widerrufene und abgelaufene anzeigen",
+      "unknownClient": "Unbekannter Client",
+      "kind": "Typ:",
+      "kindAccess": "Zugriffstoken",
+      "kindRefresh": "Aktualisierungstoken",
+      "scopes": "Bereiche:"
     }
   },
   "mcpGateway": {

@@ -265,6 +265,25 @@ export type QuayFanInSummary = {
   recent: QuayFanInAttemptSummary[];
 };
 
+/**
+ * One task a project's quay worker reports as being in flight right now, read
+ * from the project's `.quay/worker-round.jsonl` heartbeat carrier. Projected by
+ * the backend (`server/modules/quay/quay.service.ts`) and already present in the
+ * `GET /:projectId/snapshot` response body; `QuayPanel`'s "In flight" card is the
+ * consumer. Field names and units mirror the backend `QuayInFlightTask` verbatim.
+ */
+export type QuayInFlightTask = {
+  taskId: string;
+  /** `fan-in` while the task holds the fan-in lock; `implementing` otherwise. */
+  phase: 'implementing' | 'fan-in';
+  /** The task's dispatch instant (ISO), or `null` when the round record carries none. */
+  startedAt: string | null;
+  /** The round record's own heartbeat instant (ISO) — when this reading was written. */
+  lastHeartbeat: string;
+  /** The worker-driver loop's process id, or `null` when the record carries none. */
+  workerPid: number | null;
+};
+
 /** Tier-2 read-only snapshot of one project's quay state, rendered by `QuayPanel`. */
 export type QuaySnapshot = {
   projectId: string;
@@ -281,6 +300,13 @@ export type QuaySnapshot = {
   tests: QuayTestsSummary;
   /** Fan-in card: recent mechanical fan-in attempts, read from `.quay/worker-outcome.jsonl`. */
   fanIn: QuayFanInSummary;
+  /**
+   * In-flight card: the tasks the worker currently reports as running, read from
+   * `.quay/worker-round.jsonl`. `null` means the carrier could not be read (no
+   * reading), `[]` means it was read and nothing is running — the two must never
+   * be collapsed into one another.
+   */
+  inFlight: QuayInFlightTask[] | null;
   /**
    * Link to quay's own `quay serve` dashboard when a live web service is
    * reported; `null` when no dashboard is running (a normal state, not an error).
@@ -596,7 +622,16 @@ export type UiVisibleContextReport = {
   hasFocus: boolean;
   /** Epoch ms of the last moment this tab was focused; null when it never was. */
   lastFocusedAt: number | null;
-  /** The workspace panel this tab is showing, or null when none is known. */
+  /**
+   * The workspace panel this tab is showing: the active view's id, `null` when
+   * this tab shows no workspace at all (so the question does not apply), or
+   * `'unknown'` when a workspace is mounted but no view reports itself active.
+   *
+   * The two non-id values are deliberately different. A caller that sees `null`
+   * learns there is no panel here; a caller that sees `'unknown'` learns the tab
+   * does have a workspace and the reading failed — which is the case worth
+   * acting on, and which a shared `null` used to hide.
+   */
   panel: string | null;
   /** The project this tab has open, or null. */
   selectedProject: string | null;
@@ -851,6 +886,19 @@ export type ChatMessage = {
    * Claude; it is the anchor "edit this message" and "fork from here" send back.
    */
   transcriptAnchorId?: string;
+  /**
+   * The store row's own id, set on the rendered message when that row came from
+   * a read rather than from this client's stream.
+   *
+   * It is the value `session_read mode=around` resolves an id against, which is
+   * what lets a rendered row be *named back to the server* — the address
+   * `ui_visible_context` publishes and a jump lands on. It is deliberately not
+   * the same field as {@link id}: that one is this client's own row id and is
+   * left off a read row, because several providers re-mint their row ids on
+   * every read and a React key has to survive that. Addressing has the opposite
+   * requirement — it only has to survive one read — so the two are two fields.
+   */
+  transcriptRowId?: string;
   /**
    * The anchor a *fork* taken from this answer cuts at, when this message ends
    * a turn. Separate from `transcriptAnchorId` (which names a user input):
@@ -2352,6 +2400,19 @@ export type CreatedAccessToken = {
   plaintext: string;
 };
 
+/** One OAuth access/refresh token as `GET /api/settings/oauth-tokens` returns it — read-only, and never carrying the stored hash. `clientName` is the OAuth client the token's grant belongs to (the token row itself has no name), and `kind` is `oauth_access` or `oauth_refresh`. The advanced list renders it; it is never created or revoked from there. */
+export type OAuthTokenItem = {
+  id: number;
+  kind: string;
+  tokenPrefix: string;
+  clientName: string | null;
+  scopes: string[];
+  createdAt: string | null;
+  expiresAt: string;
+  lastUsed: string | null;
+  revokedAt: string | null;
+};
+
 /** The CloudCLI MCP gateway's read-only status as `GET /api/settings/mcp-gateway` returns it: whether the gateway is enabled, the path it answers on, and the base url an MCP client should dial. */
 export type McpGatewayStatus = {
   enabled: boolean;
@@ -2394,6 +2455,41 @@ export type CreatedOAuthClient = {
   clientName: string;
   redirectUris: string[];
   clientSecret: string;
+};
+
+/** One scope the consent page offers, as `GET /api/oauth/authorize/context` returns it: the scope id, a human-readable description, whether it is the pinned read scope (`required`) and whether granting it lets the client change something (`writable`). The page renders one checked-or-not checkbox per row and disables the required one. */
+export type OAuthConsentScopeOption = {
+  scope: string;
+  description: string;
+  required: boolean;
+  writable: boolean;
+};
+
+/** The authorization request as `GET /api/oauth/authorize/context` answers it, once its `(client_id, redirect_uri)` pair has been validated: the client's display name, the host of its registered callback (the anti-phishing "you will be sent to" line), the request's own `state` echoed verbatim, and the whole scope vocabulary flagged for the screen. */
+export type OAuthConsentContext = {
+  clientName: string;
+  callbackHost: string;
+  redirectUri: string;
+  scopes: OAuthConsentScopeOption[];
+  state: string | null;
+};
+
+/** The decision the consent page submits to `POST /api/oauth/authorize/decision`. Field names are the authorization request's own (snake_case); `action` is the user's choice and `scopes` is the checkbox selection, which the server intersects with its vocabulary before granting. */
+export type OAuthConsentDecisionRequest = {
+  client_id: string;
+  redirect_uri: string;
+  state: string | null;
+  code_challenge: string | null;
+  code_challenge_method: string | null;
+  scopes: string[];
+  action: 'allow' | 'deny';
+  /** The signed-in user's password, re-entered to confirm an Allow. The server verifies it (behind a per-source rate limit) when it has a credential verifier; an empty value is a failed confirmation, never a bypass. */
+  password: string;
+};
+
+/** The decision's answer, as `POST /api/oauth/authorize/decision` returns it: the client callback URL the browser must be sent to — carrying `code` and `state` on allow, or `error=access_denied` and `state` on deny. The page performs the navigation itself with `window.location.assign`. */
+export type OAuthConsentDecisionResponse = {
+  redirectTo: string;
 };
 
 // ---------------------------

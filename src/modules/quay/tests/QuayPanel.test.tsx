@@ -2,13 +2,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { render } from '@testing-library/react';
+import { render, renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 
 import type { QuaySnapshot } from '@/shared/types';
 import QuayPanel from '@/modules/quay/QuayPanel';
-import type { QuayPanelView } from '@/modules/quay/hooks/useQuayStatus';
+import { type QuayPanelView, useQuayStatus } from '@/modules/quay/hooks/useQuayStatus';
+
+// The panel's in-flight reading travels hook → route → carrier. Only the network
+// hop is stubbed; the test below drives the real `useQuayStatus` so the reading
+// is exercised all the way into `QuayPanel`, not just by a hand-built prop.
+const apiMock = vi.hoisted(() => ({ quaySnapshot: vi.fn() }));
+vi.mock('@/shared/api', () => ({ api: { quaySnapshot: apiMock.quaySnapshot } }));
 
 const DASHBOARD_URL = 'http://172.28.0.1:3651/';
 
@@ -66,6 +72,9 @@ const SNAPSHOT: QuaySnapshot = {
       { task: 'gap-task-b', outcome: 'failed', lockAcquireEpoch: 1790987100, lockReleaseEpoch: null },
     ],
   },
+  // Read and empty: the carrier answered, nothing is running. The `null` case (carrier
+  // unreadable) is asserted separately and must render differently.
+  inFlight: [],
   dashboardUrl: DASHBOARD_URL,
   warnings: [],
 };
@@ -318,6 +327,113 @@ test('QuayPanel renders empty states for the Stage goals, Tests and Fan-in cards
   assert.match(getByTestId('quay-panel-fanin-timeline-empty').textContent ?? '', /No fan-in attempts/);
   assert.equal(container.querySelector('[data-testid="quay-panel-stage-goals-row"]'), null);
   assert.equal(container.querySelector('[data-testid="quay-panel-fanin-row"]'), null);
+});
+
+/*
+ * In-flight card (gap-quay-panel-inflight-task-display): before this card the panel's only
+ * "activity" signals were the Driver badge (which names no task) and the Tests card's
+ * `current.taskId` (which names the last *finished* suite). The backend already put the real
+ * running tasks in the snapshot's `inFlight` field; the panel simply never rendered them.
+ * The corresponding red baseline (the ticket's AC1) showed `screen.queryByText(/gap-example-task/)`
+ * was `null` against the same fixture before this card existed.
+ */
+test('QuayPanel renders each in-flight task with its own phase marker and elapsed time', () => {
+  const inFlightSnapshot: QuaySnapshot = {
+    ...SNAPSHOT,
+    inFlight: [
+      {
+        taskId: 'gap-example-task',
+        phase: 'implementing',
+        startedAt: '2026-10-01T23:50:00.000Z',
+        lastHeartbeat: '2026-10-02T00:00:00.000Z',
+        workerPid: 4242,
+      },
+      {
+        taskId: 'gap-example-fanin',
+        phase: 'fan-in',
+        startedAt: '2026-10-01T23:40:00.000Z',
+        lastHeartbeat: '2026-10-02T00:00:00.000Z',
+        workerPid: 4242,
+      },
+    ],
+  };
+  const { getByTestId, container } = renderView({ status: 'loaded', snapshot: inFlightSnapshot }, null);
+
+  // The task id is now visible on the panel — the whole point of the card.
+  assert.match(container.textContent ?? '', /gap-example-task/);
+
+  const rows = getByTestId('quay-panel-inflight-list').querySelectorAll('[data-testid="quay-panel-inflight-row"]');
+  assert.equal(rows.length, 2);
+
+  // The two phases render *distinct* markers — text and `data-testid` both differ, so a
+  // single shared label cannot pass this.
+  const implementing = getByTestId('quay-panel-inflight-phase-implementing');
+  const fanIn = getByTestId('quay-panel-inflight-phase-fan-in');
+  assert.equal(implementing.textContent, 'implementing');
+  assert.equal(fanIn.textContent, 'fan-in');
+  assert.notEqual(implementing.textContent, fanIn.textContent);
+
+  // Elapsed time runs from `startedAt` to the snapshot's own `generatedAt`
+  // (2026-10-02T00:00:00Z): 10 minutes and 20 minutes.
+  assert.equal(rows[0].querySelector('[data-testid="quay-panel-inflight-elapsed"]')?.textContent, '10m 0s');
+  assert.equal(rows[1].querySelector('[data-testid="quay-panel-inflight-elapsed"]')?.textContent, '20m 0s');
+});
+
+test('QuayPanel distinguishes an unread in-flight carrier (null) from an empty one ([])', () => {
+  const unavailable = renderView({ status: 'loaded', snapshot: { ...SNAPSHOT, inFlight: null } }, null);
+  const unavailableText = unavailable.getByTestId('quay-panel-inflight-unavailable').textContent ?? '';
+  assert.match(unavailableText, /unavailable/i);
+  assert.equal(unavailable.container.querySelector('[data-testid="quay-panel-inflight-empty"]'), null);
+  assert.equal(unavailable.container.querySelector('[data-testid="quay-panel-inflight-list"]'), null);
+
+  const empty = renderView({ status: 'loaded', snapshot: { ...SNAPSHOT, inFlight: [] } }, null);
+  const emptyText = empty.getByTestId('quay-panel-inflight-empty').textContent ?? '';
+  assert.match(emptyText, /No tasks currently in flight/i);
+  assert.equal(empty.container.querySelector('[data-testid="quay-panel-inflight-unavailable"]'), null);
+  assert.equal(empty.container.querySelector('[data-testid="quay-panel-inflight-list"]'), null);
+
+  // The two readings must be literally different: "carrier unreadable" is not
+  // "nothing is running".
+  assert.notEqual(unavailableText, emptyText);
+});
+
+test('TestsCard labels its current taskId as the last suite, not a live task pointer', () => {
+  const { getByTestId } = renderView({ status: 'loaded', snapshot: SNAPSHOT }, null);
+
+  // SNAPSHOT.tests.current.taskId is 'gap-x'; the id must not appear bare.
+  const holder = getByTestId('quay-panel-tests-current-task');
+  assert.match(holder.textContent ?? '', /gap-x/);
+  const label = getByTestId('quay-panel-tests-current-task-label');
+  assert.match(label.textContent ?? '', /last suite/i);
+});
+
+test('the in-flight reading reaches QuayPanel through the real useQuayStatus hook', async () => {
+  const hookSnapshot: QuaySnapshot = {
+    ...SNAPSHOT,
+    inFlight: [
+      {
+        taskId: 'gap-hook-task',
+        phase: 'fan-in',
+        startedAt: '2026-10-01T23:30:00.000Z',
+        lastHeartbeat: '2026-10-02T00:00:00.000Z',
+        workerPid: 99,
+      },
+    ],
+  };
+  apiMock.quaySnapshot.mockResolvedValue({ ok: true, json: async () => hookSnapshot });
+
+  const { result } = renderHook(() => useQuayStatus('project-1', true, true));
+  await waitFor(() => assert.equal(result.current.view.status, 'loaded'));
+
+  const view = result.current.view;
+  if (view.status !== 'loaded') {
+    throw new Error(`expected a loaded view, got ${view.status}`);
+  }
+
+  const { container } = render(
+    <QuayPanel projectId="project-1" view={view} onRefresh={() => {}} dashboardUrl={null} />,
+  );
+  assert.match(container.textContent ?? '', /gap-hook-task/);
 });
 
 /**

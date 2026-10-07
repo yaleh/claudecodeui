@@ -66,7 +66,8 @@ delete process.env.VITE_IS_PLATFORM;
 // that reaches the real mount needs a database with the CURRENT schema.
 const dbDirectory = mkdtempSync(path.join(tmpdir(), 'mcp-ui-open-session-'));
 process.env.DATABASE_PATH = path.join(dbDirectory, 'audit.db');
-const { closeConnection, initializeDatabase } = await import('@/modules/database/index.js');
+const { accessTokensDb, closeConnection, getConnection, initializeDatabase, oauthClientsDb } =
+  await import('@/modules/database/index.js');
 await initializeDatabase();
 
 const { ACCESS_TOKEN_SCOPES } = await import('@/modules/oauth/index.js');
@@ -85,6 +86,10 @@ const {
 const { buildUiVisibleContext } = await import('../mcp-ui-visible-context.js');
 const { MCP_ERROR_CODES, McpToolError } = await import('../mcp-error-envelope.js');
 const { MCP_GATEWAY_PATH, MCP_STAGE4_WRITE_TOOLS, mountMcpGateway } = await import('../index.js');
+// The ONE principal-name resolution and its two fixed labels, imported from the
+// module that owns them (same module, so a direct path is the barrel's equal):
+// the bar's requester must be THIS resolution's output, not a test-local echo.
+const { MCP_CLIENT_NAME_MAX_LENGTH, PERSONAL_TOKEN_LABEL } = await import('../mcp-write-notification.js');
 
 /** `navigate` is the sixth scope, appended last so the five positional reads keep their index. */
 const NAVIGATE_SCOPE = ACCESS_TOKEN_SCOPES[5] as string;
@@ -540,6 +545,139 @@ test('(4) only a final applied writes last-opened, never a pending, declined or 
 });
 
 // =====================================================================
+// (5) the requester the bar reads: a resolved NAME, never a null
+// =====================================================================
+
+/**
+ * Inserts the owning user if it is not already there. `access_tokens.user_id`
+ * is a real foreign key (`INIT_SCHEMA_SQL` turns `foreign_keys` on), so a token
+ * row cannot name a user that does not exist.
+ */
+function seedRequesterOwner(): void {
+  getConnection()
+    .prepare('INSERT OR IGNORE INTO users (id, username, password_hash) VALUES (?, ?, ?)')
+    .run(1, 'requester-owner', 'hash');
+}
+
+/** A unique token hash per inserted row, so the UNIQUE column never collides. */
+let patSequence = 0;
+
+/** Inserts one PAT row and returns its id, so a principal can name it by `tokenId`. */
+function issuePat(name: string | null): number {
+  patSequence += 1;
+  seedRequesterOwner();
+  return accessTokensDb.insert({
+    userId: 1,
+    tokenHash: `requester-pat-hash-${patSequence}`,
+    tokenPrefix: `requester-pat-${patSequence}`,
+    name,
+    scopes: NAVIGATE_SCOPE,
+    expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    createdAt: new Date(0).toISOString(),
+  });
+}
+
+/** The `navigations[]` reading, built exactly as the server builds it (the real rig's log). */
+async function visibleNavigations(rig: Rig): Promise<AnyRecord[]> {
+  const contextDeps: McpUiVisibleContextDeps = {
+    listUiClients: rig.listUiClients,
+    requestUiState: async () => [],
+    listNavigations: (navigationId) => rig.service.listNavigations(navigationId),
+  };
+  const context = await buildUiVisibleContext(contextDeps, {});
+  return context.navigations as unknown as AnyRecord[];
+}
+
+test('(5) a PAT names the bar by its token name, and the record carries the same string', async () => {
+  const tab = makeTab({ deviceId: 'dev-r', tabId: 'r-1', deviceName: 'Reader' }, { ack: 'applied' });
+  const rig = createRig([tab]);
+  const patId = issuePat('probe-ui-open');
+
+  const payload = await buildUiOpenSession(
+    rig.deps,
+    { session: 'sess-r' },
+    // A personal access token has NO OAuth client — this is the shape that used
+    // to leave `requestedBy` null and the bar showing the bare fallback.
+    principal({ clientId: null, tokenId: patId }),
+  );
+
+  assert.equal(tab.frames.length, 1, 'the call writes exactly one frame');
+  assert.equal(tab.frames[0].requester, 'probe-ui-open', 'the frame names the asking PAT');
+  assert.equal(payload.status, 'applied');
+  assert.equal(
+    rig.service.listNavigations(payload.navigationId)[0].requestedBy,
+    'probe-ui-open',
+    'the record carries the resolved name',
+  );
+  const visible = await visibleNavigations(rig);
+  assert.equal(visible[0].requestedBy, tab.frames[0].requester, 'ui_visible_context agrees with the frame');
+});
+
+test('(5) an OAuth token names the bar by its client display name', async () => {
+  const tab = makeTab({ deviceId: 'dev-o', tabId: 'o-1', deviceName: 'OAuth Reader' }, { ack: 'applied' });
+  const rig = createRig([tab]);
+  oauthClientsDb.insert({
+    clientId: 'oauth-probe-client',
+    clientSecretHash: null,
+    clientName: 'Claude Desktop',
+    redirectUris: '[]',
+    metadata: '{}',
+    createdVia: 'dcr',
+    createdAt: new Date(0).toISOString(),
+  });
+
+  const payload = await buildUiOpenSession(
+    rig.deps,
+    { session: 'sess-o' },
+    principal({ clientId: 'oauth-probe-client', tokenId: 999_999 }),
+  );
+
+  assert.equal(
+    tab.frames[0].requester,
+    'Claude Desktop',
+    'an OAuth client is named by its display name, not by its opaque id',
+  );
+  assert.equal(rig.service.listNavigations(payload.navigationId)[0].requestedBy, 'Claude Desktop');
+});
+
+test('(5) a nameless PAT still names the bar with a fixed label, never null', async () => {
+  const tab = makeTab({ deviceId: 'dev-n', tabId: 'n-1', deviceName: 'Nameless' }, { ack: 'applied' });
+  const rig = createRig([tab]);
+  const patId = issuePat(null);
+
+  const payload = await buildUiOpenSession(
+    rig.deps,
+    { session: 'sess-n' },
+    principal({ clientId: null, tokenId: patId }),
+  );
+
+  const requester = tab.frames[0].requester;
+  assert.equal(typeof requester, 'string', 'the frame always carries a string');
+  assert.equal(requester, PERSONAL_TOKEN_LABEL, 'a nameless PAT falls back to the fixed label');
+  assert.notEqual(requester, 'null', 'the literal "null" must never reach the bar');
+  assert.equal(rig.service.listNavigations(payload.navigationId)[0].requestedBy, PERSONAL_TOKEN_LABEL);
+});
+
+test('(5) an over-long name is cut to the bounded length on both the frame and the record', async () => {
+  const tab = makeTab({ deviceId: 'dev-t', tabId: 't-1', deviceName: 'Truncating' }, { ack: 'applied' });
+  const rig = createRig([tab]);
+  const longName = 'x'.repeat(MCP_CLIENT_NAME_MAX_LENGTH + 6);
+  const patId = issuePat(longName);
+
+  const payload = await buildUiOpenSession(
+    rig.deps,
+    { session: 'sess-t' },
+    principal({ clientId: null, tokenId: patId }),
+  );
+
+  const requester = tab.frames[0].requester;
+  assert.equal(typeof requester, 'string');
+  assert.equal(requester.length, MCP_CLIENT_NAME_MAX_LENGTH, 'the name is bounded to the fixed length');
+  assert.equal(requester, longName.slice(0, MCP_CLIENT_NAME_MAX_LENGTH), 'the head of the name survives');
+  assert.equal(rig.service.listNavigations(payload.navigationId)[0].requestedBy, requester);
+});
+
+// =====================================================================
 // (4) the scope refusal and the absent self-target guard, over a real mount
 // =====================================================================
 
@@ -695,7 +833,11 @@ test('(4) a fully scoped call executes against its own live turn — no SELF_TAR
     assert.deepEqual(structured.device, { deviceId: 'dev-1', deviceName: 'Laptop' });
     assert.equal(navigateCalls.length, 1, 'the call reached the navigation service exactly once');
     assert.equal(navigateCalls[0].sessionId, 'sess-1');
-    assert.equal(navigateCalls[0].requestedBy, 'client-1', 'the record carries the asking MCP client');
+    assert.equal(
+      navigateCalls[0].requestedBy,
+      'client-1',
+      'an OAuth client with no display-name row is named by its id, never left null',
+    );
   });
 });
 

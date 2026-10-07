@@ -42,6 +42,8 @@ const REQUIRED_ACCESS_TOKEN_KEYS = [
   'form.expiryOption',
   'form.createButton',
   'form.cancelButton',
+  // AccessTokensSection — the create form's dated default name.
+  'form.defaultName',
   // AccessTokensSection — token list, plus CredentialsSettingsTab's revoke confirmation.
   'list.empty',
   'list.unnamed',
@@ -52,6 +54,18 @@ const REQUIRED_ACCESS_TOKEN_KEYS = [
   'list.revoked',
   'list.revokeButton',
   'list.revokeConfirm',
+  // AccessTokensSection — the advanced read-only OAuth-token list.
+  'list.created',
+  'list.expired',
+  'oauthTokens.title',
+  'oauthTokens.description',
+  'oauthTokens.empty',
+  'oauthTokens.showInactive',
+  'oauthTokens.unknownClient',
+  'oauthTokens.kind',
+  'oauthTokens.kindAccess',
+  'oauthTokens.kindRefresh',
+  'oauthTokens.scopes',
   // NewAccessTokenAlert — the one-time plaintext card.
   'newToken.alertTitle',
   'newToken.alertMessage',

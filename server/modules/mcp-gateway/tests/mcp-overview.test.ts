@@ -33,6 +33,10 @@
  *       matches is an error `PROJECT_NOT_FOUND` (AC-287; see the leg's note on
  *       why not the prose `TARGET_NOT_FOUND`) — the two no longer collapse;
  *   (e) twenty projects still cost zero runner calls.
+ *   (f) `quay_snapshot` carries the in-flight reading (taskId/phase/startedAt/
+ *       lastHeartbeat/workerPid) end to end, while `overview`'s compact quay entry
+ *       deliberately does NOT grow an `inFlight` key (gap-cloudcli-quay-snapshot-
+ *       inflight-tasks: the field is added to `quay_snapshot` only).
  */
 
 import assert from 'node:assert/strict';
@@ -112,6 +116,21 @@ const CACHED_TASKS_TOTAL = 7;
 const CACHED_DRIVER_STATE = 'running';
 const CACHED_SUITE_STATE = 'passed';
 
+/**
+ * The in-flight reading the main project's cached snapshot carries — the same shape and
+ * values AC2 pins for the quay service, so leg (f) can assert the MCP round trip is
+ * verbatim.
+ */
+const IN_FLIGHT_READING = [
+  {
+    taskId: 'gap-example-task',
+    phase: 'implementing' as const,
+    startedAt: '2026-10-06T23:50:00.000Z',
+    lastHeartbeat: '2026-10-07T00:00:00.000Z',
+    workerPid: 4242,
+  },
+];
+
 // --------------------------- the injected quay fake ---------------------------
 
 /** A complete `QuaySnapshot` for the fake cache, overridable per project. */
@@ -149,6 +168,7 @@ function makeSnapshot(projectId: string, overrides: Partial<QuaySnapshot> = {}):
       recentRounds: [],
     },
     fanIn: { recent: [] },
+    inFlight: null,
     dashboardUrl: null,
     warnings: [],
     ...overrides,
@@ -393,7 +413,9 @@ async function withOverviewHarness(run: (harness: Harness, fixture: Fixture) => 
 
   // Only the main project's snapshot is cached; every other project (including
   // the other named one) is a cache MISS, which `overview` must mark `unknown`.
-  const cachedSnapshots = new Map<string, QuaySnapshot>([[mainId, makeSnapshot(mainId)]]);
+  const cachedSnapshots = new Map<string, QuaySnapshot>([
+    [mainId, makeSnapshot(mainId, { inFlight: IN_FLIGHT_READING })],
+  ]);
   // Every extra project is "has quay config" on ODD indices — index 0 (the
   // no-quay fixture) is deliberately config-less — and its snapshot is never
   // cached, so the listing is a mix of unknown and no_quay_config entries.
@@ -679,5 +701,114 @@ test('(e) twenty projects cost zero runner calls', { concurrency: false }, async
     console.log(`[e] projects=${projectCount} entries=${quay.length} refreshCount=${refreshCount}`);
     assert.equal(quay.length, projectCount, 'every project must be represented');
     assert.equal(refreshCount, 0, 'no project count may cause a runner call');
+  });
+});
+
+// --------------------------- (f) quay_snapshot carries in-flight; overview does not ---------------------------
+
+test('(f) quay_snapshot carries the in-flight reading and overview deliberately omits it', { concurrency: false }, async () => {
+  await withOverviewHarness(async (harness, fixture) => {
+    const refreshed = await harness.call('quay_snapshot', { project: fixture.mainId, refresh: true });
+    assert.equal(refreshed.isError, false, 'the refreshing read must not error');
+    const snapshot = (refreshed.payload as AnyRecord).snapshot as AnyRecord;
+    console.log(`[f] quay_snapshot.inFlight = ${JSON.stringify(snapshot.inFlight)}`);
+    // The in-flight task reaches the CloudCLI client verbatim, through the real mount.
+    assert.deepEqual(snapshot.inFlight, IN_FLIGHT_READING, 'the in-flight reading must round-trip verbatim');
+
+    // Scope guard: `overview`'s per-project summary is AC-247's and this task must not
+    // widen it — the cached snapshot HAS an in-flight reading, yet the overview entry
+    // carries no `inFlight` key at all.
+    const overview = await harness.call('overview');
+    assert.equal(overview.isError, false, 'overview must not error');
+    const entry = ((overview.payload as AnyRecord).quay as AnyRecord[]).find(
+      (row) => row.projectId === fixture.mainId,
+    );
+    console.log(`[f] overview main entry = ${JSON.stringify(entry)}`);
+    assert.ok(entry, 'the cached project must appear in overview');
+    assert.equal('inFlight' in entry, false, 'overview must not grow an inFlight key (scope stayed on quay_snapshot)');
+  });
+});
+
+// --------------------------- (g) the `project` argument scopes the reading ---------------------------
+
+test('(g) overview reads its `project` argument: it scopes every list to that project and refuses an unknown id', { concurrency: false }, async () => {
+  await withOverviewHarness(async (harness, fixture) => {
+    // The whole-workspace reading (no argument) is the default and must be unchanged.
+    const whole = await harness.call('overview');
+    assert.equal(whole.isError, false, 'the unscoped overview must not error');
+    assert.equal(
+      ((whole.payload as AnyRecord).quay as AnyRecord[]).length,
+      fixture.projectCount,
+      'the unscoped overview still reads every project',
+    );
+
+    // Scoped: `project` names the one project the reading is restricted to. This
+    // is the declared argument that used to be ignored; a caller passing it now
+    // gets that project's overview instead of the whole workspace.
+    const scoped = await harness.call('overview', { project: fixture.mainId });
+    assert.equal(scoped.isError, false, 'a scoped overview of a real project must not error');
+    const scopedPayload = scoped.payload as AnyRecord;
+    console.log(`[g] scoped(main) payload = ${JSON.stringify(scopedPayload)}`);
+
+    const quay = scopedPayload.quay as AnyRecord[];
+    assert.deepEqual(
+      quay.map((entry) => entry.projectId),
+      [fixture.mainId],
+      'the scoped quay list is exactly the named project',
+    );
+
+    // MAIN_DIR holds the busy session; OTHER_DIR holds the aborted run and the
+    // resident host. Scoping to MAIN must keep the first and drop the others —
+    // so this separates "the filter ran" from "the list was empty anyway".
+    const running = scopedPayload.running as AnyRecord[];
+    assert.deepEqual(
+      running.map((entry) => entry.sessionId),
+      [SESSION_BUSY],
+      'the scoped running list is exactly the named project\'s running session',
+    );
+    assert.ok(
+      (scopedPayload.awaitingPermission as AnyRecord[]).every((entry) => entry.projectId === fixture.mainId),
+      'the scoped awaiting list carries only the named project',
+    );
+    const aborted = scopedPayload.aborted as AnyRecord[];
+    console.log(`[g] scoped aborted = ${JSON.stringify(aborted)}`);
+    assert.deepEqual(aborted, [], 'the aborted run belongs to the other project and must be out of scope');
+    assert.equal(
+      (scopedPayload.hosts as AnyRecord[]).some((entry) => entry.sessionId === SESSION_RESIDENT),
+      false,
+      'the resident host belongs to the other project and must be out of scope',
+    );
+
+    // A positive control: scoping to the OTHER project keeps ITS aborted run and
+    // resident host, so the two readings discriminate rather than both being empty.
+    const other = await harness.call('overview', { project: fixture.otherId });
+    assert.equal(other.isError, false, 'a scoped overview of the other real project must not error');
+    const otherPayload = other.payload as AnyRecord;
+    assert.deepEqual(
+      (otherPayload.aborted as AnyRecord[]).map((entry) => entry.runId),
+      [fixture.abortedRunId],
+      'the other project\'s scoped reading carries its aborted run',
+    );
+    assert.ok(
+      (otherPayload.hosts as AnyRecord[]).some((entry) => entry.sessionId === SESSION_RESIDENT),
+      'the other project\'s scoped reading carries its resident host',
+    );
+    assert.deepEqual(
+      (otherPayload.running as AnyRecord[]).map((entry) => entry.sessionId),
+      [],
+      'the busy session belongs to the main project and must be out of the other project\'s scope',
+    );
+
+    // An id nothing matches is a reference to nothing: it is refused, not
+    // answered with an empty-but-successful reading that would read as "quiet".
+    const missing = await harness.call('overview', { project: 'overview-no-such-project' });
+    console.log(`[g] scoped(missing) -> isError=${missing.isError} payload=${JSON.stringify(missing.payload)}`);
+    assert.equal(missing.isError, true, 'an unknown project must be an error, not an empty overview');
+    assert.equal(missing.payload?.code, 'PROJECT_NOT_FOUND', 'the unknown project error carries PROJECT_NOT_FOUND');
+    assert.equal(
+      (missing.payload?.details as AnyRecord | undefined)?.project,
+      'overview-no-such-project',
+      'the error names the project that was asked for',
+    );
   });
 });
