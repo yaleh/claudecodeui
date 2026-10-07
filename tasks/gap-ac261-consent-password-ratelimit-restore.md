@@ -4,7 +4,7 @@ title: AC-261 授权页密码提交限速在 SPA 上重建：每来源每 15 分
   下来源取 CF-Connecting-IP、未配置时伪造头无效；判据
   server/modules/oauth/tests/oauth-consent-ratelimit.test.ts（早先的修复被 SPA
   迁移删除，本任务重建）
-status: ready
+status: done
 labels:
   - gap
 parent: null
