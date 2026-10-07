@@ -85,6 +85,7 @@ depends_on:
 - server/modules/mcp-gateway/tests/mcp-error-envelope.test.ts
 - server/modules/mcp-gateway/tests/mcp-error-vocabulary.test.ts
 - server/modules/mcp-gateway/tests/mcp-insufficient-scope.test.ts
+- server/modules/mcp-gateway/tests/mcp-write-notification.test.ts
 - server/modules/oauth/tests/access-token-scopes.test.ts
 - server/shared/tests/quay-test-script.test.ts
 - tasks/gap-mcp-ui-open-session.md

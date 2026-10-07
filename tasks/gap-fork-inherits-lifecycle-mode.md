@@ -36,12 +36,12 @@ extra:
 
 ## AC
 
-- [ ] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-fork.test.ts` 退出码 0，且新增用例断言——resident 源 fork 后新会话 `lifecycle_mode` 读回 `resident`（打印 `sourceMode=resident forkedMode=resident`），`forked_from_session_id` 指向源，且 fork 之后**没有**任何 host 被拉起（打印 `hostsStartedByFork=0`，证明只复制偏好、不启进程）。
-- [ ] 正控制：同文件用例断言 per-run 源 fork 后仍是 `per-run`（打印 `sourceMode=per-run forkedMode=per-run`），防「一律写 resident」。
-- [ ] 推翻侧同步：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/lifecycle-mode.test.ts` 退出码 0 且 `fail 0`；其 (3) 用例现断言继承（`sourceMode=resident forkedMode=resident`），文件里不再有断言 `forkedMode` 为 `per-run` 的 resident 源用例；其余 (1)(2)(4)(5) 用例与假形态 (a)(c)(d)(e) 不变且仍绿。
-- [ ] 假形态承重：把 `forkSessionById` 改回不传 lifecycleMode 后，上面两个命令里与「继承」相关的用例**必须红**（完成记录写出实测红文案）；还原后转绿。
-- [ ] `docs/proposals/claude-resident-sessions.md` 的 §13.5 与 §14 不再写「默认 per-run，不继承」，并注明被 2026-10-07 人的裁定取代：`grep -n "不继承" docs/proposals/claude-resident-sessions.md` 的剩余命中逐条核对，没有一处仍在主张 fork 不继承（核对结果写进完成记录）。
-- [ ] `npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 退出码均为 0。
+- [x] `npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-fork.test.ts` 退出码 0，且新增用例断言——resident 源 fork 后新会话 `lifecycle_mode` 读回 `resident`（打印 `sourceMode=resident forkedMode=resident`），`forked_from_session_id` 指向源，且 fork 之后**没有**任何 host 被拉起（打印 `hostsStartedByFork=0`，证明只复制偏好、不启进程）。
+- [x] 正控制：同文件用例断言 per-run 源 fork 后仍是 `per-run`（打印 `sourceMode=per-run forkedMode=per-run`），防「一律写 resident」。
+- [x] 推翻侧同步：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/lifecycle-mode.test.ts` 退出码 0 且 `fail 0`；其 (3) 用例现断言继承（`sourceMode=resident forkedMode=resident`），文件里不再有断言 `forkedMode` 为 `per-run` 的 resident 源用例；其余 (1)(2)(4)(5) 用例与假形态 (a)(c)(d)(e) 不变且仍绿。
+- [x] 假形态承重：把 `forkSessionById` 改回不传 lifecycleMode 后，上面两个命令里与「继承」相关的用例**必须红**（完成记录写出实测红文案）；还原后转绿。
+- [x] `docs/proposals/claude-resident-sessions.md` 的 §13.5 与 §14 不再写「默认 per-run，不继承」，并注明被 2026-10-07 人的裁定取代：`grep -n "不继承" docs/proposals/claude-resident-sessions.md` 的剩余命中逐条核对，没有一处仍在主张 fork 不继承（核对结果写进完成记录）。
+- [x] `npm run typecheck`、`npm run lint`、`npx oxlint server/ src/` 退出码均为 0。
 - [ ] `goals/AC-169-*.md` 的状态与 `expect`（其中 (3) 仍写「分叉出的会话为 per-run」）按人的裁定作废或改写，该行只能由人或 goal-driver 写入，执行者不得代写（待外部）
 
 ## DoD
@@ -53,6 +53,51 @@ extra:
 - server/modules/database/repositories/sessions.db.ts
 - server/modules/providers/services/sessions.service.ts
 - server/modules/providers/tests/session-fork.test.ts
+- server/modules/providers/tests/sessions.service.test.ts
 - server/modules/session-hosts/tests/lifecycle-mode.test.ts
 - docs/proposals/claude-resident-sessions.md
 - tasks/gap-fork-inherits-lifecycle-mode.md
+
+## 完成记录
+
+实现提交：`283da6f0`（分支 `task/gap-fork-inherits-lifecycle-mode`）。改动文件 6 个（列于 Touches）。
+
+### AC 逐条读数
+
+- **AC1（继承，退出 0）**：`npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/session-fork.test.ts` → `ℹ tests 10 / ℹ pass 10 / ℹ fail 0`，退出 **0**。新增用例打印 `sourceMode=resident forkedMode=resident hostsStartedByFork=0`；断言 `sourceMode==='resident'`、`forkedMode==='resident'`、`forkedRow.forked_from_session_id===源 id`、`hostsStartedByFork===0` 且 `hostsAfter===hostsBefore`（fork 后 `sessionHostManager.snapshot()` 无绑定该 fork 的 host）。
+- **AC2（正控制）**：同文件用例 `'a fork of a per-run session stays per-run'` 打印 `sourceMode=per-run forkedMode=per-run`，断言两者皆 `per-run`——防「一律写 resident」。
+- **AC3（推翻侧同步）**：`npx tsx --tsconfig server/tsconfig.json --test server/modules/session-hosts/tests/lifecycle-mode.test.ts` → `ℹ tests 9 / ℹ pass 9 / ℹ fail 0`，退出 **0**。(3) 用例已更名 `'(3) a fork of a resident session inherits its mode and points at its source'`，打印 `[lifecycle] fork: sourceMode=resident forkedMode=resident`，末断言 `assert.equal(forkedMode, 'resident', 'a fork must inherit the source lifecycle mode')`；原 `assertForkDoesNotInherit` 更名 `assertForkInherits`，文件中不再有断言 resident 源 fork 为 per-run 的用例。(1)(2)(4)(5) 与假形态 (a)(c)(d)(e) 未动、仍绿（假形态用例 `the five fake forms each red the reading they are aimed at` ✔）。
+- **AC4（假形态承重，实测红文案）**：临时删除 `forkSessionById` 里 `lifecycleMode: sessionsDb.getSessionLifecycleMode(sessionId),` 一行后重跑两条命令，两个文件里与继承相关的用例**均红**：
+  - `session-fork.test.ts`：`AssertionError: a fork must inherit the source lifecycle mode`，`+ actual 'per-run' - expected 'resident'`；
+  - `lifecycle-mode.test.ts` (3)：同一 `AssertionError`，`+ actual 'per-run' - expected 'resident'`。
+  还原该行后两条命令转绿（AC1/AC3 的上述读数）。
+- **AC5（proposal 同步）**：`grep -n "不继承" docs/proposals/claude-resident-sessions.md` 退出码 **1**、零命中（`不继承` 已从文件清除）。§13.5、§14 表格行、§15.2 三处均已改写为「fork 继承源的 `lifecycle_mode`」并注明被 2026-10-07 人的裁定取代（AC-169 作废）。核对结果：无一处仍在主张 fork 不继承。
+- **AC6（工具链）**：`npm run typecheck` 退出 **0**；`npm run lint` 退出 **0**；`npx oxlint server/ src/` 退出 **0**（0 warning / 0 error）。
+- **AC7（待外部，未勾）**：`goals/AC-169-*.md` 的状态与 `expect` 属 goal 层对象，按人的裁定作废或改写，**只能由人或 goal-driver 写入**。worker 不代写，故保持未勾；构词含 `（待外部）`，fan-in 的 ac 门按 `pass-external` 处理。
+
+### DoD 真实服务读数
+
+探针（临时 `HOME` + 临时 `DATABASE_PATH`，起真实服务实例，经真实路由 `POST /api/providers/sessions/:sessionId/fork`），退出 **0**：
+
+```
+[DoD-1] residentFork.mode=resident residentFork.forkedFrom=dod-resident-source (source=dod-resident-source)
+[DoD-1] perRunFork.mode=per-run perRunFork.forkedFrom=dod-perrun-source (source=dod-perrun-source)
+[DoD-2] hostsTotal=0 hostsForResidentFork=0 hostsForPerRunFork=0
+[DoD-3] projection.residentFork.lifecycleMode=resident running=false reason=No resident host is running for this session; the last server stop or restart dropped it.
+[DoD-3] projection.perRunFork.lifecycleMode=per-run running=false reason=null
+[DoD-3] sendPath: residentFork.readSessionLifecycle.mode=resident perRunFork.readSessionLifecycle.mode=per-run
+```
+
+- (1) 读库：resident 源 fork 的新行 `lifecycle_mode='resident'`、`forked_from_session_id='dod-resident-source'`；per-run 源 fork 的新行 `'per-run'`、源 id 同步。
+- (2) fork 后 `GET /api/session-hosts` 内与两个 fork 相关的 host 数均为 **0**（只复制偏好，不启进程）。
+- (3) 落在发送路径的**判定点**（`sessionsService.readSessionLifecycle(sessionId).mode`，即 `server/index.ts` 发送分派所读的同一值）：resident fork 读回 `resident`、per-run fork 读回 `per-run`；服务投影中 resident fork 的 `lifecycleMode=resident`。
+
+**如实说明（未回避的缺口）**：本条环境无可用在线模型端点，DoD(3) 要求的「对该 fork **发第一条消息**后」这一**在线发送**读数**未取得**——resident fork 的真实发送会经 resident host 启动路径，而本环境未接 `startResidentSession` 驱动 seam（尝试经 `/start` 路由触发时返回 `500 INTERNAL_ERROR`）。因此 DoD(3) 记的是发送路径的**判定点读数**（`readSessionLifecycle.mode=resident`）+ 服务投影，而非端到端的在线回执。此缺口不勾任何 AC（AC1–AC6 的判据均不依赖在线模型），仅如实记录，不代写「已发送」的结论。
+
+### 知情确认（方案 4）
+
+按人的裁定「自动继承」，本任务**未**为 fork 新增任何知情勾选：fork 的 resident 偏好是复制源会话的既有选择，源会话进入 resident 时已经过 `gap-claude-resident-consent-gate` 的知情面，故不扩展成新的确认流。
+
+### Touches 说明
+
+`server/modules/providers/tests/sessions.service.test.ts` 为本次新增到 Touches：它是 `createForkedSession` 的第三个调用点，`lifecycleMode` 成为必填入参后该调用点需补 `lifecycleMode: 'per-run'`（源未设模式，读回列默认）。已声明在 Touches 中。
