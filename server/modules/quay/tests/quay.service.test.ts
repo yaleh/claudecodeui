@@ -427,6 +427,60 @@ test('the dashboard link is null — and warns nothing — when no live web serv
   }
 });
 
+/**
+ * The task ledger's counts are an aggregate of the WHOLE `task list --json` array, and the
+ * collector must keep asking for that whole array. This is the guard against "speeding up" the
+ * cold path by adding `--page-size`: the paginated `--json` is a bare array carrying no total, so
+ * paging would silently turn a real ledger ("2583 tasks") into the page size ("10 tasks"). The
+ * reading is load-bearing, so the argv is pinned to prove the collector does not — and must not —
+ * ask for a page.
+ */
+test('the task counts aggregate the whole list, and the collector asks for it unpaged', async () => {
+  // Six tasks over five statuses, with a repeated status so the per-status fold is exercised.
+  const tasks = [
+    { id: 't-ready-1', title: 'R1', status: 'ready', updatedAt: 6 },
+    { id: 't-todo', title: 'T', status: 'todo', updatedAt: 5 },
+    { id: 't-done-1', title: 'D1', status: 'done', updatedAt: 4 },
+    { id: 't-done-2', title: 'D2', status: 'done', updatedAt: 3 },
+    { id: 't-nh', title: 'NH', status: 'needs-human', updatedAt: 2 },
+    { id: 't-sup', title: 'S', status: 'superseded', updatedAt: 1 },
+  ];
+  const taskListArgv: string[][] = [];
+  const service = createQuayService(createDependencies({
+    runCommand: async (_cwd: string, args: readonly string[]): Promise<QuayCommandResult> => {
+      if (args[0] === 'task' && args[1] === 'list') {
+        taskListArgv.push([...args]);
+      }
+      const key = args.join(' ');
+      return { ok: true, code: 0, stdout: key === 'task list --json' ? JSON.stringify(tasks) : '[]', stderr: '' };
+    },
+  }));
+
+  const snapshot = await service.getQuaySnapshot('project-1');
+
+  // The counts are the true aggregate of the whole six-task array, not of any page of it.
+  assert.equal(snapshot?.tasks?.total, 6, 'total counts every task in the array');
+  assert.deepEqual(snapshot?.tasks?.byStatus, {
+    ready: 1,
+    todo: 1,
+    done: 2,
+    'needs-human': 1,
+    superseded: 1,
+  });
+  assert.equal(snapshot?.tasks?.ready, 1);
+  assert.equal(snapshot?.tasks?.needsHuman, 1);
+  assert.equal(snapshot?.tasks?.done, 2);
+
+  // ...and the collector asked for the whole array: no `--page-size`, which would truncate it
+  // (and the paginated `--json` carries no total to count from).
+  assert.deepEqual(taskListArgv, [['task', 'list', '--json']]);
+  assert.equal(
+    taskListArgv.some((argv) => argv.includes('--page-size')),
+    false,
+    'a paged task list would silently shrink the ledger counts',
+  );
+});
+
 test('getQuaySnapshot caps the recent lists and orders them most-recent-first', async () => {
   const makeItems = (prefix: string, count: number) =>
     Array.from({ length: count }, (_item, index) => ({
