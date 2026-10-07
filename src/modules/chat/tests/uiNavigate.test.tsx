@@ -329,6 +329,57 @@ describe('the prompt lapses, yields to newer requests, and can rewrite the polic
   });
 });
 
+/**
+ * The requester the bar names.
+ *
+ * A `ui.navigate` frame carries the resolved name of the client that asked
+ * (`probe-ui-open` for a personal access token, the OAuth client's display name
+ * otherwise), and the bar must show THAT so the user can tell who is asking.
+ * The name is user-settable text, so it is rendered as text and never as markup
+ * — a name that looks like a tag stays a string. Only a frame with no usable
+ * name falls back to the fixed `MCP` label.
+ */
+describe('the bar names the asking client from the frame', () => {
+  it("renders the frame's requester name inside the prompt text", async () => {
+    localStorage.setItem(POLICY_STORAGE_KEY, 'ask');
+    const rig = buildRig();
+    render(<Harness activeSessionId="session-target" {...rig.deps} />);
+
+    await rig.dispatch(navigateFrame({ requester: 'probe-ui-open' }));
+
+    const bar = screen.getByTestId('ui-navigate-prompt');
+    expect(bar.textContent).toContain('probe-ui-open');
+    expect(screen.getByText('From probe-ui-open · Session: Design review · Latest messages')).toBeDefined();
+    // A real name is shown, so the fixed fallback must not also appear.
+    expect(bar.textContent).not.toContain('MCP');
+  });
+
+  it('renders a marker-bearing name as text, never as markup', async () => {
+    localStorage.setItem(POLICY_STORAGE_KEY, 'ask');
+    const rig = buildRig();
+    render(<Harness activeSessionId="session-target" {...rig.deps} />);
+
+    await rig.dispatch(navigateFrame({ requester: '<b>x</b>' }));
+
+    const bar = screen.getByTestId('ui-navigate-prompt');
+    // The marker reaches the user as characters, verbatim …
+    expect(bar.textContent).toContain('<b>x</b>');
+    // … and produced no element of its own.
+    expect(bar.querySelector('b')).toBeNull();
+  });
+
+  it('falls back to the fixed name only when the frame carries no usable requester', async () => {
+    localStorage.setItem(POLICY_STORAGE_KEY, 'ask');
+    const rig = buildRig();
+    render(<Harness activeSessionId="session-target" {...rig.deps} />);
+
+    await rig.dispatch(navigateFrame({ requester: '   ' }));
+
+    const bar = screen.getByTestId('ui-navigate-prompt');
+    expect(bar.textContent).toContain('MCP');
+  });
+});
+
 describe('the two placements a request can name', () => {
   it('locates a named message and acknowledges the navigation as applied', async () => {
     localStorage.setItem(POLICY_STORAGE_KEY, 'accept');

@@ -588,7 +588,10 @@ export type { McpAuditReadDeps, McpAuditRouteEntry } from './mcp-audit-route.js'
 // setting. The transport threads the seam from `McpGatewayDeps.writeNotifications`
 // into the audit wrapper's `ok` branch; `server/index.ts` supplies the
 // production assembly; this module's criterion drives every export directly.
-export { createMcpWriteNotification, createMcpWriteNotifier } from './mcp-write-notification.js';
+// `resolveClientName` is the module's ONE principal-name resolution: the write
+// notification names its caller with it, and `server/index.ts` binds it into the
+// `ui_open_session` deps so the confirmation bar names the SAME client.
+export { createMcpWriteNotification, createMcpWriteNotifier, resolveClientName } from './mcp-write-notification.js';
 export type {
   McpWriteNotification,
   McpWriteNotificationDeps,

@@ -44,6 +44,9 @@ import type {
   McpWriteToolRegistration,
   McpWriteToolSeam,
 } from './mcp-gateway.write-tools.js';
+// The gateway's ONE principal-name resolution, shared with the write
+// notifications so the name on the bar and the name an operator sees cannot drift.
+import { resolveClientName } from './mcp-write-notification.js';
 
 // --------------------------- the rate limit ---------------------------
 
@@ -190,6 +193,14 @@ export type McpUiOpenSessionDeps = {
    * supplies one only where it drives the limit).
    */
   rateLimiter?: UiOpenSessionRateLimiter;
+  /**
+   * Resolves the asking client's human-readable name for the confirmation bar
+   * and the navigation record. Optional: it defaults to the gateway's ONE
+   * principal resolver ({@link resolveClientName}, the same function the write
+   * notifications name their caller with), so a mount that does not care about
+   * the label is still wired to the real resolution rather than to a second copy.
+   */
+  resolveClientName?: (principal: McpPrincipal) => string;
 };
 
 /** Whether the injected deps carry this tool's services, i.e. it is wired. */
@@ -359,13 +370,17 @@ export async function buildUiOpenSession(
     );
   }
 
+  const resolveRequester = deps.resolveClientName ?? resolveClientName;
   const device = resolveUiOpenSessionDevice(deps.listUiClients(), input.client);
   const record = await deps.navigate({
     deviceId: device.deviceId,
     deviceName: device.deviceName,
     sessionId: input.session,
     at: input.at ?? { latest: true },
-    requestedBy: principal.clientId,
+    // The NAME the user reads on the bar, never the raw client id: a personal
+    // access token has no client at all, so `principal.clientId` alone left the
+    // prompt blank and the "ask" policy asked about nobody.
+    requestedBy: resolveRequester(principal),
   });
 
   return {

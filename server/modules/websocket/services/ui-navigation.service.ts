@@ -93,7 +93,13 @@ export type UiNavigationRequest = {
   deviceName: string;
   sessionId: string;
   at: UiNavigationPosition;
-  /** The asking MCP client's id, or null. */
+  /**
+   * The asking MCP client's human-readable name, or null when none could be
+   * resolved. The MCP tool resolves it (a PAT's `name`, an OAuth client's
+   * display name) before calling here; this service carries it onto the record
+   * and onto the `ui.navigate` frame's `requester`, so the browser's confirmation
+   * bar can say WHO is asking rather than a bare fallback.
+   */
   requestedBy: string | null;
 };
 
@@ -259,6 +265,11 @@ export function createUiNavigationService(deps: UiNavigationDeps): UiNavigationS
         navigationId: record.navigationId,
         sessionId: request.sessionId,
         at: record.at,
+        // The bar names the asker; the record's `requestedBy` is the same string,
+        // so what the user read and what `ui_visible_context` reports agree. An
+        // unresolved name is the empty string — the browser's own fallback — never
+        // the literal "null".
+        requester: record.requestedBy ?? '',
       };
 
       await new Promise<void>((resolve) => {

@@ -100,6 +100,7 @@ import {
     mountOAuthMetadata,
     readMcpDcrMode,
     readOAuthMetadataGate,
+    resolveClientName,
     startMcpAuditRetention,
 } from './modules/mcp-gateway/index.js';
 import type { McpOauthSeam } from './modules/mcp-gateway/index.js';
@@ -731,11 +732,15 @@ const mcpGateway = mountMcpGateway(
             // navigation service built above (so its record and the frames routed
             // into it are the same table) and to the process-wide per-token
             // throttle, which must outlive a request because the MCP server is
-            // built per request.
+            // built per request. `resolveClientName` is the gateway's ONE
+            // principal-name resolution (the same one the write notifications
+            // name their caller with), so the confirmation bar tells the user
+            // WHO asked instead of showing a blank for a personal access token.
             uiOpenSession: {
                 listUiClients,
                 navigate: (request) => uiNavigations.navigate(request),
                 rateLimiter: uiOpenSessionRateLimiter,
+                resolveClientName,
             },
         },
         // AC-271's `session_cancel_queued` over the same one control service, plus
